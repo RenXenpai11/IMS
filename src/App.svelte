@@ -7,6 +7,7 @@
   import Settings from './app/pages/Settings.svelte';
   import TimeLog from './app/pages/TimeLog.svelte';
   import { getPageMeta, normalizePath } from './app/routes.js';
+  import { initializeTheme } from './app/context/ThemeContext.js';
 
   const pageComponents = {
     '/': Dashboard,
@@ -30,6 +31,7 @@
   }
 
   onMount(() => {
+    initializeTheme();
     syncRoute();
     window.addEventListener('hashchange', syncRoute);
 

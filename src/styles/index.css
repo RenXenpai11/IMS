@@ -29,14 +29,19 @@ button {
 .layout-main {
   margin-left: 15rem;
   min-height: 100vh;
+  background: var(--color-app-bg);
+  transition: margin-left 180ms ease;
 }
 
 .layout-content {
   padding-top: 4rem;
   min-height: 100vh;
+  background: var(--color-app-bg);
 }
 
 .layout-content > * {
+  box-sizing: border-box;
+  min-height: calc(100vh - 4rem);
   padding: 1.5rem;
 }
 
@@ -48,7 +53,13 @@ button {
   flex-direction: column;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
+  box-sizing: border-box;
   z-index: 30;
+  transition: width 180ms ease;
+}
+
+.layout-shell.sidebar-collapsed .sidebar {
+  width: 5rem;
 }
 
 .sidebar-brand {
@@ -58,6 +69,23 @@ button {
   gap: 0.625rem;
   padding: 0 1.5rem;
   border-bottom: 1px solid var(--color-border);
+}
+
+.sidebar-collapse-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-heading);
 }
 
 .sidebar-brand span {
@@ -225,10 +253,20 @@ button {
   align-items: center;
   gap: 1rem;
   padding: 0 1.5rem;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--color-header-bg);
   border-bottom: 1px solid var(--color-border);
   backdrop-filter: blur(12px);
+  box-sizing: border-box;
   z-index: 20;
+  transition: left 180ms ease;
+}
+
+.layout-shell.sidebar-collapsed .layout-main {
+  margin-left: 5rem;
+}
+
+.layout-shell.sidebar-collapsed .header {
+  left: 5rem;
 }
 
 .header-copy {
@@ -281,6 +319,22 @@ button {
   gap: 0.5rem;
 }
 
+.profile-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 0.875rem;
+  padding: 0.35rem 0.5rem;
+  color: var(--color-heading);
+  cursor: pointer;
+}
+
+.profile-name {
+  color: var(--color-heading);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
 .menu-shell {
   position: relative;
 }
@@ -315,7 +369,7 @@ button {
   right: 0.45rem;
   width: 0.5rem;
   height: 0.5rem;
-  box-shadow: 0 0 0 2px white;
+  box-shadow: 0 0 0 2px var(--color-surface);
 }
 
 .backdrop {
@@ -409,7 +463,7 @@ button {
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
   cursor: pointer;
   transition: background-color 150ms ease;
@@ -421,7 +475,7 @@ button {
 }
 
 .notification-unread {
-  background: rgba(99, 102, 241, 0.05);
+  background: color-mix(in srgb, var(--color-active-text) 10%, transparent);
 }
 
 .notif-badge {
@@ -520,7 +574,7 @@ button {
   min-height: calc(100vh - 4rem);
   border-radius: 1.5rem;
   background: var(--color-surface-muted);
-  border: 1px dashed var(--color-border);
+  border: 1px solid var(--color-border);
   padding: 1.5rem;
 }
 
@@ -537,6 +591,41 @@ button {
 .page-shell p {
   margin-top: 0.5rem;
   color: var(--color-sidebar-text);
+}
+
+.layout-shell.sidebar-collapsed .sidebar-brand {
+  padding-inline: 0.9rem;
+}
+
+.layout-shell.sidebar-collapsed .sidebar .sidebar-text {
+  display: none;
+}
+
+.layout-shell.sidebar-collapsed .sidebar-label {
+  padding-inline: 0;
+}
+
+.layout-shell.sidebar-collapsed .nav-button {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 0;
+}
+
+.layout-shell.sidebar-collapsed .nav-button svg {
+  margin: 0;
+}
+
+.layout-shell.sidebar-collapsed .nav-dot {
+  display: none;
+}
+
+.layout-shell.sidebar-collapsed .sidebar-profile {
+  padding-inline: 0.5rem;
+}
+
+.layout-shell.sidebar-collapsed .sidebar-profile-button {
+  justify-content: center;
+  padding-inline: 0;
 }
 
 @media (max-width: 960px) {

@@ -1,5 +1,7 @@
 <script>
+  import { createEventDispatcher } from 'svelte';
   import {
+    ChevronLeft,
     ChevronDown,
     Clock,
     FileText,
@@ -13,6 +15,7 @@
   } from 'lucide-svelte';
 
   export let currentPath = '/';
+  export let collapsed = false;
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -23,6 +26,7 @@
   ];
 
   let profileOpen = false;
+  const dispatch = createEventDispatcher();
 
   function goTo(path) {
     window.location.hash = path;
@@ -30,18 +34,29 @@
   }
 
   function toggleProfile() {
+    if (collapsed) {
+      return;
+    }
     profileOpen = !profileOpen;
+  }
+
+  function toggleSidebar() {
+    dispatch('toggle');
+    profileOpen = false;
   }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:sidebar-collapsed={collapsed}>
   <div class="sidebar-brand">
+    <button class="sidebar-collapse-btn" type="button" on:click={toggleSidebar} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+      <ChevronLeft size={16} class={collapsed ? 'rotate-180' : ''} />
+    </button>
     <div class="brand-mark">IMS</div>
-    <span>InternTrack</span>
+    <span class="sidebar-text">InternTrack</span>
   </div>
 
   <nav class="sidebar-nav">
-    <p class="sidebar-label">Main Menu</p>
+    <p class="sidebar-label sidebar-text">Main Menu</p>
     <ul>
       {#each navItems as item (item.path)}
         <li>
@@ -50,9 +65,10 @@
             class="nav-button"
             type="button"
             on:click={() => goTo(item.path)}
+            title={collapsed ? item.label : undefined}
           >
             <svelte:component this={item.icon} size={17} />
-            <span>{item.label}</span>
+            <span class="sidebar-text">{item.label}</span>
             {#if currentPath === item.path}
               <span class="nav-dot"></span>
             {/if}
@@ -62,25 +78,25 @@
     </ul>
 
     <div class="sidebar-footer-links">
-      <button class="nav-button nav-button-logout" type="button" on:click={() => goTo('/')}>
+      <button class="nav-button nav-button-logout" type="button" on:click={() => goTo('/')} title={collapsed ? 'Sign Out' : undefined}>
         <LogOut size={17} />
-        <span>Sign Out</span>
+        <span class="sidebar-text">Sign Out</span>
       </button>
     </div>
   </nav>
 
   <div class="sidebar-profile">
     <div class="sidebar-profile-shell">
-      <button class="sidebar-profile-button" type="button" on:click={toggleProfile}>
+      <button class="sidebar-profile-button" type="button" on:click={toggleProfile} title={collapsed ? 'Profile' : undefined}>
         <div class="avatar">AJ</div>
-        <div class="sidebar-profile-copy">
+        <div class="sidebar-profile-copy sidebar-text">
           <p>Alex Johnson</p>
           <span>Intern</span>
         </div>
-        <ChevronDown size={14} class={profileOpen ? 'rotate-180' : ''} />
+        <ChevronDown size={14} class={`sidebar-text ${profileOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {#if profileOpen}
+      {#if profileOpen && !collapsed}
         <div class="sidebar-profile-menu">
           <button class="menu-item" type="button" on:click={() => goTo('/settings')}>
             <User size={14} />
