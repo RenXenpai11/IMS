@@ -1,5 +1,6 @@
 <script>
-	import { Eye, EyeOff } from 'lucide-svelte';
+	import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-svelte';
+	import heroImage from '../../assets/hero.png';
 	import { loginWithCredentials } from '../lib/auth.js';
 
 	let email = '';
@@ -8,40 +9,31 @@
 	let message = '';
 	let error = '';
 
-	function isValidEmail(value) {
-		return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-	}
-
 	async function handleLogin() {
 		error = '';
 		message = '';
 
 		if (!email || !password) {
-			error = 'Please enter your email and password.';
-			return;
-		}
-
-		if (!isValidEmail(email)) {
-			error = 'Please enter a valid email address.';
+			error = 'Please enter your email/username and password.';
 			return;
 		}
 
 		try {
 			await loginWithCredentials(email, password);
-			message = 'Logged in successfully. Redirecting...';
+			message = 'Authenticated successfully. Redirecting...';
 			setTimeout(() => {
 				window.location.hash = '/';
-			}, 450);
+			}, 420);
 		} catch (err) {
-			error = err?.message || 'Invalid email or password. Please try again.';
+			error = err?.message || 'Invalid credentials. Please try again.';
 		}
 	}
 
 	function handleForgotPassword() {
 		error = '';
 		message = email
-			? `Password recovery link sent to ${email}.`
-			: 'Enter your email first so we can send a recovery link.';
+			? `If an account exists for ${email}, recovery instructions have been sent.`
+			: 'Enter your email or username first so we can process account recovery.';
 	}
 
 	function goToSignup() {
@@ -49,34 +41,40 @@
 	}
 </script>
 
-<section class="auth-shell">
-	<div class="auth-card">
-		<aside class="auth-visual">
-			<p class="eyebrow">Internship Management System</p>
-			<h1>Manage internship progress with confidence.</h1>
-			<p class="subcopy">Track hours, review milestones, and keep your OJT workflow organized in one place.</p>
-			<div class="dots">
-				<span></span>
-				<span></span>
-				<span></span>
-			</div>
-		</aside>
+<section class="login-shell" style={`--bg-image: url(${heroImage});`}>
+	<div class="page-content">
+		<section class="brand-panel">
+			<h1>Internship Management System</h1>
+			<p>
+				Securely manage internship progress, approvals, and hour tracking with a platform built for telecom-level
+				operations.
+			</p>
+		</section>
 
-		<form class="auth-form" on:submit|preventDefault={handleLogin}>
-			<div class="form-head">
+		<form class="login-card" on:submit|preventDefault={handleLogin}>
+			<header class="card-head">
 				<h2>Log In</h2>
-				<p>Welcome back. Please sign in to continue.</p>
-			</div>
+				<p>Use your company or school account to continue.</p>
+			</header>
 
-			<label>
-				<span>Email</span>
-				<input bind:value={email} type="email" autocomplete="email" />
+			<label class="field">
+				<span>Email or Username</span>
+				<div class="input-wrap">
+					<span class="input-icon"><Mail size={16} strokeWidth={2.2} /></span>
+					<input bind:value={email} type="text" autocomplete="username" />
+				</div>
 			</label>
 
-			<label>
+			<label class="field">
 				<span>Password</span>
-				<div class="password-wrap">
-					<input bind:value={password} type={showPassword ? 'text' : 'password'} autocomplete="current-password" />
+				<div class="input-wrap password-wrap">
+					<span class="input-icon"><LockKeyhole size={16} strokeWidth={2.2} /></span>
+					<input
+						bind:value={password}
+						type={showPassword ? 'text' : 'password'}
+						autocomplete="current-password"
+						placeholder="Enter your password"
+					/>
 					<button
 						type="button"
 						class="toggle-password"
@@ -92,6 +90,10 @@
 				</div>
 			</label>
 
+			<div class="link-row">
+				<button type="button" class="text-link" on:click={handleForgotPassword}>Forgot Password?</button>
+			</div>
+
 			{#if error}
 				<p class="feedback error">{error}</p>
 			{/if}
@@ -100,266 +102,316 @@
 				<p class="feedback success">{message}</p>
 			{/if}
 
-			<button class="primary" type="submit">Log In</button>
+			<button class="login-btn" type="submit">Log In</button>
 
-			<div class="links">
-				<button type="button" class="text-link" on:click={handleForgotPassword}>Forgot Password?</button>
+			<p class="signup-row">
+				Need access?
 				<button type="button" class="text-link strong" on:click={goToSignup}>Create Account</button>
-			</div>
+			</p>
 		</form>
 	</div>
 </section>
 
 <style>
-	.auth-shell {
+	.login-shell {
+		position: relative;
 		min-height: 100vh;
-		padding: clamp(1rem, 3vw, 2.5rem);
-		background: radial-gradient(circle at top right, #dbeafe 0%, #eff6ff 28%, #f8fafc 55%, #ffffff 100%);
-		display: grid;
-		place-items: center;
-	}
-
-	.auth-card {
-		width: min(980px, 100%);
-		background: #ffffff;
-		border: 1px solid #dbe4ff;
-		border-radius: 1.25rem;
-		box-shadow: 0 28px 54px -38px rgba(15, 23, 42, 0.34);
-		display: grid;
-		grid-template-columns: 1.1fr 1fr;
+		isolation: isolate;
 		overflow: hidden;
 	}
 
-	.auth-visual {
-		padding: clamp(1.5rem, 4vw, 3rem);
-		background: linear-gradient(145deg, #1e3a8a 0%, #312e81 46%, #4f46e5 100%);
-		color: #e0e7ff;
+	.login-shell::before {
+		content: '';
+		position: absolute;
+		inset: -1.2rem;
+		background-image: var(--bg-image);
+		background-size: cover;
+		background-position: center;
+		filter: blur(9px) saturate(1.1);
+		transform: scale(1.06);
+		z-index: -3;
 	}
 
-	.eyebrow {
+	.login-shell::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background:
+			radial-gradient(circle at 78% 45%, rgba(76, 124, 255, 0.26) 0%, rgba(76, 124, 255, 0) 52%),
+			linear-gradient(105deg, rgba(5, 11, 30, 0.82) 18%, rgba(5, 17, 42, 0.66) 58%, rgba(9, 13, 36, 0.87) 100%);
+		z-index: -2;
+	}
+
+	.page-content {
+		width: min(1240px, 100%);
+		min-height: 100vh;
+		margin: 0 auto;
+		padding: clamp(1rem, 3.8vw, 3.5rem);
+		display: grid;
+		grid-template-columns: minmax(250px, 1fr) minmax(320px, 460px);
+		align-items: center;
+		gap: clamp(1.4rem, 4vw, 3.4rem);
+	}
+
+	.brand-panel {
+		max-width: 540px;
+		color: #e2e8f0;
+		padding-inline: clamp(0rem, 2vw, 1.6rem);
+	}
+
+	.brand-kicker {
 		margin: 0;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		font-size: 0.72rem;
+		font-size: 0.76rem;
 		font-weight: 700;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
 		color: #c7d2fe;
 	}
 
-	.auth-visual h1 {
+	.brand-panel h1 {
 		margin: 0.8rem 0 0;
-		font-size: clamp(1.45rem, 2.2vw, 2rem);
-		line-height: 1.22;
-		color: #ffffff;
+		font-size: clamp(2rem, 5vw, 3.4rem);
+		line-height: 1.06;
+		letter-spacing: -0.02em;
+		color: #f8fafc;
 	}
 
-	.subcopy {
-		margin-top: 0.9rem;
-		color: #cbd5ff;
-		line-height: 1.55;
-		max-width: 34ch;
+	.brand-panel p {
+		margin: 1rem 0 0;
+		line-height: 1.68;
+		color: rgba(226, 232, 240, 0.9);
+		max-width: 44ch;
 	}
 
-	.dots {
-		margin-top: 1.4rem;
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	.dots span {
-		width: 0.58rem;
-		height: 0.58rem;
-		border-radius: 999px;
-		background: rgba(224, 231, 255, 0.74);
-	}
-
-	.auth-form {
-		padding: clamp(1.3rem, 4vw, 2.5rem);
+	.login-card {
+		position: relative;
+		padding: clamp(1.15rem, 2.5vw, 1.9rem);
+		border-radius: 1.35rem;
+		background: linear-gradient(150deg, rgba(255, 255, 255, 0.19) 0%, rgba(233, 239, 255, 0.08) 100%);
+		border: 1px solid rgba(226, 232, 240, 0.42);
+		backdrop-filter: blur(16px);
+		box-shadow:
+			0 22px 50px -28px rgba(11, 22, 66, 0.9),
+			0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.88rem;
 	}
 
-	.form-head h2 {
+	.card-head h2 {
+		margin: 0.22rem 0 0;
+		font-size: 1.65rem;
+		line-height: 1.2;
+		letter-spacing: -0.01em;
+		color: #f8fafc;
+	}
+
+	.card-head p {
+		margin: 0.38rem 0 0;
+		color: #cbd5e1;
+		font-size: 0.94rem;
+	}
+
+	.product-tag {
 		margin: 0;
-		color: #0f172a;
-		font-size: 1.5rem;
+		font-size: 0.72rem;
 		font-weight: 700;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: #bfdbfe;
 	}
 
-	.form-head p {
-		margin: 0.35rem 0 0;
-		color: #475569;
-		font-size: 0.93rem;
-	}
-
-	label {
+	.field {
 		display: flex;
 		flex-direction: column;
-		gap: 0.45rem;
+		gap: 0.4rem;
 	}
 
-	label span {
-		color: #334155;
-		font-size: 0.85rem;
+	.field span {
+		color: #e2e8f0;
 		font-weight: 600;
+		font-size: 0.83rem;
+	}
+
+	.input-wrap {
+		position: relative;
+	}
+
+	.input-icon {
+		position: absolute;
+		left: 0.76rem;
+		top: 50%;
+		transform: translateY(-50%);
+		color: #cbd5e1;
+		pointer-events: none;
 	}
 
 	input {
 		width: 100%;
-		border-radius: 0.8rem;
-		border: 1px solid #c7d2fe;
-		background: #f8faff;
-		padding: 0.8rem 0.95rem;
-		color: #0f172a;
+		height: 2.82rem;
+		border-radius: 0.84rem;
+		border: 1px solid rgba(203, 213, 225, 0.36);
+		background: rgba(15, 23, 42, 0.5);
+		padding: 0.66rem 0.9rem 0.66rem 2.45rem;
+		color: #f8fafc;
+		font-size: 0.95rem;
 		outline: none;
-		transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+		transition: border-color 160ms ease, box-shadow 180ms ease, background-color 160ms ease;
+	}
+
+	input::placeholder {
+		color: #94a3b8;
 	}
 
 	input:focus {
-		border-color: #6366f1;
-		box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
-		background: #ffffff;
-	}
-
-	.password-wrap {
-		position: relative;
+		border-color: rgba(129, 140, 248, 0.85);
+		box-shadow:
+			0 0 0 3px rgba(79, 70, 229, 0.28),
+			0 10px 20px -16px rgba(76, 124, 255, 0.62);
+		background: rgba(15, 23, 42, 0.7);
 	}
 
 	.password-wrap input {
-		padding-right: 2.7rem;
+		padding-right: 2.75rem;
 	}
 
 	.toggle-password {
 		position: absolute;
-		right: 0.55rem;
+		right: 0.52rem;
 		top: 50%;
 		transform: translateY(-50%);
 		width: 2rem;
 		height: 2rem;
-		border: 0;
 		border-radius: 0.6rem;
+		border: 0;
+		background: transparent;
+		color: #cbd5e1;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		background: transparent;
-		color: #64748b;
 		cursor: pointer;
+		transition: background-color 160ms ease, color 160ms ease;
 	}
 
 	.toggle-password:hover {
-		background: #e2e8f0;
-		color: #334155;
+		background: rgba(148, 163, 184, 0.18);
+		color: #f8fafc;
+	}
+
+	.link-row {
+		display: flex;
+		justify-content: flex-end;
+	}
+
+	.text-link {
+		border: 0;
+		background: transparent;
+		padding: 0;
+		cursor: pointer;
+		font-size: 0.9rem;
+		color: #cbd5e1;
+		transition: color 150ms ease, text-shadow 150ms ease;
+	}
+
+	.text-link:hover {
+		color: #e2e8f0;
+		text-shadow: 0 0 12px rgba(99, 102, 241, 0.38);
+	}
+
+	.text-link.strong {
+		font-weight: 700;
+		color: #93c5fd;
+		margin-left: 0.3rem;
+	}
+
+	.text-link.strong:hover {
+		color: #c4b5fd;
+	}
+
+	.login-btn {
+		position: relative;
+		height: 2.95rem;
+		border-radius: 0.9rem;
+		border: 0;
+		font-size: 0.98rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		color: #ffffff;
+		background: linear-gradient(100deg, #0057ff 0%, #4f46e5 52%, #7c3aed 100%);
+		cursor: pointer;
+		transition: transform 140ms ease, box-shadow 170ms ease, filter 170ms ease;
+		box-shadow: 0 18px 38px -20px rgba(79, 70, 229, 0.95);
+	}
+
+	.login-btn:hover {
+		transform: translateY(-1px);
+		filter: brightness(1.04);
+		box-shadow: 0 22px 44px -24px rgba(124, 58, 237, 0.9);
+	}
+
+	.login-btn:active {
+		transform: translateY(1px) scale(0.996);
 	}
 
 	.feedback {
 		margin: 0;
-		padding: 0.65rem 0.75rem;
-		border-radius: 0.7rem;
+		border-radius: 0.72rem;
+		padding: 0.62rem 0.76rem;
 		font-size: 0.84rem;
 	}
 
 	.feedback.error {
-		background: #fee2e2;
-		border: 1px solid #fca5a5;
-		color: #b91c1c;
+		border: 1px solid rgba(248, 113, 113, 0.55);
+		background: rgba(127, 29, 29, 0.42);
+		color: #fecaca;
 	}
 
 	.feedback.success {
-		background: #dcfce7;
-		border: 1px solid #86efac;
-		color: #166534;
+		border: 1px solid rgba(74, 222, 128, 0.42);
+		background: rgba(20, 83, 45, 0.4);
+		color: #bbf7d0;
 	}
 
-	.primary {
-		margin-top: 0.15rem;
-		width: 100%;
-		border-radius: 0.85rem;
-		border: 0;
-		padding: 0.82rem 0.95rem;
-		background: linear-gradient(90deg, #4338ca 0%, #4f46e5 100%);
-		color: #ffffff;
-		font-weight: 700;
-		cursor: pointer;
-		transition: transform 140ms ease, box-shadow 140ms ease;
-	}
-
-	.primary:hover {
-		transform: translateY(-1px);
-		box-shadow: 0 16px 28px -20px rgba(67, 56, 202, 0.75);
-	}
-
-	.links {
-		margin-top: 0.1rem;
-		display: flex;
-		justify-content: space-between;
-		gap: 0.8rem;
-		flex-wrap: wrap;
-	}
-
-	.text-link {
-		color: #475569;
-		background: transparent;
-		border: 0;
-		padding: 0;
+	.signup-row {
+		margin: 0.25rem 0 0;
+		text-align: center;
 		font-size: 0.9rem;
-		cursor: pointer;
-	}
-
-	.text-link.strong {
-		color: #4338ca;
-		font-weight: 700;
-	}
-
-	@media (max-width: 880px) {
-		.auth-card {
-			grid-template-columns: 1fr;
-		}
-
-		.auth-visual {
-			min-height: 170px;
-		}
-	}
-
-	:global(.dark) .auth-shell {
-		background: radial-gradient(circle at top right, #111827 0%, #0f172a 42%, #020617 100%);
-	}
-
-	:global(.dark) .auth-card {
-		background: #111827;
-		border-color: #334155;
-	}
-
-	:global(.dark) .form-head h2,
-	:global(.dark) label span {
-		color: #f8fafc;
-	}
-
-	:global(.dark) .form-head p,
-	:global(.dark) .text-link {
 		color: #cbd5e1;
 	}
 
-	:global(.dark) input {
-		background: #1e293b;
-		border-color: #334155;
-		color: #f8fafc;
+	@media (max-width: 980px) {
+		.page-content {
+			grid-template-columns: 1fr;
+			justify-items: center;
+			gap: 1.2rem;
+		}
+
+		.brand-panel {
+			text-align: center;
+			max-width: 680px;
+		}
+
+		.brand-panel p {
+			max-width: 100%;
+		}
+
+		.login-card {
+			width: min(460px, 100%);
+		}
 	}
 
-	:global(.dark) .toggle-password {
-		color: #94a3b8;
-	}
+	@media (max-width: 640px) {
+		.page-content {
+			padding: 0.9rem;
+		}
 
-	:global(.dark) .toggle-password:hover {
-		background: #334155;
-		color: #e2e8f0;
-	}
+		.brand-panel {
+			display: none;
+		}
 
-	:global(.dark) input:focus {
-		border-color: #818cf8;
-		box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.23);
-	}
-
-	:global(.dark) .text-link.strong {
-		color: #a5b4fc;
+		.login-card {
+			padding: 1rem;
+			width: 100%;
+		}
 	}
 </style>

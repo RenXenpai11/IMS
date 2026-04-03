@@ -1,5 +1,18 @@
 <script>
-	import { Eye, EyeOff } from 'lucide-svelte';
+	import {
+		CalendarDays,
+		CheckCircle2,
+		Clock3,
+		Eye,
+		EyeOff,
+		GraduationCap,
+		LockKeyhole,
+		Mail,
+		School,
+		Shield,
+		User
+	} from 'lucide-svelte';
+	import heroImage from '../../assets/hero.png';
 	import { registerAccount, upsertStudentOjtProfile } from '../lib/auth.js';
 
 	let name = '';
@@ -183,129 +196,169 @@
 	$: filteredSchools = filterSuggestions(schoolCatalog, school);
 </script>
 
-<section class="signup-shell">
-	<div class="signup-card">
-		<header class="signup-head">
-			<p class="eyebrow">Internship Management System</p>
-			<h1>Create Account</h1>
-			<p>Set up your account and continue to your internship dashboard.</p>
-		</header>
+<section class="signup-shell" style={`--bg-image: url(${heroImage});`}>
+	<div class="signup-layout">
+		<section class="brand-panel">
+			<h1>Internship Management System</h1>
+			<p>
+				Create trusted access for students and supervisors in a telecom-grade internship environment.
+			</p>
+			<div class="phase-pills" aria-hidden="true">
+				<span class:active={stage === 'account'}>Account</span>
+				<span class:active={stage === 'ojt'}>OJT Setup</span>
+				<span class:active={stage === 'success'}>Ready</span>
+			</div>
+		</section>
 
-		{#if stage === 'account'}
-			<form class="signup-form" on:submit|preventDefault={submitAccount}>
-				<label>
-					<span>Name</span>
-					<input bind:value={name} type="text" placeholder="Enter your full name" autocomplete="name" />
-				</label>
+		<div class="signup-card">
+			<header class="signup-head">
+				<h1>Create Account</h1>
+				<p>
+					{stage === 'ojt'
+						? 'Complete your required OJT profile to finalize registration.'
+						: 'Set up your account and continue to your internship dashboard.'}
+				</p>
+			</header>
 
-				<label>
-					<span>Email</span>
-					<input bind:value={email} type="email" autocomplete="email" />
-				</label>
+			{#if stage === 'account'}
+				<form class="signup-form" on:submit|preventDefault={submitAccount}>
+					<label class="field">
+						<span>Name</span>
+						<div class="input-wrap">
+							<span class="input-icon"><User size={16} strokeWidth={2.2} /></span>
+							<input bind:value={name} type="text" placeholder="Enter your full name" autocomplete="name" />
+						</div>
+					</label>
 
-				<label>
-					<span>Password</span>
-					<div class="password-wrap">
-						<input
-							bind:value={password}
-							type={showPassword ? 'text' : 'password'}
-							autocomplete="new-password"
-							placeholder="Create password"
-						/>
-						<button
-							type="button"
-							class="toggle-password"
-							on:click={() => (showPassword = !showPassword)}
-							aria-label={showPassword ? 'Hide password' : 'Show password'}
-						>
-							{#if showPassword}
-								<EyeOff size={16} />
-							{:else}
-								<Eye size={16} />
-							{/if}
-						</button>
+					<label class="field">
+						<span>Email</span>
+						<div class="input-wrap">
+							<span class="input-icon"><Mail size={16} strokeWidth={2.2} /></span>
+							<input bind:value={email} type="email" autocomplete="email" placeholder="Enter your email address" />
+						</div>
+					</label>
+
+					<label class="field">
+						<span>Password</span>
+						<div class="input-wrap password-wrap">
+							<span class="input-icon"><LockKeyhole size={16} strokeWidth={2.2} /></span>
+							<input
+								bind:value={password}
+								type={showPassword ? 'text' : 'password'}
+								autocomplete="new-password"
+								placeholder="Create password"
+							/>
+							<button
+								type="button"
+								class="toggle-password"
+								on:click={() => (showPassword = !showPassword)}
+								aria-label={showPassword ? 'Hide password' : 'Show password'}
+							>
+								{#if showPassword}
+									<EyeOff size={16} />
+								{:else}
+									<Eye size={16} />
+								{/if}
+							</button>
+						</div>
+					</label>
+
+					<label class="field">
+						<span>Confirm Password</span>
+						<div class="input-wrap password-wrap">
+							<span class="input-icon"><LockKeyhole size={16} strokeWidth={2.2} /></span>
+							<input
+								bind:value={confirmPassword}
+								type={showConfirmPassword ? 'text' : 'password'}
+								autocomplete="new-password"
+								placeholder="Confirm password"
+							/>
+							<button
+								type="button"
+								class="toggle-password"
+								on:click={() => (showConfirmPassword = !showConfirmPassword)}
+								aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+							>
+								{#if showConfirmPassword}
+									<EyeOff size={16} />
+								{:else}
+									<Eye size={16} />
+								{/if}
+							</button>
+						</div>
+					</label>
+
+					<label class="field">
+						<span>Role</span>
+						<div class="input-wrap select-wrap">
+							<span class="input-icon"><Shield size={16} strokeWidth={2.2} /></span>
+							<select bind:value={role}>
+								<option value="Supervisor">Supervisor</option>
+								<option value="Student">Student</option>
+							</select>
+						</div>
+					</label>
+
+					{#if error}
+						<p class="feedback error">{error}</p>
+					{/if}
+
+					{#if info}
+						<p class="feedback success">{info}</p>
+					{/if}
+
+					<div class="actions">
+						<button class="primary" type="submit">Continue</button>
+						<button class="secondary" type="button" on:click={goBackToLogin}>Back to Login</button>
 					</div>
-				</label>
+				</form>
+			{/if}
 
-				<label>
-					<span>Confirm Password</span>
-					<div class="password-wrap">
-						<input
-							bind:value={confirmPassword}
-							type={showConfirmPassword ? 'text' : 'password'}
-							autocomplete="new-password"
-							placeholder="Confirm password"
-						/>
-						<button
-							type="button"
-							class="toggle-password"
-							on:click={() => (showConfirmPassword = !showConfirmPassword)}
-							aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-						>
-							{#if showConfirmPassword}
-								<EyeOff size={16} />
-							{:else}
-								<Eye size={16} />
-							{/if}
-						</button>
-					</div>
-				</label>
-
-				<label>
-					<span>Role</span>
-					<select bind:value={role}>
-						<option value="Supervisor">Supervisor</option>
-						<option value="Student">Student</option>
-					</select>
-				</label>
-
-				{#if error}
-					<p class="feedback error">{error}</p>
-				{/if}
-
-				{#if info}
-					<p class="feedback success">{info}</p>
-				{/if}
-
-				<div class="actions">
-					<button class="primary" type="submit">Sign Up</button>
-					<button class="secondary" type="button" on:click={goBackToLogin}>Back to Login</button>
-				</div>
-			</form>
-		{/if}
-
-		{#if stage === 'ojt'}
-			<section class="ojt-panel">
-				<h2>Student OJT Setup</h2>
-				<p>Complete your OJT details before finishing account creation.</p>
-
+			{#if stage === 'ojt'}
 				<form class="signup-form" on:submit|preventDefault={submitStudentSignup}>
-					<label>
+					{#if info}
+						<p class="feedback success">{info}</p>
+					{/if}
+
+					<label class="field">
 						<span>Total OJT Hours</span>
-						<input bind:value={totalHours} type="number" min="1" placeholder="e.g. 480" />
+						<div class="input-wrap">
+							<span class="input-icon"><Clock3 size={16} strokeWidth={2.2} /></span>
+							<input bind:value={totalHours} type="number" min="1" />
+						</div>
 					</label>
 
 					<div class="date-grid">
-						<label>
+						<label class="field">
 							<span>Start Date</span>
-							<input bind:value={startDate} type="date" />
+							<div class="input-wrap">
+								<span class="input-icon"><CalendarDays size={16} strokeWidth={2.2} /></span>
+								<input bind:value={startDate} type="date" />
+							</div>
 						</label>
 
-						<label>
+						<label class="field">
 							<span>Estimated End Date</span>
-							<input bind:value={estimatedEndDate} type="date" />
+							<div class="input-wrap">
+								<span class="input-icon"><CalendarDays size={16} strokeWidth={2.2} /></span>
+								<input bind:value={estimatedEndDate} type="date" />
+							</div>
 						</label>
 					</div>
 
-					<label>
+					<label class="field">
 						<span>Course</span>
 						<div class="typeahead-wrap">
-							<input
-								bind:value={course}
-								autocomplete="off"
-								on:focus={() => (showCourseSuggestions = true)}
-								on:blur={hideCourseSuggestions}
-							/>
+							<div class="input-wrap">
+								<span class="input-icon"><GraduationCap size={16} strokeWidth={2.2} /></span>
+								<input
+									bind:value={course}
+									autocomplete="off"
+									on:focus={() => (showCourseSuggestions = true)}
+									on:blur={hideCourseSuggestions}
+									placeholder="Search your course"
+								/>
+							</div>
 
 							{#if showCourseSuggestions && course.trim().length > 0 && filteredCourses.length > 0}
 								<ul class="suggestions" role="listbox" aria-label="Course suggestions">
@@ -321,17 +374,20 @@
 						</div>
 					</label>
 
-					<label>
+					<label class="field">
 						<span>School</span>
 						<div class="typeahead-wrap">
-							<input
-								bind:value={school}
-								type="text"
-								placeholder="Enter your school"
-								autocomplete="off"
-								on:focus={() => (showSchoolSuggestions = true)}
-								on:blur={hideSchoolSuggestions}
-							/>
+							<div class="input-wrap">
+								<span class="input-icon"><School size={16} strokeWidth={2.2} /></span>
+								<input
+									bind:value={school}
+									type="text"
+									autocomplete="off"
+									on:focus={() => (showSchoolSuggestions = true)}
+									on:blur={hideSchoolSuggestions}
+									placeholder="Search your school"
+								/>
+							</div>
 
 							{#if showSchoolSuggestions && school.trim().length > 0 && filteredSchools.length > 0}
 								<ul class="suggestions" role="listbox" aria-label="School suggestions">
@@ -352,135 +408,247 @@
 					{/if}
 
 					<div class="actions">
-						<button class="primary" type="submit">Sign Up</button>
+						<button class="primary" type="submit">Complete Signup</button>
 						<button class="secondary" type="button" on:click={goBackToLogin}>Back to Login</button>
 						<button class="text-btn" type="button" on:click={backToAccountStep}>Back to Account Details</button>
 					</div>
 				</form>
-			</section>
-		{/if}
+			{/if}
 
-		{#if stage === 'success'}
-			<section class="success-panel">
-				<h2>Account Ready</h2>
-				<p>{info}</p>
-				<div class="actions">
-					<button class="primary" type="button" on:click={goBackToLogin}>Back to Login</button>
-				</div>
-			</section>
-		{/if}
+			{#if stage === 'success'}
+				<section class="success-panel">
+					<div class="success-icon"><CheckCircle2 size={22} /></div>
+					<h2>Account Ready</h2>
+					<p>{info}</p>
+					<div class="actions">
+						<button class="primary" type="button" on:click={goBackToLogin}>Go to Login</button>
+					</div>
+				</section>
+			{/if}
+		</div>
 	</div>
 </section>
 
 <style>
 	.signup-shell {
+		position: relative;
 		min-height: 100vh;
-		padding: clamp(1rem, 3vw, 2.3rem);
-		background: radial-gradient(circle at top left, #e0e7ff 0%, #eef2ff 25%, #f8fafc 55%, #ffffff 100%);
+		isolation: isolate;
+		overflow: hidden;
+	}
+
+	.signup-shell::before {
+		content: '';
+		position: absolute;
+		inset: -1.2rem;
+		background-image: var(--bg-image);
+		background-size: cover;
+		background-position: center;
+		filter: blur(9px) saturate(1.1);
+		transform: scale(1.06);
+		z-index: -3;
+	}
+
+	.signup-shell::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background:
+			radial-gradient(circle at 70% 44%, rgba(76, 124, 255, 0.25) 0%, rgba(76, 124, 255, 0) 48%),
+			linear-gradient(105deg, rgba(4, 10, 28, 0.84) 18%, rgba(5, 14, 38, 0.7) 56%, rgba(7, 13, 34, 0.87) 100%);
+		z-index: -2;
+	}
+
+	.signup-layout {
+		width: min(1240px, 100%);
+		min-height: 100vh;
+		margin: 0 auto;
+		padding: clamp(1rem, 3.8vw, 3.5rem);
 		display: grid;
-		place-items: center;
+		grid-template-columns: minmax(250px, 1fr) minmax(320px, 560px);
+		align-items: center;
+		gap: clamp(1.4rem, 4vw, 3.4rem);
+	}
+
+	.brand-panel {
+		max-width: 540px;
+		color: #e2e8f0;
+		padding-inline: clamp(0rem, 2vw, 1.4rem);
+	}
+
+	.brand-kicker {
+		margin: 0;
+		font-size: 0.76rem;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: #c7d2fe;
+	}
+
+	.brand-panel h1 {
+		margin: 0.75rem 0 0;
+		font-size: clamp(2rem, 4.7vw, 3.2rem);
+		line-height: 1.08;
+		letter-spacing: -0.02em;
+		color: #f8fafc;
+	}
+
+	.brand-panel p {
+		margin: 1rem 0 0;
+		line-height: 1.65;
+		color: rgba(226, 232, 240, 0.9);
+		max-width: 43ch;
+	}
+
+	.phase-pills {
+		margin-top: 1.2rem;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+	}
+
+	.phase-pills span {
+		padding: 0.36rem 0.62rem;
+		border-radius: 999px;
+		font-size: 0.76rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		background: rgba(15, 23, 42, 0.38);
+		border: 1px solid rgba(203, 213, 225, 0.26);
+		color: #cbd5e1;
+	}
+
+	.phase-pills span.active {
+		background: linear-gradient(95deg, rgba(0, 87, 255, 0.55), rgba(124, 58, 237, 0.48));
+		border-color: rgba(147, 197, 253, 0.7);
+		color: #f8fafc;
 	}
 
 	.signup-card {
-		width: min(760px, 100%);
-		background: #ffffff;
-		border: 1px solid #d6ddff;
-		border-radius: 1.2rem;
-		box-shadow: 0 30px 58px -40px rgba(15, 23, 42, 0.35);
-		padding: clamp(1.2rem, 3vw, 2rem);
+		position: relative;
+		padding: clamp(1.1rem, 2.5vw, 1.8rem);
+		border-radius: 1.35rem;
+		background: linear-gradient(150deg, rgba(255, 255, 255, 0.18) 0%, rgba(233, 239, 255, 0.08) 100%);
+		border: 1px solid rgba(226, 232, 240, 0.4);
+		backdrop-filter: blur(16px);
+		box-shadow:
+			0 22px 50px -28px rgba(11, 22, 66, 0.9),
+			0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 	}
 
 	.signup-head {
-		margin-bottom: 1rem;
+		margin-bottom: 0.85rem;
 	}
 
-	.eyebrow {
+	.product-tag {
 		margin: 0;
 		font-size: 0.72rem;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: #4f46e5;
 		font-weight: 700;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: #bfdbfe;
 	}
 
 	.signup-head h1 {
-		margin: 0.45rem 0 0;
-		color: #0f172a;
-		font-size: clamp(1.45rem, 2vw, 1.8rem);
-		font-weight: 700;
+		margin: 0.22rem 0 0;
+		font-size: 1.58rem;
+		line-height: 1.2;
+		color: #f8fafc;
 	}
 
 	.signup-head p {
-		margin: 0.45rem 0 0;
-		color: #475569;
+		margin: 0.34rem 0 0;
 		font-size: 0.92rem;
+		color: #cbd5e1;
 	}
 
 	.signup-form {
 		display: flex;
 		flex-direction: column;
-		gap: 0.9rem;
+		gap: 0.8rem;
 	}
 
-	label {
+	.field {
 		display: flex;
 		flex-direction: column;
-		gap: 0.45rem;
+		gap: 0.38rem;
 	}
 
-	label span {
-		font-size: 0.84rem;
-		color: #334155;
+	.field span {
+		font-size: 0.83rem;
 		font-weight: 600;
+		color: #e2e8f0;
+	}
+
+	.input-wrap {
+		position: relative;
+	}
+
+	.input-icon {
+		position: absolute;
+		left: 0.76rem;
+		top: 50%;
+		transform: translateY(-50%);
+		color: #cbd5e1;
+		pointer-events: none;
 	}
 
 	input,
 	select {
 		width: 100%;
-		border: 1px solid #c7d2fe;
-		border-radius: 0.78rem;
-		background: #f8faff;
-		color: #0f172a;
-		padding: 0.76rem 0.9rem;
+		height: 2.75rem;
+		border-radius: 0.82rem;
+		border: 1px solid rgba(203, 213, 225, 0.36);
+		background: rgba(15, 23, 42, 0.5);
+		color: #f8fafc;
+		padding: 0.66rem 0.9rem 0.66rem 2.45rem;
+		font-size: 0.94rem;
 		outline: none;
-		transition: border-color 160ms ease, box-shadow 160ms ease;
+		transition: border-color 160ms ease, box-shadow 180ms ease, background-color 160ms ease;
+	}
+
+	input::placeholder {
+		color: #94a3b8;
 	}
 
 	input:focus,
 	select:focus {
-		border-color: #6366f1;
-		box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
-		background: #ffffff;
+		border-color: rgba(129, 140, 248, 0.84);
+		box-shadow:
+			0 0 0 3px rgba(79, 70, 229, 0.28),
+			0 10px 20px -16px rgba(76, 124, 255, 0.62);
+		background: rgba(15, 23, 42, 0.7);
 	}
 
-	.password-wrap {
-		position: relative;
+	.select-wrap select {
+		appearance: none;
 	}
 
 	.password-wrap input {
-		padding-right: 2.7rem;
+		padding-right: 2.72rem;
 	}
 
 	.toggle-password {
 		position: absolute;
-		right: 0.55rem;
+		right: 0.52rem;
 		top: 50%;
 		transform: translateY(-50%);
 		width: 2rem;
 		height: 2rem;
-		border: 0;
 		border-radius: 0.6rem;
+		border: 0;
+		background: transparent;
+		color: #cbd5e1;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		background: transparent;
-		color: #64748b;
 		cursor: pointer;
+		transition: background-color 160ms ease, color 160ms ease;
 	}
 
 	.toggle-password:hover {
-		background: #e2e8f0;
-		color: #334155;
+		background: rgba(148, 163, 184, 0.18);
+		color: #f8fafc;
 	}
 
 	.typeahead-wrap {
@@ -489,17 +657,17 @@
 
 	.suggestions {
 		position: absolute;
-		top: calc(100% + 0.4rem);
+		top: calc(100% + 0.34rem);
 		left: 0;
 		right: 0;
 		margin: 0;
 		padding: 0.35rem;
 		list-style: none;
-		background: #ffffff;
-		border: 1px solid #c7d2fe;
+		background: rgba(15, 23, 42, 0.96);
+		border: 1px solid rgba(148, 163, 184, 0.48);
 		border-radius: 0.8rem;
-		box-shadow: 0 20px 35px -28px rgba(15, 23, 42, 0.35);
-		max-height: 200px;
+		box-shadow: 0 20px 35px -28px rgba(2, 6, 23, 0.82);
+		max-height: 210px;
 		overflow-y: auto;
 		z-index: 20;
 	}
@@ -509,7 +677,7 @@
 		text-align: left;
 		background: transparent;
 		border: 0;
-		color: #1e293b;
+		color: #e2e8f0;
 		padding: 0.55rem 0.65rem;
 		border-radius: 0.58rem;
 		cursor: pointer;
@@ -517,20 +685,20 @@
 	}
 
 	.suggestion-item:hover {
-		background: #e0e7ff;
-		color: #312e81;
+		background: rgba(79, 70, 229, 0.34);
+		color: #f8fafc;
 	}
 
 	.date-grid {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0.85rem;
+		gap: 0.75rem;
 	}
 
 	.actions {
-		margin-top: 0.15rem;
+		margin-top: 0.12rem;
 		display: flex;
-		gap: 0.6rem;
+		gap: 0.56rem;
 		flex-wrap: wrap;
 	}
 
@@ -538,66 +706,124 @@
 	.secondary,
 	.text-btn {
 		border: 0;
-		border-radius: 0.8rem;
-		padding: 0.74rem 1rem;
+		border-radius: 0.82rem;
+		padding: 0.72rem 0.94rem;
+		font-size: 0.9rem;
 		font-weight: 700;
 		cursor: pointer;
+		transition: transform 140ms ease, box-shadow 160ms ease, filter 160ms ease;
 	}
 
 	.primary {
-		background: linear-gradient(90deg, #4338ca 0%, #4f46e5 100%);
 		color: #ffffff;
+		background: linear-gradient(100deg, #0057ff 0%, #4f46e5 52%, #7c3aed 100%);
+		box-shadow: 0 16px 34px -22px rgba(79, 70, 229, 0.96);
+	}
+
+	.primary:hover {
+		transform: translateY(-1px);
+		filter: brightness(1.04);
+		box-shadow: 0 20px 38px -24px rgba(124, 58, 237, 0.9);
+	}
+
+	.primary:active {
+		transform: translateY(1px) scale(0.997);
 	}
 
 	.secondary {
-		background: #e0e7ff;
-		color: #3730a3;
+		background: rgba(148, 163, 184, 0.2);
+		color: #e2e8f0;
+		border: 1px solid rgba(203, 213, 225, 0.34);
+	}
+
+	.secondary:hover {
+		background: rgba(148, 163, 184, 0.32);
 	}
 
 	.text-btn {
 		background: transparent;
-		color: #475569;
-		padding-inline: 0;
+		color: #cbd5e1;
+		padding-inline: 0.15rem;
+	}
+
+	.text-btn:hover {
+		color: #f8fafc;
+		text-shadow: 0 0 12px rgba(99, 102, 241, 0.38);
 	}
 
 	.feedback {
 		margin: 0;
-		padding: 0.64rem 0.74rem;
+		padding: 0.62rem 0.74rem;
 		border-radius: 0.66rem;
 		font-size: 0.84rem;
 	}
 
 	.feedback.error {
-		background: #fee2e2;
-		border: 1px solid #fca5a5;
-		color: #b91c1c;
+		border: 1px solid rgba(248, 113, 113, 0.55);
+		background: rgba(127, 29, 29, 0.42);
+		color: #fecaca;
 	}
 
 	.feedback.success {
-		background: #dcfce7;
-		border: 1px solid #86efac;
-		color: #166534;
+		border: 1px solid rgba(74, 222, 128, 0.42);
+		background: rgba(20, 83, 45, 0.4);
+		color: #bbf7d0;
 	}
 
-	.ojt-panel,
 	.success-panel {
-		padding: 0.4rem 0 0;
+		padding-top: 0.4rem;
+		text-align: center;
+		display: flex;
+		flex-direction: column;
+		gap: 0.72rem;
 	}
 
-	.ojt-panel h2,
+	.success-icon {
+		width: 2.5rem;
+		height: 2.5rem;
+		border-radius: 999px;
+		margin: 0 auto;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		color: #bbf7d0;
+		background: rgba(22, 101, 52, 0.46);
+		border: 1px solid rgba(74, 222, 128, 0.5);
+	}
+
 	.success-panel h2 {
 		margin: 0;
-		color: #0f172a;
-		font-size: 1.22rem;
+		color: #f8fafc;
+		font-size: 1.24rem;
 	}
 
-	.ojt-panel p,
 	.success-panel p {
-		margin: 0.42rem 0 1rem;
-		color: #475569;
+		margin: 0;
+		color: #cbd5e1;
 	}
 
-	@media (max-width: 680px) {
+	@media (max-width: 980px) {
+		.signup-layout {
+			grid-template-columns: 1fr;
+			justify-items: center;
+			gap: 1.2rem;
+		}
+
+		.brand-panel {
+			text-align: center;
+			max-width: 680px;
+		}
+
+		.brand-panel p {
+			max-width: 100%;
+		}
+
+		.signup-card {
+			width: min(560px, 100%);
+		}
+	}
+
+	@media (max-width: 720px) {
 		.date-grid {
 			grid-template-columns: 1fr;
 		}
@@ -612,68 +838,18 @@
 		}
 	}
 
-	:global(.dark) .signup-shell {
-		background: radial-gradient(circle at top left, #111827 0%, #0f172a 48%, #020617 100%);
-	}
+	@media (max-width: 640px) {
+		.signup-layout {
+			padding: 0.9rem;
+		}
 
-	:global(.dark) .signup-card {
-		background: #111827;
-		border-color: #334155;
-	}
+		.brand-panel {
+			display: none;
+		}
 
-	:global(.dark) .signup-head h1,
-	:global(.dark) .ojt-panel h2,
-	:global(.dark) .success-panel h2,
-	:global(.dark) label span {
-		color: #f8fafc;
-	}
-
-	:global(.dark) .signup-head p,
-	:global(.dark) .ojt-panel p,
-	:global(.dark) .success-panel p,
-	:global(.dark) .text-btn {
-		color: #cbd5e1;
-	}
-
-	:global(.dark) input,
-	:global(.dark) select {
-		background: #1e293b;
-		border-color: #334155;
-		color: #f8fafc;
-	}
-
-	:global(.dark) .toggle-password {
-		color: #94a3b8;
-	}
-
-	:global(.dark) .toggle-password:hover {
-		background: #334155;
-		color: #e2e8f0;
-	}
-
-	:global(.dark) .suggestions {
-		background: #111827;
-		border-color: #334155;
-		box-shadow: 0 22px 32px -24px rgba(2, 6, 23, 0.8);
-	}
-
-	:global(.dark) .suggestion-item {
-		color: #e2e8f0;
-	}
-
-	:global(.dark) .suggestion-item:hover {
-		background: #312e81;
-		color: #e0e7ff;
-	}
-
-	:global(.dark) input:focus,
-	:global(.dark) select:focus {
-		border-color: #818cf8;
-		box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.23);
-	}
-
-	:global(.dark) .secondary {
-		background: #312e81;
-		color: #e0e7ff;
+		.signup-card {
+			padding: 1rem;
+			width: 100%;
+		}
 	}
 </style>
