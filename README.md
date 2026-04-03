@@ -47,13 +47,12 @@ That command will:
 - build the Svelte app
 - generate the Apps Script-ready files in `appscript/`
 - `clasp push` the generated code to your linked Google Apps Script project
-- `clasp deploy` a new deployment
 
 Important:
 
-- this deploys the code currently in your local working folder in VS Code
+- this pushes the code currently in your local working folder in VS Code
 - it does not automatically deploy a Git branch unless that branch is the one currently checked out locally
-- if you switch branches locally, then `npm run deploy:gas` will deploy that branch's current files
+- if you switch branches locally, then `npm run deploy:gas` will push that branch's current files
 
 ## Build and push
 
@@ -72,7 +71,7 @@ npm run push:gas
 Create or update a deployment:
 
 ```bash
-npm run deploy:gas
+npm run release:gas
 ```
 
 Open the linked Apps Script project:
@@ -97,4 +96,4 @@ After `npm run gas:push`, deploy from the Apps Script editor:
 3. Select the execution account and access level
 4. Click `Deploy`
 
-You can also create a deployment from the CLI with `npm run gas:deploy`, then manage web app settings in the Apps Script UI if needed.
+You can also create a deployment from the CLI with `npm run release:gas` (or `npm run gas:deploy`), then manage web app settings in the Apps Script UI if needed.

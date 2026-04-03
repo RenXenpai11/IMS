@@ -10,11 +10,12 @@
     "build:gas": "npm run build && node scripts/prepare-gas.mjs",
     "gas:login": "npx clasp -P appscript -I appscript login",
     "gas:status": "npx clasp -P appscript -I appscript status",
-    "gas:push": "npm run build:gas && npx clasp -P appscript -I appscript push",
-    "gas:deploy": "npm run build:gas && npx clasp -P appscript -I appscript push && npx clasp -P appscript -I appscript deploy",
+    "gas:push": "npm run build:gas && npx clasp -P appscript -I appscript push --force",
+    "gas:deploy": "npm run build:gas && npx clasp -P appscript -I appscript push --force && npx clasp -P appscript -I appscript deploy",
     "gas:open": "npx clasp -P appscript -I appscript open",
     "push:gas": "npm run gas:push",
-    "deploy:gas": "npm run gas:deploy"
+    "deploy:gas": "npm run gas:push",
+    "release:gas": "npm run gas:deploy"
   },
   "devDependencies": {
     "@google/clasp": "^3.0.6",
