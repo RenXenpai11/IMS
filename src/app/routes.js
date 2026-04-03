@@ -1,4 +1,12 @@
 export const pageMeta = {
+  '/login': {
+    title: 'Login',
+    description: 'Access your Internship Management System account.',
+  },
+  '/signup': {
+    title: 'Sign Up',
+    description: 'Create a new Internship Management System account.',
+  },
   '/': {
     title: 'Dashboard',
     description: 'Welcome back, Alex. Here is your internship overview.',
@@ -26,5 +34,5 @@ export function normalizePath(path) {
 }
 
 export function getPageMeta(path) {
-  return pageMeta[path] ?? { title: 'InternTrack', description: '' };
+  return pageMeta[path] ?? { title: 'Internship Management System', description: '' };
 }

@@ -1,7 +1,7 @@
 <script>
   import { Bell, Check, ChevronDown, LogOut, Search, Settings, User } from 'lucide-svelte';
 
-  export let pageTitle = 'InternTrack';
+  export let pageTitle = 'Internship Management System';
   export let pageDescription = '';
 
   const initialNotifications = [

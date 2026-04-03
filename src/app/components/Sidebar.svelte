@@ -13,6 +13,7 @@
     Star,
     User,
   } from 'lucide-svelte';
+  import { signOut } from '../lib/auth.js';
 
   export let currentPath = '/';
   export let collapsed = false;
@@ -44,15 +45,22 @@
     dispatch('toggle');
     profileOpen = false;
   }
+
+  function handleSignOut() {
+    signOut();
+    profileOpen = false;
+    window.location.hash = '/login';
+  }
 </script>
 
 <aside class="sidebar" class:sidebar-collapsed={collapsed}>
+  <button class="sidebar-collapse-btn" type="button" on:click={toggleSidebar} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+    <ChevronLeft size={14} class={collapsed ? 'rotate-180' : ''} />
+  </button>
+
   <div class="sidebar-brand">
-    <button class="sidebar-collapse-btn" type="button" on:click={toggleSidebar} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-      <ChevronLeft size={16} class={collapsed ? 'rotate-180' : ''} />
-    </button>
     <div class="brand-mark">IMS</div>
-    <span class="sidebar-text">InternTrack</span>
+    <span class="sidebar-text">Internship Management System</span>
   </div>
 
   <nav class="sidebar-nav">
@@ -78,7 +86,7 @@
     </ul>
 
     <div class="sidebar-footer-links">
-      <button class="nav-button nav-button-logout" type="button" on:click={() => goTo('/')} title={collapsed ? 'Sign Out' : undefined}>
+      <button class="nav-button nav-button-logout" type="button" on:click={handleSignOut} title={collapsed ? 'Sign Out' : undefined}>
         <LogOut size={17} />
         <span class="sidebar-text">Sign Out</span>
       </button>
@@ -111,7 +119,7 @@
             <span>Help & Support</span>
           </button>
           <div class="menu-divider"></div>
-          <button class="menu-item danger" type="button" on:click={toggleProfile}>
+          <button class="menu-item danger" type="button" on:click={handleSignOut}>
             <LogOut size={14} />
             <span>Sign Out</span>
           </button>

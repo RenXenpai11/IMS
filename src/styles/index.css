@@ -51,6 +51,7 @@ button {
   width: 15rem;
   display: flex;
   flex-direction: column;
+  overflow: visible;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   box-sizing: border-box;
@@ -72,25 +73,34 @@ button {
 }
 
 .sidebar-collapse-btn {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 0.55rem;
-  display: inline-flex;
+  position: absolute;
+  top: 4.9rem;
+  right: -0.7rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-muted);
+  color: var(--color-active-text);
+  background: var(--color-active-bg);
+  border: 1px solid color-mix(in srgb, var(--color-active-text) 28%, transparent);
+  box-shadow: 0 6px 14px -10px color-mix(in srgb, var(--color-active-text) 75%, transparent);
   cursor: pointer;
-  flex-shrink: 0;
+  z-index: 35;
+  transition: background-color 150ms ease, transform 150ms ease, color 150ms ease;
 }
 
 .sidebar-collapse-btn:hover {
-  background: var(--color-hover);
-  color: var(--color-heading);
+  background: color-mix(in srgb, var(--color-active-bg) 82%, var(--color-active-text));
+  color: #ffffff;
+  transform: scale(1.04);
 }
 
 .sidebar-brand span {
   color: var(--color-heading);
-  font-size: 0.9375rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
   font-weight: 600;
 }
 
@@ -121,9 +131,10 @@ button {
   padding: 0 0.75rem;
   margin: 0 0 0.5rem;
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -633,6 +644,12 @@ button {
     position: static;
     width: auto;
     height: auto;
+  }
+
+  .sidebar-collapse-btn {
+    position: static;
+    margin: 0.5rem 0.75rem 0 0;
+    align-self: flex-end;
   }
 
   .layout-main {
