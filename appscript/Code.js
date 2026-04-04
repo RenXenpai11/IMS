@@ -3,6 +3,10 @@ function doGet() {
     .setTitle('Internship Management System');
 }
 
+var OTP_EXPIRY_MINUTES_ = 10;
+var OTP_RESEND_COOLDOWN_SECONDS_ = 60;
+var OTP_MAX_ATTEMPTS_ = 5;
+
 function doPost(e) {
   try {
     var payload = parsePayload_(e);
@@ -33,6 +37,14 @@ function dispatchAction_(payload) {
     return handleLoginAccount_(payload);
   }
 
+  if (action === 'verify_email_otp') {
+    return handleVerifyEmailOtp_(payload);
+  }
+
+  if (action === 'resend_email_otp') {
+    return handleResendEmailOtp_(payload);
+  }
+
   if (action === 'upsert_student_ojt_profile') {
     return handleUpsertStudentOjtProfile_(payload);
   }
@@ -54,6 +66,7 @@ function dispatchAction_(payload) {
 
 function handleRegisterAccount_(payload) {
   var fullName = String(payload.full_name || '').trim();
+  var normalizedFullName = normalizeName_(fullName);
   var email = normalizeEmail_(payload.email);
   var password = String(payload.password || '');
   var role = String(payload.role || '').trim();
@@ -61,6 +74,9 @@ function handleRegisterAccount_(payload) {
   var status = String(payload.status || 'active').trim();
   var userId = String(payload.user_id || createId_('USR'));
   var now = isoNow_();
+  var otpCode = generateOtpCode_();
+  var otpHash = sha256Hex_(otpCode);
+  var otpExpiresAt = addMinutesIso_(new Date(), OTP_EXPIRY_MINUTES_);
 
   if (!fullName || !email || !password || !role) {
     return { ok: false, error: 'full_name, email, password, and role are required.' };
@@ -68,13 +84,26 @@ function handleRegisterAccount_(payload) {
 
   var usersSheet = getSheet_('users');
   var users = readSheetObjects_(usersSheet);
-  var existing = users.find(function (row) {
+  var existingByEmail = users.find(function (row) {
     return normalizeEmail_(row.email) === email;
   });
+  var existingByName = users.find(function (row) {
+    return normalizeName_(row.full_name) === normalizedFullName;
+  });
 
-  if (existing) {
+  if (existingByEmail) {
     return { ok: false, error: 'Email already exists.' };
   }
+
+  if (existingByName) {
+    return { ok: false, error: 'An account with this full name already exists.' };
+  }
+
+  MailApp.sendEmail({
+    to: email,
+    subject: 'Verify your Internship Management System account',
+    htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_)
+  });
 
   appendObjectRow_(usersSheet, {
     user_id: userId,
@@ -84,12 +113,19 @@ function handleRegisterAccount_(payload) {
     department: department,
     status: status,
     role: role,
-    created_at: now
+    created_at: now,
+    email_verified: false,
+    otp_hash: otpHash,
+    otp_expires_at: otpExpiresAt,
+    otp_attempts: 0,
+    otp_last_sent_at: now
   });
 
   return {
     ok: true,
-    message: 'Account created successfully.',
+    message: 'Account created successfully. Please verify your email using the OTP sent to your inbox.',
+    requires_verification: true,
+    verification_email: email,
     user: {
       user_id: userId,
       full_name: fullName,
@@ -123,6 +159,15 @@ function handleLoginAccount_(payload) {
     return { ok: false, error: 'Invalid email or password.' };
   }
 
+  if (!isEmailVerifiedValue_(found.email_verified)) {
+    return {
+      ok: false,
+      error: 'Please verify your email with the OTP code before logging in.',
+      requires_verification: true,
+      verification_email: String(found.email || '')
+    };
+  }
+
   var profile = getStudentProfileByUserId_(String(found.user_id || ''));
 
   return {
@@ -138,6 +183,91 @@ function handleLoginAccount_(payload) {
       ojt: profile
     }
   };
+}
+
+function handleVerifyEmailOtp_(payload) {
+  var email = normalizeEmail_(payload.email);
+  var otpCode = String(payload.otp_code || '').trim();
+
+  if (!email || !otpCode) {
+    return { ok: false, error: 'email and otp_code are required.' };
+  }
+
+  var record = findUserRecordByEmail_(email);
+  if (!record) {
+    return { ok: false, error: 'No account found for this email.' };
+  }
+
+  if (isEmailVerifiedValue_(record.user.email_verified)) {
+    return { ok: true, message: 'Email is already verified.' };
+  }
+
+  var expiresAt = parseIsoDate_(record.user.otp_expires_at);
+  if (!record.user.otp_hash || !expiresAt || expiresAt.getTime() < new Date().getTime()) {
+    return { ok: false, error: 'OTP has expired. Please request a new code.' };
+  }
+
+  var attempts = Number(record.user.otp_attempts || 0);
+  if (attempts >= OTP_MAX_ATTEMPTS_) {
+    return { ok: false, error: 'Too many incorrect attempts. Please request a new OTP code.' };
+  }
+
+  if (sha256Hex_(otpCode) !== String(record.user.otp_hash || '')) {
+    record.user.otp_attempts = attempts + 1;
+    updateUserRecord_(record);
+    return { ok: false, error: 'Invalid OTP code.' };
+  }
+
+  record.user.email_verified = true;
+  record.user.otp_hash = '';
+  record.user.otp_expires_at = '';
+  record.user.otp_attempts = 0;
+  record.user.otp_last_sent_at = '';
+  updateUserRecord_(record);
+
+  return { ok: true, message: 'Email verified successfully.' };
+}
+
+function handleResendEmailOtp_(payload) {
+  var email = normalizeEmail_(payload.email);
+  if (!email) {
+    return { ok: false, error: 'email is required.' };
+  }
+
+  var record = findUserRecordByEmail_(email);
+  if (!record) {
+    return { ok: false, error: 'No account found for this email.' };
+  }
+
+  if (isEmailVerifiedValue_(record.user.email_verified)) {
+    return { ok: true, message: 'Email is already verified.' };
+  }
+
+  var lastSentAt = parseIsoDate_(record.user.otp_last_sent_at);
+  if (lastSentAt) {
+    var elapsedSeconds = Math.floor((new Date().getTime() - lastSentAt.getTime()) / 1000);
+    if (elapsedSeconds < OTP_RESEND_COOLDOWN_SECONDS_) {
+      return {
+        ok: false,
+        error: 'Please wait ' + (OTP_RESEND_COOLDOWN_SECONDS_ - elapsedSeconds) + ' seconds before requesting another OTP.'
+      };
+    }
+  }
+
+  var otpCode = generateOtpCode_();
+  record.user.otp_hash = sha256Hex_(otpCode);
+  record.user.otp_expires_at = addMinutesIso_(new Date(), OTP_EXPIRY_MINUTES_);
+  record.user.otp_attempts = 0;
+  record.user.otp_last_sent_at = isoNow_();
+  updateUserRecord_(record);
+
+  MailApp.sendEmail({
+    to: email,
+    subject: 'Your new OTP for Internship Management System',
+    htmlBody: buildOtpEmailHtml_(String(record.user.full_name || 'User'), otpCode, OTP_EXPIRY_MINUTES_)
+  });
+
+  return { ok: true, message: 'A new OTP has been sent to your email.', verification_email: email };
 }
 
 function handleUpsertStudentOjtProfile_(payload) {
@@ -443,8 +573,49 @@ function createId_(prefix) {
   return prefix + '_' + Utilities.getUuid().split('-')[0] + '_' + new Date().getTime();
 }
 
+function findUserRecordByEmail_(email) {
+  var normalizedEmail = normalizeEmail_(email);
+  var sheet = getSheet_('users');
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var emailCol = findColumnIndex_(headers, 'email');
+
+  if (emailCol === 0) {
+    throw new Error('users sheet must include an email column.');
+  }
+
+  for (var i = 1; i < values.length; i++) {
+    var rowEmail = normalizeEmail_(values[i][emailCol - 1]);
+    if (rowEmail === normalizedEmail) {
+      return {
+        sheet: sheet,
+        rowIndex: i + 1,
+        user: mapRowValuesToObject_(headers, values[i])
+      };
+    }
+  }
+
+  return null;
+}
+
+function updateUserRecord_(record) {
+  updateObjectRow_(record.sheet, record.rowIndex, record.user);
+}
+
+function mapRowValuesToObject_(headers, rowValues) {
+  var obj = {};
+  for (var i = 0; i < headers.length; i++) {
+    obj[normalizeHeader_(headers[i])] = rowValues[i];
+  }
+  return obj;
+}
+
 function normalizeEmail_(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function normalizeName_(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function sha256Hex_(plainText) {
@@ -453,6 +624,59 @@ function sha256Hex_(plainText) {
     var value = (byte < 0 ? byte + 256 : byte).toString(16);
     return value.length === 1 ? '0' + value : value;
   }).join('');
+}
+
+function generateOtpCode_() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function addMinutesIso_(date, minutes) {
+  var target = new Date(date.getTime() + minutes * 60000);
+  return Utilities.formatDate(target, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+function parseIsoDate_(value) {
+  var raw = String(value || '').trim();
+  if (!raw) {
+    return null;
+  }
+  return new Date(raw.replace(' ', 'T'));
+}
+
+function isEmailVerifiedValue_(value) {
+  if (value === true) {
+    return true;
+  }
+
+  var normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}
+
+function buildOtpEmailHtml_(fullName, otpCode, expiresInMinutes) {
+  var displayName = String(fullName || '').trim() || 'User';
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 10px;">Hi ' + escapeHtml_(displayName) + ',</p>',
+    '<p style="margin:0 0 10px;">Use this one-time password to verify your account:</p>',
+    '<p style="font-size:28px;font-weight:700;letter-spacing:4px;margin:10px 0 14px;color:#312e81;">' + otpCode + '</p>',
+    '<p style="margin:0 0 10px;">This code will expire in ' + expiresInMinutes + ' minutes.</p>',
+    '<p style="margin:0;color:#475569;font-size:12px;">If you did not request this, you can ignore this email.</p>',
+    '</div>'
+  ].join('');
+}
+
+function escapeHtml_(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function isoNow_() {

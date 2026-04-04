@@ -33,7 +33,7 @@
 		error = '';
 		message = email
 			? `If an account exists for ${email}, recovery instructions have been sent.`
-			: 'Enter your email or username first so we can process account recovery.';
+			: 'Enter your email address first so we can process account recovery.';
 	}
 
 	function goToSignup() {
@@ -54,14 +54,14 @@
 		<form class="login-card" on:submit|preventDefault={handleLogin}>
 			<header class="card-head">
 				<h2>Log In</h2>
-				<p>Use your company or school account to continue.</p>
+				<p>Sign in to manage OJT records, approvals, and progress.</p>
 			</header>
 
 			<label class="field">
-				<span>Email or Username</span>
+				<span>Email</span>
 				<div class="input-wrap">
 					<span class="input-icon"><Mail size={16} strokeWidth={2.2} /></span>
-					<input bind:value={email} type="text" autocomplete="username" />
+					<input bind:value={email} type="text" autocomplete="username" placeholder="Enter your email address" />
 				</div>
 			</label>
 

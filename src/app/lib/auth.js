@@ -139,7 +139,24 @@ export async function registerAccount(accountInput) {
     status: String(accountInput?.status || 'active').trim(),
   });
 
-  return result.user;
+  return result;
+}
+
+export async function verifyEmailOtp(emailInput, otpInput) {
+  const result = await postAction('verify_email_otp', {
+    email: String(emailInput || '').trim().toLowerCase(),
+    otp_code: String(otpInput || '').trim(),
+  });
+
+  return result;
+}
+
+export async function resendEmailOtp(emailInput) {
+  const result = await postAction('resend_email_otp', {
+    email: String(emailInput || '').trim().toLowerCase(),
+  });
+
+  return result;
 }
 
 export async function upsertStudentOjtProfile(profileInput) {

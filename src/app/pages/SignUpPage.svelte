@@ -6,6 +6,7 @@
 		Eye,
 		EyeOff,
 		GraduationCap,
+		KeyRound,
 		LockKeyhole,
 		Mail,
 		School,
@@ -13,7 +14,7 @@
 		User
 	} from 'lucide-svelte';
 	import heroImage from '../../assets/hero.png';
-	import { registerAccount, upsertStudentOjtProfile } from '../lib/auth.js';
+	import { registerAccount, resendEmailOtp, upsertStudentOjtProfile, verifyEmailOtp } from '../lib/auth.js';
 
 	let name = '';
 	let email = '';
@@ -33,6 +34,10 @@
 	let school = '';
 	let showCourseSuggestions = false;
 	let showSchoolSuggestions = false;
+	let otpCode = '';
+	let verificationEmail = '';
+	let isVerifyingOtp = false;
+	let isResendingOtp = false;
 
 	const courseCatalog = [
 		'BS Computer Engineering',
@@ -72,6 +77,14 @@
 		window.location.hash = '/login';
 	}
 
+	function setVerificationStage(emailInput) {
+		verificationEmail = String(emailInput || email || '').trim().toLowerCase();
+		otpCode = '';
+		error = '';
+		info = `A 6-digit OTP has been sent to ${verificationEmail}.`;
+		stage = 'verify';
+	}
+
 	async function submitAccount() {
 		error = '';
 		info = '';
@@ -98,14 +111,13 @@
 
 		if (role === 'Supervisor') {
 			try {
-				await registerAccount({
+				const registration = await registerAccount({
 					name,
 					email,
 					password,
 					role,
 				});
-				stage = 'success';
-				info = 'You have successfully created your account. You can now log in.';
+				setVerificationStage(registration?.verification_email || email);
 			} catch (err) {
 				error = err?.message || 'Unable to create account right now.';
 			}
@@ -131,7 +143,7 @@
 		}
 
 		try {
-			const user = await registerAccount({
+			const registration = await registerAccount({
 				name,
 				email,
 				password,
@@ -139,7 +151,7 @@
 			});
 
 			await upsertStudentOjtProfile({
-				user_id: user?.user_id,
+				user_id: registration?.user?.user_id,
 				total_ojt_hours: Number(totalHours),
 				start_date: startDate,
 				estimated_end_date: estimatedEndDate,
@@ -147,10 +159,53 @@
 				school,
 			});
 
-			stage = 'success';
-			info = 'You have successfully created your account. You can now log in.';
+			setVerificationStage(registration?.verification_email || email);
 		} catch (err) {
 			error = err?.message || 'Unable to create account right now.';
+		}
+	}
+
+	async function submitOtpVerification() {
+		error = '';
+
+		if (!verificationEmail) {
+			error = 'Missing verification email. Please restart account signup.';
+			return;
+		}
+
+		if (!/^\d{6}$/.test(otpCode.trim())) {
+			error = 'Enter a valid 6-digit OTP code.';
+			return;
+		}
+
+		try {
+			isVerifyingOtp = true;
+			await verifyEmailOtp(verificationEmail, otpCode.trim());
+			stage = 'success';
+			info = 'Your email is verified. You can now log in.';
+		} catch (err) {
+			error = err?.message || 'Unable to verify OTP right now.';
+		} finally {
+			isVerifyingOtp = false;
+		}
+	}
+
+	async function resendOtpCode() {
+		error = '';
+
+		if (!verificationEmail) {
+			error = 'Missing verification email. Please restart account signup.';
+			return;
+		}
+
+		try {
+			isResendingOtp = true;
+			const result = await resendEmailOtp(verificationEmail);
+			info = result?.message || `A new OTP has been sent to ${verificationEmail}.`;
+		} catch (err) {
+			error = err?.message || 'Unable to resend OTP right now.';
+		} finally {
+			isResendingOtp = false;
 		}
 	}
 
@@ -206,6 +261,7 @@
 			<div class="phase-pills" aria-hidden="true">
 				<span class:active={stage === 'account'}>Account</span>
 				<span class:active={stage === 'ojt'}>OJT Setup</span>
+				<span class:active={stage === 'verify'}>Verify Email</span>
 				<span class:active={stage === 'success'}>Ready</span>
 			</div>
 		</section>
@@ -216,7 +272,9 @@
 				<p>
 					{stage === 'ojt'
 						? 'Complete your required OJT profile to finalize registration.'
-						: 'Set up your account and continue to your internship dashboard.'}
+						: stage === 'verify'
+							? 'Verify your email with the OTP code before logging in.'
+							: 'Set up your account and continue to your internship dashboard.'}
 				</p>
 			</header>
 
@@ -415,6 +473,40 @@
 				</form>
 			{/if}
 
+			{#if stage === 'verify'}
+				<form class="signup-form" on:submit|preventDefault={submitOtpVerification}>
+					<p class="verify-help">
+						Enter the 6-digit code sent to <strong>{verificationEmail}</strong>.
+					</p>
+
+					<label class="field">
+						<span>OTP Code</span>
+						<div class="input-wrap">
+							<span class="input-icon"><KeyRound size={16} strokeWidth={2.2} /></span>
+							<input bind:value={otpCode} type="text" inputmode="numeric" maxlength="6" placeholder="Enter 6-digit OTP" />
+						</div>
+					</label>
+
+					{#if error}
+						<p class="feedback error">{error}</p>
+					{/if}
+
+					{#if info}
+						<p class="feedback success">{info}</p>
+					{/if}
+
+					<div class="actions">
+						<button class="primary" type="submit" disabled={isVerifyingOtp}>
+							{isVerifyingOtp ? 'Verifying...' : 'Verify OTP'}
+						</button>
+						<button class="secondary" type="button" on:click={resendOtpCode} disabled={isResendingOtp}>
+							{isResendingOtp ? 'Sending...' : 'Resend OTP'}
+						</button>
+						<button class="text-btn" type="button" on:click={goBackToLogin}>Back to Login</button>
+					</div>
+				</form>
+			{/if}
+
 			{#if stage === 'success'}
 				<section class="success-panel">
 					<div class="success-icon"><CheckCircle2 size={22} /></div>
@@ -476,15 +568,6 @@
 		padding-inline: clamp(0rem, 2vw, 1.4rem);
 	}
 
-	.brand-kicker {
-		margin: 0;
-		font-size: 0.76rem;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #c7d2fe;
-	}
-
 	.brand-panel h1 {
 		margin: 0.75rem 0 0;
 		font-size: clamp(2rem, 4.7vw, 3.2rem);
@@ -538,15 +621,6 @@
 
 	.signup-head {
 		margin-bottom: 0.85rem;
-	}
-
-	.product-tag {
-		margin: 0;
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		color: #bfdbfe;
 	}
 
 	.signup-head h1 {
@@ -768,6 +842,16 @@
 		border: 1px solid rgba(74, 222, 128, 0.42);
 		background: rgba(20, 83, 45, 0.4);
 		color: #bbf7d0;
+	}
+
+	.verify-help {
+		margin: 0;
+		font-size: 0.88rem;
+		color: #cbd5e1;
+	}
+
+	.verify-help strong {
+		color: #e2e8f0;
 	}
 
 	.success-panel {
