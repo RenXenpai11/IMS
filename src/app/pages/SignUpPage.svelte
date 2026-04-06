@@ -14,7 +14,7 @@
 		User
 	} from 'lucide-svelte';
 	import heroImage from '../../assets/hero.png';
-	import { registerAccount, resendEmailOtp, upsertStudentOjtProfile, verifyEmailOtp } from '../lib/auth.js';
+	import { registerAccount, resendEmailOtp, verifyEmailOtp } from '../lib/auth.js';
 
 	let name = '';
 	let email = '';
@@ -148,15 +148,13 @@
 				email,
 				password,
 				role,
-			});
-
-			await upsertStudentOjtProfile({
-				user_id: registration?.user?.user_id,
-				total_ojt_hours: Number(totalHours),
-				start_date: startDate,
-				estimated_end_date: estimatedEndDate,
-				course,
-				school,
+				ojtProfile: {
+					total_ojt_hours: Number(totalHours),
+					start_date: startDate,
+					estimated_end_date: estimatedEndDate,
+					course,
+					school,
+				},
 			});
 
 			setVerificationStage(registration?.verification_email || email);

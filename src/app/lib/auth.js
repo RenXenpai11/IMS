@@ -130,6 +130,9 @@ export async function loginWithCredentials(emailInput, passwordInput) {
 }
 
 export async function registerAccount(accountInput) {
+  const rawOjtProfile = accountInput?.ojtProfile;
+  const hasOjtProfile = rawOjtProfile && typeof rawOjtProfile === 'object';
+
   const result = await postAction('register_account', {
     full_name: String(accountInput?.name || '').trim(),
     email: String(accountInput?.email || '').trim().toLowerCase(),
@@ -137,6 +140,15 @@ export async function registerAccount(accountInput) {
     role: accountInput?.role === 'Supervisor' ? 'Supervisor' : 'Student',
     department: String(accountInput?.department || '').trim(),
     status: String(accountInput?.status || 'active').trim(),
+    ojt_profile: hasOjtProfile
+      ? {
+          total_ojt_hours: Number(rawOjtProfile?.total_ojt_hours || 0),
+          start_date: String(rawOjtProfile?.start_date || '').trim(),
+          estimated_end_date: String(rawOjtProfile?.estimated_end_date || '').trim(),
+          course: String(rawOjtProfile?.course || '').trim(),
+          school: String(rawOjtProfile?.school || '').trim(),
+        }
+      : null,
   });
 
   return result;
