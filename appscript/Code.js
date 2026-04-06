@@ -6,6 +6,8 @@ function doGet() {
 var OTP_EXPIRY_MINUTES_ = 10;
 var OTP_RESEND_COOLDOWN_SECONDS_ = 60;
 var OTP_MAX_ATTEMPTS_ = 5;
+var PENDING_REG_PREFIX_ = 'PENDING_REG_';
+var PENDING_REG_TTL_HOURS_ = 24;
 
 function doPost(e) {
   try {
@@ -69,10 +71,14 @@ function handleRegisterAccount_(payload) {
   var normalizedFullName = normalizeName_(fullName);
   var email = normalizeEmail_(payload.email);
   var password = String(payload.password || '');
-  var role = String(payload.role || '').trim();
+  var roleInput = String(payload.role || '').trim();
+  var role = roleInput === 'Supervisor' ? 'Supervisor' : roleInput === 'Student' ? 'Student' : '';
   var department = String(payload.department || '').trim();
   var status = String(payload.status || 'active').trim();
-  var userId = String(payload.user_id || createId_('USR'));
+  var pendingByEmail = getPendingRegistration_(email);
+  var userId = String(payload.user_id || (pendingByEmail && pendingByEmail.user_id) || createId_('USR'));
+  var ojtProfilePayload = payload.ojt_profile || payload.ojtProfile || null;
+  var ojtProfile = normalizeStudentProfilePayload_(ojtProfilePayload);
   var now = isoNow_();
   var otpCode = generateOtpCode_();
   var otpHash = sha256Hex_(otpCode);
@@ -80,6 +86,17 @@ function handleRegisterAccount_(payload) {
 
   if (!fullName || !email || !password || !role) {
     return { ok: false, error: 'full_name, email, password, and role are required.' };
+  }
+
+  if (password.length < 8) {
+    return { ok: false, error: 'Password must be at least 8 characters long.' };
+  }
+
+  if (role === 'Student' && !ojtProfile) {
+    return {
+      ok: false,
+      error: 'Students must provide total_ojt_hours, start_date, estimated_end_date, course, and school.'
+    };
   }
 
   var usersSheet = getSheet_('users');
@@ -99,13 +116,12 @@ function handleRegisterAccount_(payload) {
     return { ok: false, error: 'An account with this full name already exists.' };
   }
 
-  MailApp.sendEmail({
-    to: email,
-    subject: 'Verify your Internship Management System account',
-    htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_)
-  });
+  var existingPendingByName = findPendingRegistrationByName_(normalizedFullName);
+  if (existingPendingByName && normalizeEmail_(existingPendingByName.email) !== email) {
+    return { ok: false, error: 'A pending account with this full name already exists.' };
+  }
 
-  appendObjectRow_(usersSheet, {
+  var pendingRecord = {
     user_id: userId,
     full_name: fullName,
     email: email,
@@ -118,12 +134,21 @@ function handleRegisterAccount_(payload) {
     otp_hash: otpHash,
     otp_expires_at: otpExpiresAt,
     otp_attempts: 0,
-    otp_last_sent_at: now
+    otp_last_sent_at: now,
+    ojt_profile: role === 'Student' ? ojtProfile : null
+  };
+
+  savePendingRegistration_(pendingRecord);
+
+  MailApp.sendEmail({
+    to: email,
+    subject: 'Verify your Internship Management System account',
+    htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_)
   });
 
   return {
     ok: true,
-    message: 'Account created successfully. Please verify your email using the OTP sent to your inbox.',
+    message: 'Email verification started. Your account will be created after OTP verification.',
     requires_verification: true,
     verification_email: email,
     user: {
@@ -140,6 +165,7 @@ function handleRegisterAccount_(payload) {
 function handleLoginAccount_(payload) {
   var email = normalizeEmail_(payload.email);
   var password = String(payload.password || '');
+  var passwordHash = sha256Hex_(password);
 
   if (!email || !password) {
     return { ok: false, error: 'email and password are required.' };
@@ -152,14 +178,24 @@ function handleLoginAccount_(payload) {
   });
 
   if (!found) {
+    var pending = getPendingRegistration_(email);
+    if (pending && String(pending.password_hash || '') === passwordHash) {
+      return {
+        ok: false,
+        error: 'Please verify your email with the OTP code before logging in.',
+        requires_verification: true,
+        verification_email: email
+      };
+    }
+
     return { ok: false, error: 'Invalid email or password.' };
   }
 
-  if (String(found.password_hash || '') !== sha256Hex_(password)) {
+  if (String(found.password_hash || '') !== passwordHash) {
     return { ok: false, error: 'Invalid email or password.' };
   }
 
-  if (!isEmailVerifiedValue_(found.email_verified)) {
+  if (!isEmailVerifiedValue_(found.email_verified, found)) {
     return {
       ok: false,
       error: 'Please verify your email with the OTP code before logging in.',
@@ -193,12 +229,92 @@ function handleVerifyEmailOtp_(payload) {
     return { ok: false, error: 'email and otp_code are required.' };
   }
 
+  var pending = getPendingRegistration_(email);
+  if (pending) {
+    var pendingExpiresAt = parseIsoDate_(pending.otp_expires_at);
+    if (!pending.otp_hash || !pendingExpiresAt || pendingExpiresAt.getTime() < new Date().getTime()) {
+      return { ok: false, error: 'OTP has expired. Please request a new code.' };
+    }
+
+    var pendingAttempts = Number(pending.otp_attempts || 0);
+    if (pendingAttempts >= OTP_MAX_ATTEMPTS_) {
+      return { ok: false, error: 'Too many incorrect attempts. Please request a new OTP code.' };
+    }
+
+    if (sha256Hex_(otpCode) !== String(pending.otp_hash || '')) {
+      pending.otp_attempts = pendingAttempts + 1;
+      savePendingRegistration_(pending);
+      return { ok: false, error: 'Invalid OTP code.' };
+    }
+
+    var usersSheet = getSheet_('users');
+    var users = readSheetObjects_(usersSheet);
+    var existingByEmail = users.find(function (row) {
+      return normalizeEmail_(row.email) === email;
+    });
+    if (existingByEmail) {
+      clearPendingRegistration_(email);
+      return { ok: true, message: 'Email is already verified. You can now log in.' };
+    }
+
+    var existingByName = users.find(function (row) {
+      return normalizeName_(row.full_name) === normalizeName_(pending.full_name);
+    });
+    if (existingByName) {
+      return { ok: false, error: 'An account with this full name already exists.' };
+    }
+
+    var userRow = {
+      user_id: String(pending.user_id || createId_('USR')),
+      full_name: String(pending.full_name || ''),
+      email: email,
+      password_hash: String(pending.password_hash || ''),
+      department: String(pending.department || ''),
+      status: String(pending.status || 'active'),
+      role: String(pending.role || 'Student'),
+      created_at: String(pending.created_at || isoNow_()),
+      email_verified: true,
+      otp_hash: '',
+      otp_expires_at: '',
+      otp_attempts: 0,
+      otp_last_sent_at: ''
+    };
+
+    appendObjectRow_(usersSheet, userRow);
+
+    if (String(userRow.role || '') === 'Student' && pending.ojt_profile) {
+      saveStudentOjtProfile_({
+        user_id: String(userRow.user_id || ''),
+        total_ojt_hours: Number(pending.ojt_profile.total_ojt_hours || 0),
+        start_date: String(pending.ojt_profile.start_date || ''),
+        estimated_end_date: String(pending.ojt_profile.estimated_end_date || ''),
+        course: String(pending.ojt_profile.course || ''),
+        school: String(pending.ojt_profile.school || '')
+      });
+    }
+
+    clearPendingRegistration_(email);
+
+    return {
+      ok: true,
+      message: 'Email verified successfully. Your account is now active.',
+      user: {
+        user_id: String(userRow.user_id || ''),
+        full_name: String(userRow.full_name || ''),
+        email: String(userRow.email || ''),
+        role: String(userRow.role || ''),
+        status: String(userRow.status || ''),
+        created_at: String(userRow.created_at || '')
+      }
+    };
+  }
+
   var record = findUserRecordByEmail_(email);
   if (!record) {
     return { ok: false, error: 'No account found for this email.' };
   }
 
-  if (isEmailVerifiedValue_(record.user.email_verified)) {
+  if (isEmailVerifiedValue_(record.user.email_verified, record.user)) {
     return { ok: true, message: 'Email is already verified.' };
   }
 
@@ -234,12 +350,45 @@ function handleResendEmailOtp_(payload) {
     return { ok: false, error: 'email is required.' };
   }
 
+  var pending = getPendingRegistration_(email);
+  if (pending) {
+    var pendingLastSentAt = parseIsoDate_(pending.otp_last_sent_at);
+    if (pendingLastSentAt) {
+      var pendingElapsedSeconds = Math.floor((new Date().getTime() - pendingLastSentAt.getTime()) / 1000);
+      if (pendingElapsedSeconds < OTP_RESEND_COOLDOWN_SECONDS_) {
+        return {
+          ok: false,
+          error: 'Please wait ' + (OTP_RESEND_COOLDOWN_SECONDS_ - pendingElapsedSeconds) + ' seconds before requesting another OTP.'
+        };
+      }
+    }
+
+    var pendingOtpCode = generateOtpCode_();
+    pending.otp_hash = sha256Hex_(pendingOtpCode);
+    pending.otp_expires_at = addMinutesIso_(new Date(), OTP_EXPIRY_MINUTES_);
+    pending.otp_attempts = 0;
+    pending.otp_last_sent_at = isoNow_();
+    savePendingRegistration_(pending);
+
+    MailApp.sendEmail({
+      to: email,
+      subject: 'Your new OTP for Internship Management System',
+      htmlBody: buildOtpEmailHtml_(String(pending.full_name || 'User'), pendingOtpCode, OTP_EXPIRY_MINUTES_)
+    });
+
+    return {
+      ok: true,
+      message: 'A new OTP has been sent to your email.',
+      verification_email: email
+    };
+  }
+
   var record = findUserRecordByEmail_(email);
   if (!record) {
     return { ok: false, error: 'No account found for this email.' };
   }
 
-  if (isEmailVerifiedValue_(record.user.email_verified)) {
+  if (isEmailVerifiedValue_(record.user.email_verified, record.user)) {
     return { ok: true, message: 'Email is already verified.' };
   }
 
@@ -282,21 +431,13 @@ function handleUpsertStudentOjtProfile_(payload) {
     return { ok: false, error: 'user_id, total_ojt_hours, start_date, estimated_end_date, course, and school are required.' };
   }
 
-  var sheet = getSheet_('student_ojt_profile');
-  var headers = getHeaders_(sheet);
-  var values = getSheetValues_(sheet);
-  var userIdCol = findColumnIndex_(headers, 'user_id');
-
-  if (userIdCol === 0) {
-    throw new Error('student_ojt_profile must include user_id column.');
+  var userRecord = findUserRecordByUserId_(userId);
+  if (!userRecord) {
+    return { ok: false, error: 'User not found.' };
   }
 
-  var rowIndex = -1;
-  for (var i = 1; i < values.length; i++) {
-    if (String(values[i][userIdCol - 1] || '') === userId) {
-      rowIndex = i + 1;
-      break;
-    }
+  if (!isEmailVerifiedValue_(userRecord.user.email_verified, userRecord.user)) {
+    return { ok: false, error: 'Please verify your email before saving your OJT profile.' };
   }
 
   var rowObject = {
@@ -308,11 +449,7 @@ function handleUpsertStudentOjtProfile_(payload) {
     school: school
   };
 
-  if (rowIndex > 0) {
-    updateObjectRow_(sheet, rowIndex, rowObject);
-  } else {
-    appendObjectRow_(sheet, rowObject);
-  }
+  saveStudentOjtProfile_(rowObject);
 
   return { ok: true, message: 'Student OJT profile saved.', profile: rowObject };
 }
@@ -401,6 +538,31 @@ function handleDeleteTimeLog_(payload) {
   return { ok: true, message: 'Time log deleted.' };
 }
 
+function saveStudentOjtProfile_(rowObject) {
+  var sheet = getSheet_('student_ojt_profile');
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+
+  if (userIdCol === 0) {
+    throw new Error('student_ojt_profile must include user_id column.');
+  }
+
+  var rowIndex = -1;
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][userIdCol - 1] || '') === String(rowObject.user_id || '')) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (rowIndex > 0) {
+    updateObjectRow_(sheet, rowIndex, rowObject);
+  } else {
+    appendObjectRow_(sheet, rowObject);
+  }
+}
+
 function getStudentProfileByUserId_(userId) {
   if (!userId) {
     return null;
@@ -462,6 +624,104 @@ function getSpreadsheet_() {
     throw new Error('Missing MAIN_DB in Script Properties.');
   }
   return SpreadsheetApp.openById(spreadsheetId);
+}
+
+function getPendingRegistrationKey_(email) {
+  return PENDING_REG_PREFIX_ + sha256Hex_(normalizeEmail_(email));
+}
+
+function savePendingRegistration_(pendingRecord) {
+  if (!pendingRecord || !pendingRecord.email) {
+    throw new Error('Pending registration record requires an email.');
+  }
+
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(getPendingRegistrationKey_(pendingRecord.email), JSON.stringify(pendingRecord));
+}
+
+function clearPendingRegistration_(email) {
+  PropertiesService.getScriptProperties().deleteProperty(getPendingRegistrationKey_(email));
+}
+
+function getPendingRegistration_(email) {
+  var normalizedEmail = normalizeEmail_(email);
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  var props = PropertiesService.getScriptProperties();
+  var key = getPendingRegistrationKey_(normalizedEmail);
+  var rawValue = props.getProperty(key);
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    var parsed = JSON.parse(rawValue);
+    if (!parsed || normalizeEmail_(parsed.email) !== normalizedEmail) {
+      props.deleteProperty(key);
+      return null;
+    }
+
+    if (isPendingRegistrationExpired_(parsed)) {
+      props.deleteProperty(key);
+      return null;
+    }
+
+    return parsed;
+  } catch (err) {
+    props.deleteProperty(key);
+    return null;
+  }
+}
+
+function listPendingRegistrations_() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var list = [];
+
+  for (var key in props) {
+    if (key.indexOf(PENDING_REG_PREFIX_) !== 0) {
+      continue;
+    }
+
+    try {
+      var parsed = JSON.parse(props[key]);
+      if (!parsed || !parsed.email || isPendingRegistrationExpired_(parsed)) {
+        continue;
+      }
+      list.push(parsed);
+    } catch (err) {
+      // Ignore malformed pending records.
+    }
+  }
+
+  return list;
+}
+
+function findPendingRegistrationByName_(normalizedFullName) {
+  var target = normalizeName_(normalizedFullName);
+  if (!target) {
+    return null;
+  }
+
+  var pending = listPendingRegistrations_();
+  for (var i = 0; i < pending.length; i++) {
+    if (normalizeName_(pending[i].full_name) === target) {
+      return pending[i];
+    }
+  }
+
+  return null;
+}
+
+function isPendingRegistrationExpired_(pendingRecord) {
+  var createdAt = parseIsoDate_(pendingRecord && pendingRecord.created_at);
+  if (!createdAt) {
+    return false;
+  }
+
+  var expiresAt = new Date(createdAt.getTime() + PENDING_REG_TTL_HOURS_ * 3600000);
+  return expiresAt.getTime() < new Date().getTime();
 }
 
 function getSheet_(sheetName) {
@@ -598,6 +858,34 @@ function findUserRecordByEmail_(email) {
   return null;
 }
 
+function findUserRecordByUserId_(userId) {
+  var targetUserId = String(userId || '').trim();
+  if (!targetUserId) {
+    return null;
+  }
+
+  var sheet = getSheet_('users');
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+
+  if (userIdCol === 0) {
+    throw new Error('users sheet must include a user_id column.');
+  }
+
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][userIdCol - 1] || '').trim() === targetUserId) {
+      return {
+        sheet: sheet,
+        rowIndex: i + 1,
+        user: mapRowValuesToObject_(headers, values[i])
+      };
+    }
+  }
+
+  return null;
+}
+
 function updateUserRecord_(record) {
   updateObjectRow_(record.sheet, record.rowIndex, record.user);
 }
@@ -616,6 +904,30 @@ function normalizeEmail_(value) {
 
 function normalizeName_(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeStudentProfilePayload_(profileInput) {
+  if (!profileInput || typeof profileInput !== 'object') {
+    return null;
+  }
+
+  var totalHours = Number(profileInput.total_ojt_hours || 0);
+  var startDate = String(profileInput.start_date || '').trim();
+  var estimatedEndDate = String(profileInput.estimated_end_date || '').trim();
+  var course = String(profileInput.course || '').trim();
+  var school = String(profileInput.school || '').trim();
+
+  if (!totalHours || !startDate || !estimatedEndDate || !course || !school) {
+    return null;
+  }
+
+  return {
+    total_ojt_hours: totalHours,
+    start_date: startDate,
+    estimated_end_date: estimatedEndDate,
+    course: course,
+    school: school
+  };
 }
 
 function sha256Hex_(plainText) {
@@ -643,14 +955,18 @@ function parseIsoDate_(value) {
   return new Date(raw.replace(' ', 'T'));
 }
 
-function isEmailVerifiedValue_(value) {
+function isEmailVerifiedValue_(value, userRecord) {
   if (value === true) {
     return true;
   }
 
   var normalized = String(value || '').trim().toLowerCase();
   if (!normalized) {
-    return true;
+    var hasPendingOtp = false;
+    if (userRecord && typeof userRecord === 'object') {
+      hasPendingOtp = Boolean(String(userRecord.otp_hash || '').trim());
+    }
+    return !hasPendingOtp;
   }
 
   return normalized === 'true' || normalized === '1' || normalized === 'yes';
