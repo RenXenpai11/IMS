@@ -9,7 +9,7 @@ export const pageMeta = {
   },
   '/': {
     title: 'Dashboard',
-    description: 'Welcome back, Alex. Here is your internship overview.',
+    description: 'Welcome back. Here is your internship overview.',
   },
   '/time-log': {
     title: 'Time Log',

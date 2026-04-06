@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy, onMount } from 'svelte';
   import { createEventDispatcher } from 'svelte';
   import {
     ChevronLeft,
@@ -13,7 +14,7 @@
     Star,
     User,
   } from 'lucide-svelte';
-  import { signOut } from '../lib/auth.js';
+  import { signOut, subscribeToCurrentUser } from '../lib/auth.js';
 
   export let currentPath = '/';
   export let collapsed = false;
@@ -27,7 +28,38 @@
   ];
 
   let profileOpen = false;
+  let currentUser = null;
+  let unsubscribeAuth;
   const dispatch = createEventDispatcher();
+
+  function buildInitials(fullName) {
+    const value = String(fullName || '').trim();
+    if (!value) {
+      return 'U';
+    }
+
+    const initials = value
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('');
+
+    return initials || 'U';
+  }
+
+  function formatRole(role) {
+    const value = String(role || '').trim();
+    if (!value) {
+      return 'User';
+    }
+    return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+  }
+
+  $: userName = String(currentUser?.full_name || '').trim() || 'User';
+  $: userRole = formatRole(currentUser?.role);
+  $: userPhotoUrl = String(currentUser?.profile_photo_url || '').trim();
+  $: userInitials = buildInitials(userName);
 
   function goTo(path) {
     window.location.hash = path;
@@ -51,6 +83,18 @@
     profileOpen = false;
     window.location.hash = '/login';
   }
+
+  onMount(() => {
+    unsubscribeAuth = subscribeToCurrentUser((user) => {
+      currentUser = user;
+    });
+  });
+
+  onDestroy(() => {
+    if (typeof unsubscribeAuth === 'function') {
+      unsubscribeAuth();
+    }
+  });
 </script>
 
 <aside class="sidebar" class:sidebar-collapsed={collapsed}>
@@ -96,10 +140,16 @@
   <div class="sidebar-profile">
     <div class="sidebar-profile-shell">
       <button class="sidebar-profile-button" type="button" on:click={toggleProfile} title={collapsed ? 'Profile' : undefined}>
-        <div class="avatar">AJ</div>
+        <div class="avatar">
+          {#if userPhotoUrl}
+            <img src={userPhotoUrl} alt={`${userName} avatar`} class="avatar-image" />
+          {:else}
+            {userInitials}
+          {/if}
+        </div>
         <div class="sidebar-profile-copy sidebar-text">
-          <p>Alex Johnson</p>
-          <span>Intern</span>
+          <p>{userName}</p>
+          <span>{userRole}</span>
         </div>
         <ChevronDown size={14} class={`sidebar-text ${profileOpen ? 'rotate-180' : ''}`} />
       </button>

@@ -1,5 +1,14 @@
 // @ts-nocheck
 let currentUser = null;
+const AUTH_USER_CHANGED_EVENT = 'ims-auth-user-changed';
+
+function notifyCurrentUserChanged() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(AUTH_USER_CHANGED_EVENT, { detail: currentUser }));
+}
 
 function isAppsScriptHost() {
   return typeof window !== 'undefined' && /script\.googleusercontent\.com|script\.google\.com/.test(window.location.host);
@@ -108,12 +117,35 @@ export function getCurrentUser() {
   return currentUser;
 }
 
+export function subscribeToCurrentUser(listener) {
+  if (typeof listener !== 'function') {
+    return () => {};
+  }
+
+  listener(currentUser);
+
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  const handler = (event) => {
+    listener(event?.detail ?? null);
+  };
+
+  window.addEventListener(AUTH_USER_CHANGED_EVENT, handler);
+
+  return () => {
+    window.removeEventListener(AUTH_USER_CHANGED_EVENT, handler);
+  };
+}
+
 export function isAuthenticated() {
   return Boolean(currentUser);
 }
 
 export function signOut() {
   currentUser = null;
+  notifyCurrentUserChanged();
 }
 
 export async function loginWithCredentials(emailInput, passwordInput) {
@@ -126,7 +158,48 @@ export async function loginWithCredentials(emailInput, passwordInput) {
   });
 
   currentUser = result.user || null;
+  notifyCurrentUserChanged();
   return currentUser;
+}
+
+export async function updateProfilePhoto(photoInput) {
+  const result = await postAction('update_profile_photo', {
+    user_id: String(photoInput?.user_id || '').trim(),
+    image_data_url: String(photoInput?.image_data_url || '').trim(),
+    mime_type: String(photoInput?.mime_type || '').trim(),
+    file_name: String(photoInput?.file_name || '').trim(),
+  });
+
+  if (result?.user && currentUser && String(currentUser.user_id || '') === String(result.user.user_id || '')) {
+    currentUser = {
+      ...currentUser,
+      ...result.user,
+    };
+    notifyCurrentUserChanged();
+  }
+
+  return result;
+}
+
+export async function updateUserProfile(profileInput) {
+  const result = await postAction('update_user_profile', {
+    user_id: String(profileInput?.user_id || '').trim(),
+    full_name: String(profileInput?.full_name || '').trim(),
+    phone: String(profileInput?.phone || '').trim(),
+    department: String(profileInput?.department || '').trim(),
+    location: String(profileInput?.location || '').trim(),
+    bio: String(profileInput?.bio || '').trim(),
+  });
+
+  if (result?.user && currentUser && String(currentUser.user_id || '') === String(result.user.user_id || '')) {
+    currentUser = {
+      ...currentUser,
+      ...result.user,
+    };
+    notifyCurrentUserChanged();
+  }
+
+  return result;
 }
 
 export async function registerAccount(accountInput) {

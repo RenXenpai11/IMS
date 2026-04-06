@@ -1,5 +1,7 @@
 <script>
+  import { onDestroy, onMount } from 'svelte';
   import { Bell, Check, ChevronDown, LogOut, Search, Settings, User } from 'lucide-svelte';
+  import { signOut, subscribeToCurrentUser } from '../lib/auth.js';
 
   export let pageTitle = 'Internship Management System';
   export let pageDescription = '';
@@ -58,8 +60,30 @@
   let notifOpen = false;
   let profileOpen = false;
   let notifications = initialNotifications;
+  let currentUser = null;
+  let unsubscribeAuth;
+
+  function buildInitials(fullName) {
+    const value = String(fullName || '').trim();
+    if (!value) {
+      return 'U';
+    }
+
+    const initials = value
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('');
+
+    return initials || 'U';
+  }
 
   $: unreadCount = notifications.filter((item) => item.unread).length;
+  $: userName = String(currentUser?.full_name || '').trim() || 'User';
+  $: userEmail = String(currentUser?.email || '').trim() || 'No email';
+  $: userPhotoUrl = String(currentUser?.profile_photo_url || '').trim();
+  $: userInitials = buildInitials(userName);
 
   function toggleNotifications() {
     notifOpen = !notifOpen;
@@ -90,6 +114,24 @@
     window.location.hash = path;
     closePanels();
   }
+
+  function handleSignOut() {
+    signOut();
+    closePanels();
+    window.location.hash = '/login';
+  }
+
+  onMount(() => {
+    unsubscribeAuth = subscribeToCurrentUser((user) => {
+      currentUser = user;
+    });
+  });
+
+  onDestroy(() => {
+    if (typeof unsubscribeAuth === 'function') {
+      unsubscribeAuth();
+    }
+  });
 </script>
 
 <header class="header">
@@ -166,8 +208,14 @@
 
     <div class="menu-shell">
       <button class="profile-button" type="button" on:click={toggleProfile}>
-        <div class="avatar">AJ</div>
-        <span class="profile-name">Alex Johnson</span>
+        <div class="avatar">
+          {#if userPhotoUrl}
+            <img src={userPhotoUrl} alt={`${userName} avatar`} class="avatar-image" />
+          {:else}
+            {userInitials}
+          {/if}
+        </div>
+        <span class="profile-name">{userName}</span>
         <ChevronDown size={13} class={profileOpen ? 'rotate-180' : ''} />
       </button>
 
@@ -175,8 +223,8 @@
         <button class="backdrop" type="button" aria-label="Close profile menu" on:click={closePanels}></button>
         <div class="menu-card profile-card">
           <div class="profile-summary">
-            <p>Alex Johnson</p>
-            <span>alex.j@company.com</span>
+            <p>{userName}</p>
+            <span>{userEmail}</span>
           </div>
           <button class="menu-item" type="button" on:click={() => goTo('/settings')}>
             <User size={14} />
@@ -187,7 +235,7 @@
             <span>Settings</span>
           </button>
           <div class="menu-divider"></div>
-          <button class="menu-item danger" type="button" on:click={closePanels}>
+          <button class="menu-item danger" type="button" on:click={handleSignOut}>
             <LogOut size={14} />
             <span>Sign Out</span>
           </button>

@@ -8,6 +8,9 @@ var OTP_RESEND_COOLDOWN_SECONDS_ = 60;
 var OTP_MAX_ATTEMPTS_ = 5;
 var PENDING_REG_PREFIX_ = 'PENDING_REG_';
 var PENDING_REG_TTL_HOURS_ = 24;
+var PROFILE_PHOTO_MAX_BYTES_ = 5 * 1024 * 1024;
+var PROFILE_PHOTO_MAX_MB_ = Math.floor(PROFILE_PHOTO_MAX_BYTES_ / (1024 * 1024));
+var PROFILE_PHOTOS_FOLDER_NAME_ = 'IMS Profile Photos';
 
 function doPost(e) {
   try {
@@ -45,6 +48,14 @@ function dispatchAction_(payload) {
 
   if (action === 'resend_email_otp') {
     return handleResendEmailOtp_(payload);
+  }
+
+  if (action === 'update_user_profile') {
+    return handleUpdateUserProfile_(payload);
+  }
+
+  if (action === 'update_profile_photo') {
+    return handleUpdateProfilePhoto_(payload);
   }
 
   if (action === 'upsert_student_ojt_profile') {
@@ -213,9 +224,14 @@ function handleLoginAccount_(payload) {
       user_id: String(found.user_id || ''),
       full_name: String(found.full_name || ''),
       email: String(found.email || ''),
+      phone: String(found.phone || ''),
+      department: String(found.department || ''),
+      location: String(found.location || ''),
+      bio: String(found.bio || ''),
       role: String(found.role || ''),
       status: String(found.status || ''),
       created_at: String(found.created_at || ''),
+      profile_photo_url: String(found.profile_photo_url || ''),
       ojt: profile
     }
   };
@@ -269,10 +285,16 @@ function handleVerifyEmailOtp_(payload) {
       full_name: String(pending.full_name || ''),
       email: email,
       password_hash: String(pending.password_hash || ''),
+      phone: '',
       department: String(pending.department || ''),
+      location: '',
+      bio: '',
       status: String(pending.status || 'active'),
       role: String(pending.role || 'Student'),
       created_at: String(pending.created_at || isoNow_()),
+      profile_photo_url: '',
+      profile_photo_file_id: '',
+      profile_photo_updated_at: '',
       email_verified: true,
       otp_hash: '',
       otp_expires_at: '',
@@ -302,9 +324,14 @@ function handleVerifyEmailOtp_(payload) {
         user_id: String(userRow.user_id || ''),
         full_name: String(userRow.full_name || ''),
         email: String(userRow.email || ''),
+        phone: String(userRow.phone || ''),
+        department: String(userRow.department || ''),
+        location: String(userRow.location || ''),
+        bio: String(userRow.bio || ''),
         role: String(userRow.role || ''),
         status: String(userRow.status || ''),
-        created_at: String(userRow.created_at || '')
+        created_at: String(userRow.created_at || ''),
+        profile_photo_url: String(userRow.profile_photo_url || '')
       }
     };
   }
@@ -417,6 +444,143 @@ function handleResendEmailOtp_(payload) {
   });
 
   return { ok: true, message: 'A new OTP has been sent to your email.', verification_email: email };
+}
+
+function handleUpdateUserProfile_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var fullName = String(payload.full_name || '').trim().replace(/\s+/g, ' ');
+  var phone = String(payload.phone || '').trim();
+  var department = String(payload.department || '').trim();
+  var location = String(payload.location || '').trim();
+  var bio = String(payload.bio || '').trim();
+
+  if (!userId || !fullName) {
+    return { ok: false, error: 'user_id and full_name are required.' };
+  }
+
+  var record = findUserRecordByUserId_(userId);
+  if (!record) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  if (!isEmailVerifiedValue_(record.user.email_verified, record.user)) {
+    return { ok: false, error: 'Please verify your email before updating your profile.' };
+  }
+
+  var usersSheet = record.sheet;
+  ensureSheetColumns_(usersSheet, ['phone', 'location', 'bio', 'updated_at']);
+
+  record.user.full_name = fullName;
+  record.user.phone = phone;
+  record.user.department = department;
+  record.user.location = location;
+  record.user.bio = bio;
+  record.user.updated_at = isoNow_();
+  updateUserRecord_(record);
+
+  return {
+    ok: true,
+    message: 'Profile updated successfully.',
+    user: {
+      user_id: String(record.user.user_id || ''),
+      full_name: String(record.user.full_name || ''),
+      email: String(record.user.email || ''),
+      phone: String(record.user.phone || ''),
+      department: String(record.user.department || ''),
+      location: String(record.user.location || ''),
+      bio: String(record.user.bio || ''),
+      role: String(record.user.role || ''),
+      status: String(record.user.status || ''),
+      created_at: String(record.user.created_at || ''),
+      profile_photo_url: String(record.user.profile_photo_url || '')
+    }
+  };
+}
+
+function handleUpdateProfilePhoto_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var imageDataUrl = String(payload.image_data_url || '').trim();
+  var mimeTypeInput = String(payload.mime_type || '').trim().toLowerCase();
+  var fileNameInput = String(payload.file_name || '').trim();
+
+  if (!userId || !imageDataUrl) {
+    return { ok: false, error: 'user_id and image_data_url are required.' };
+  }
+
+  var record = findUserRecordByUserId_(userId);
+  if (!record) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  if (!isEmailVerifiedValue_(record.user.email_verified, record.user)) {
+    return { ok: false, error: 'Please verify your email before uploading a profile photo.' };
+  }
+
+  var parsedDataUrl = parseDataUrl_(imageDataUrl);
+  var mimeType = mimeTypeInput || parsedDataUrl.mimeType;
+
+  if (!isAllowedImageMimeType_(mimeType)) {
+    return { ok: false, error: 'Only JPG, PNG, WEBP, and GIF images are supported.' };
+  }
+
+  var photoBytes;
+  try {
+    photoBytes = Utilities.base64Decode(parsedDataUrl.base64Data);
+  } catch (err) {
+    return { ok: false, error: 'Invalid image format.' };
+  }
+
+  if (!photoBytes || !photoBytes.length) {
+    return { ok: false, error: 'Image file is empty.' };
+  }
+
+  if (photoBytes.length > PROFILE_PHOTO_MAX_BYTES_) {
+    return { ok: false, error: 'Image is too large. Maximum file size is ' + PROFILE_PHOTO_MAX_MB_ + ' MB.' };
+  }
+
+  var extension = mimeType.split('/')[1] || 'jpg';
+  if (extension === 'jpeg') {
+    extension = 'jpg';
+  }
+
+  var safeBaseName = String(record.user.user_id || userId).replace(/[^a-zA-Z0-9_-]/g, '_');
+  var fileName = fileNameInput || ('profile_' + safeBaseName + '_' + new Date().getTime() + '.' + extension);
+  var photoBlob = Utilities.newBlob(photoBytes, mimeType, fileName);
+  var photosFolder = getProfilePhotosFolder_();
+  var uploadedFile = photosFolder.createFile(photoBlob);
+  uploadedFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  var previousFileId = String(record.user.profile_photo_file_id || '').trim();
+  if (previousFileId) {
+    try {
+      DriveApp.getFileById(previousFileId).setTrashed(true);
+    } catch (err) {
+      // Ignore cleanup errors for old files.
+    }
+  }
+
+  var usersSheet = record.sheet;
+  ensureSheetColumns_(usersSheet, ['profile_photo_url', 'profile_photo_file_id', 'profile_photo_updated_at']);
+
+  record.user.profile_photo_url = 'https://drive.google.com/thumbnail?id=' + uploadedFile.getId() + '&sz=w512';
+  record.user.profile_photo_file_id = uploadedFile.getId();
+  record.user.profile_photo_updated_at = isoNow_();
+  updateUserRecord_(record);
+
+  return {
+    ok: true,
+    message: 'Profile photo updated successfully.',
+    user: {
+      user_id: String(record.user.user_id || ''),
+      full_name: String(record.user.full_name || ''),
+      email: String(record.user.email || ''),
+      department: String(record.user.department || ''),
+      role: String(record.user.role || ''),
+      status: String(record.user.status || ''),
+      created_at: String(record.user.created_at || ''),
+      profile_photo_url: String(record.user.profile_photo_url || '')
+    }
+  };
 }
 
 function handleUpsertStudentOjtProfile_(payload) {
@@ -732,6 +896,47 @@ function getSheet_(sheetName) {
   return sheet;
 }
 
+function ensureSheetColumns_(sheet, columnNames) {
+  if (!sheet || !columnNames || !columnNames.length) {
+    return;
+  }
+
+  var headers = getHeaders_(sheet);
+  var missingColumns = [];
+
+  for (var i = 0; i < columnNames.length; i++) {
+    if (findColumnIndex_(headers, columnNames[i]) === 0) {
+      missingColumns.push(columnNames[i]);
+    }
+  }
+
+  if (!missingColumns.length) {
+    return;
+  }
+
+  var startCol = headers.length + 1;
+  sheet.getRange(1, startCol, 1, missingColumns.length).setValues([missingColumns]);
+}
+
+function getProfilePhotosFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var configuredFolderId = String(props.getProperty('PROFILE_PHOTOS_FOLDER_ID') || '').trim();
+
+  if (configuredFolderId) {
+    try {
+      return DriveApp.getFolderById(configuredFolderId);
+    } catch (err) {
+      props.deleteProperty('PROFILE_PHOTOS_FOLDER_ID');
+    }
+  }
+
+  var existingFolders = DriveApp.getFoldersByName(PROFILE_PHOTOS_FOLDER_NAME_);
+  var folder = existingFolders.hasNext() ? existingFolders.next() : DriveApp.createFolder(PROFILE_PHOTOS_FOLDER_NAME_);
+  props.setProperty('PROFILE_PHOTOS_FOLDER_ID', folder.getId());
+
+  return folder;
+}
+
 function getHeaders_(sheet) {
   var headerRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
   return headerRange.getValues()[0].map(function (h) {
@@ -955,6 +1160,24 @@ function parseIsoDate_(value) {
   return new Date(raw.replace(' ', 'T'));
 }
 
+function parseDataUrl_(dataUrl) {
+  var raw = String(dataUrl || '').trim();
+  var match = raw.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error('Invalid image data URL.');
+  }
+
+  return {
+    mimeType: String(match[1] || '').toLowerCase(),
+    base64Data: String(match[2] || '').replace(/\s/g, '')
+  };
+}
+
+function isAllowedImageMimeType_(mimeType) {
+  var normalized = String(mimeType || '').trim().toLowerCase();
+  return normalized === 'image/jpeg' || normalized === 'image/png' || normalized === 'image/webp' || normalized === 'image/gif';
+}
+
 function isEmailVerifiedValue_(value, userRecord) {
   if (value === true) {
     return true;
@@ -1003,4 +1226,16 @@ function jsonResponse_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function authorizeImsScopes_() {
+  // Run once from Apps Script editor to grant Spreadsheet, Mail, and Drive scopes.
+  getSpreadsheet_().getId();
+  MailApp.getRemainingDailyQuota();
+  DriveApp.getRootFolder().getId();
+  return 'Authorization complete.';
+}
+
+function authorizeImsScopes() {
+  return authorizeImsScopes_();
 }

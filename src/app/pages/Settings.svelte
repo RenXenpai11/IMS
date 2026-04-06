@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import {
     Bell,
     Building,
@@ -15,22 +15,145 @@
     Sun,
     User,
   } from 'lucide-svelte';
+  import { subscribeToCurrentUser, updateProfilePhoto, updateUserProfile } from '../lib/auth.js';
   import { setTheme, theme, toggleTheme } from '../context/ThemeContext.js';
 
   let showCurrentPassword = false;
   let showNewPassword = false;
   let saved = false;
   let saveTimer;
+  let unsubscribeAuth;
+
+  let currentUser = null;
+  let isUploadingPhoto = false;
+  let isSavingProfile = false;
+  let photoMessage = '';
+  let photoError = '';
+  let saveError = '';
+  let photoInput;
+
+  const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
+  const MAX_PROFILE_PHOTO_MB = Math.floor(MAX_PROFILE_PHOTO_BYTES / (1024 * 1024));
+  const ALLOWED_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
   let profile = {
-    firstName: 'Alex',
-    lastName: 'Johnson',
-    email: 'alex.johnson@company.com',
-    phone: '+1 (555) 012-3456',
-    department: 'Software Engineering',
-    location: 'Manila, Philippines',
-    bio: 'Computer Science student, passionate about building scalable web applications.',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    department: '',
+    location: '',
+    bio: '',
   };
+
+  function splitFullName(fullName) {
+    const normalized = String(fullName || '').trim().replace(/\s+/g, ' ');
+    if (!normalized) {
+      return { firstName: '', lastName: '' };
+    }
+
+    const parts = normalized.split(' ');
+    if (parts.length === 1) {
+      return { firstName: parts[0], lastName: '' };
+    }
+
+    return {
+      firstName: parts[0],
+      lastName: parts.slice(1).join(' '),
+    };
+  }
+
+  function toTitleCase(value) {
+    const text = String(value || '').trim();
+    if (!text) {
+      return '';
+    }
+
+    return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+  }
+
+  function applyCurrentUserProfile(user) {
+    if (!user) {
+      return;
+    }
+
+    currentUser = user;
+
+    const parsedName = splitFullName(user.full_name);
+
+    profile = {
+      ...profile,
+      firstName: parsedName.firstName,
+      lastName: parsedName.lastName,
+      email: String(user.email || ''),
+      phone: String(user.phone || ''),
+      department: String(user.department || ''),
+      location: String(user.location || ''),
+      bio: String(user.bio || ''),
+    };
+  }
+
+  function openPhotoPicker() {
+    photoError = '';
+    photoMessage = '';
+    photoInput?.click();
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Unable to read selected image file.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePhotoChange(event) {
+    photoError = '';
+    photoMessage = '';
+
+    const files = event?.currentTarget?.files;
+    const file = files && files[0];
+
+    if (!file) {
+      return;
+    }
+
+    if (!currentUser?.user_id) {
+      photoError = 'No logged-in user found. Please log in again.';
+      event.currentTarget.value = '';
+      return;
+    }
+
+    if (!ALLOWED_PHOTO_MIME_TYPES.has(String(file.type || '').toLowerCase())) {
+      photoError = 'Only JPG, PNG, WEBP, and GIF images are allowed.';
+      event.currentTarget.value = '';
+      return;
+    }
+
+    if (Number(file.size || 0) > MAX_PROFILE_PHOTO_BYTES) {
+      photoError = `Image is too large. Maximum file size is ${MAX_PROFILE_PHOTO_MB} MB.`;
+      event.currentTarget.value = '';
+      return;
+    }
+
+    try {
+      isUploadingPhoto = true;
+      const imageDataUrl = await fileToDataUrl(file);
+      await updateProfilePhoto({
+        user_id: currentUser.user_id,
+        image_data_url: imageDataUrl,
+        mime_type: file.type,
+        file_name: file.name,
+      });
+      photoMessage = 'Profile photo updated successfully.';
+    } catch (err) {
+      photoError = err?.message || 'Unable to upload profile photo right now.';
+    } finally {
+      isUploadingPhoto = false;
+      event.currentTarget.value = '';
+    }
+  }
 
   let notifications = {
     emailAlerts: true,
@@ -49,7 +172,7 @@
   const profileFields = [
     { key: 'firstName', label: 'First Name', icon: User, type: 'text' },
     { key: 'lastName', label: 'Last Name', icon: User, type: 'text' },
-    { key: 'email', label: 'Email Address', icon: Mail, type: 'email' },
+    { key: 'email', label: 'Email Address', icon: Mail, type: 'email', readOnly: true },
     { key: 'phone', label: 'Phone Number', icon: Phone, type: 'text' },
     { key: 'department', label: 'Department', icon: Building, type: 'text' },
     { key: 'location', label: 'Location', icon: MapPin, type: 'text' },
@@ -71,6 +194,8 @@
 
   function updateProfileField(key, value) {
     profile = { ...profile, [key]: value };
+    saved = false;
+    saveError = '';
   }
 
   function updateNotification(key, value) {
@@ -81,17 +206,83 @@
     privacy = { ...privacy, [key]: value };
   }
 
-  function handleSave() {
-    saved = true;
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
+  async function handleSave() {
+    saveError = '';
+
+    if (!currentUser?.user_id) {
+      saveError = 'No logged-in user found. Please log in again.';
+      return;
+    }
+
+    const fullName = [String(profile.firstName || '').trim(), String(profile.lastName || '').trim()]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    if (!fullName) {
+      saveError = 'Please provide at least your first name.';
+      return;
+    }
+
+    try {
+      isSavingProfile = true;
+      await updateUserProfile({
+        user_id: currentUser.user_id,
+        full_name: fullName,
+        phone: profile.phone,
+        department: profile.department,
+        location: profile.location,
+        bio: profile.bio,
+      });
+
+      saved = true;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        saved = false;
+      }, 2500);
+    } catch (err) {
+      saveError = err?.message || 'Unable to save profile right now.';
       saved = false;
-    }, 2500);
+    } finally {
+      isSavingProfile = false;
+    }
+  }
+
+  function handleCancel() {
+    if (currentUser) {
+      applyCurrentUserProfile(currentUser);
+    }
+    saveError = '';
+    saved = false;
   }
 
   onDestroy(() => {
     clearTimeout(saveTimer);
+    if (typeof unsubscribeAuth === 'function') {
+      unsubscribeAuth();
+    }
   });
+
+  onMount(() => {
+    unsubscribeAuth = subscribeToCurrentUser((user) => {
+      currentUser = user;
+      applyCurrentUserProfile(user);
+    });
+  });
+
+  $: displayFirstName = String(profile.firstName || '').trim();
+  $: displayLastName = String(profile.lastName || '').trim();
+  $: displayName = [displayFirstName, displayLastName].filter(Boolean).join(' ') || 'User';
+  $: roleLabel = toTitleCase(currentUser?.role) || 'Intern';
+  $: displayDepartment = String(profile.department || '').trim();
+  $: profileSubtitle = [displayDepartment, roleLabel].filter(Boolean).join(' ');
+  $: profilePhotoUrl = String(currentUser?.profile_photo_url || '').trim();
+  $: profileInitials = (displayName || 'U')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('') || 'U';
 </script>
 
 <section class="mr-auto w-full max-w-5xl space-y-6">
@@ -108,21 +299,43 @@
       <div class="mb-6 flex items-center gap-4">
         <div class="relative">
           <div class="flex h-16 w-16 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600">
-            <span class="text-xl font-bold text-white">AJ</span>
+            {#if profilePhotoUrl}
+              <img src={profilePhotoUrl} alt={`${displayName} avatar`} class="h-16 w-16 rounded-full object-cover" />
+            {:else}
+              <span class="text-xl font-bold text-white">{profileInitials}</span>
+            {/if}
           </div>
           <button
             type="button"
             class="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-white shadow-md transition-colors hover:bg-indigo-700"
             aria-label="Change profile photo"
+            on:click={openPhotoPicker}
+            disabled={isUploadingPhoto}
           >
             <Camera size={11} />
           </button>
         </div>
 
+        <input
+          bind:this={photoInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          class="hidden"
+          on:change={handlePhotoChange}
+        />
+
         <div>
-          <p class="theme-heading text-[15px] font-semibold">Alex Johnson</p>
-          <p class="theme-text text-[13px]">Software Engineering Intern</p>
-          <button type="button" class="mt-1 text-[13px] font-medium text-indigo-600">Change photo</button>
+          <p class="theme-heading text-[15px] font-semibold">{displayName}</p>
+          <p class="theme-text text-[13px]">{profileSubtitle}</p>
+          <button type="button" class="mt-1 text-[13px] font-medium text-indigo-600" on:click={openPhotoPicker} disabled={isUploadingPhoto}>
+            {isUploadingPhoto ? 'Uploading photo...' : 'Change photo'}
+          </button>
+          {#if photoError}
+            <p class="mt-1 text-[12px] text-rose-600">{photoError}</p>
+          {/if}
+          {#if photoMessage}
+            <p class="mt-1 text-[12px] text-emerald-600">{photoMessage}</p>
+          {/if}
         </div>
       </div>
 
@@ -136,6 +349,7 @@
                 type={field.type}
                 value={profile[field.key]}
                 on:input={(event) => updateProfileField(field.key, event.currentTarget.value)}
+                readonly={field.readOnly === true}
                 class="theme-input w-full rounded-xl border py-2.5 pl-9 pr-3 text-[14px] outline-none transition-colors focus:border-indigo-400"
               />
             </span>
@@ -360,8 +574,10 @@
   <div class="flex items-center justify-end gap-3">
     <button
       type="button"
+      on:click={handleCancel}
       class="rounded-xl px-5 py-2.5 text-[14px] font-medium transition-colors"
       style={`border: 1px solid ${$theme === 'dark' ? '#334155' : '#CBD5E1'}; background-color: ${$theme === 'dark' ? '#1E293B' : '#FFFFFF'}; color: ${$theme === 'dark' ? '#E2E8F0' : '#475569'};`}
+      disabled={isSavingProfile}
     >
       Cancel
     </button>
@@ -370,11 +586,16 @@
       on:click={handleSave}
       class="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-medium text-white transition-all duration-200"
       style={`background-color: ${saved ? '#059669' : '#4F46E5'};`}
+      disabled={isSavingProfile}
     >
       <Save size={14} />
-      {saved ? 'Saved!' : 'Save Changes'}
+      {isSavingProfile ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}
     </button>
   </div>
+
+  {#if saveError}
+    <p class="text-right text-[12px] text-rose-600">{saveError}</p>
+  {/if}
 </section>
 
 <style>
