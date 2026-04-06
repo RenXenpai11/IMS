@@ -17,25 +17,25 @@
       label: 'Pending',
       value: 2,
       icon: Clock,
-      tone: 'amber',
+      tone: 'indigo',
     },
     {
       label: 'Total Tasks',
       value: 6,
       icon: Clock3,
-      tone: 'blue',
+      tone: 'green',
     },
     {
       label: 'Completed',
       value: 2,
       icon: CheckCircle2,
-      tone: 'green',
+      tone: 'blue',
     },
     {
       label: 'Overdue',
       value: 1,
       icon: AlertCircle,
-      tone: 'red',
+      tone: 'violet',
     },
   ];
 
@@ -169,8 +169,11 @@
   let trackerMenuOpen = false;
   let isEditingTrackerTask = false;
   let isAddTaskOpen = false;
+  let isSavingAddTask = false;
+  let addTaskError = '';
   let addTaskForm = {
     title: '',
+    status: 'Pending',
     owner: '',
     dueDate: '',
     description: '',
@@ -332,12 +335,14 @@
   function resetAddTaskForm() {
     addTaskForm = {
       title: '',
+      status: 'Pending',
       owner: '',
       dueDate: '',
       description: '',
       dailyChecklist: [],
       attachments: [],
     };
+    addTaskError = '';
   }
 
   function toggleAddTaskForm() {
@@ -350,35 +355,101 @@
 
   function cancelAddTask() {
     isAddTaskOpen = false;
+    addTaskError = '';
     resetAddTaskForm();
   }
 
-  function addNewTask() {
-    const rawTitle = addTaskForm.title.trim();
-    const formattedDueDate = fromInputDate(addTaskForm.dueDate);
+  function handleAddTaskOverlayClick(event) {
+    if (event.target === event.currentTarget) {
+      cancelAddTask();
+    }
+  }
 
-    if (!rawTitle || !formattedDueDate) {
+  function callCreateActivityTask(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => {
+          reject(new Error(error?.message || String(error)));
+        })
+        .createActivityTask(payload);
+    });
+  }
+
+  function mapCreatedTaskToUi(task, fallback) {
+    const source = task || {};
+    const defaultValue = fallback || {};
+
+    return {
+      title: String(source.title || defaultValue.title || '').trim(),
+      status: String(source.status || defaultValue.status || 'Pending'),
+      dueDate: fromInputDate(String(source.due_date || defaultValue.dueDate || '')) || defaultValue.dueDate || '',
+      owner: String(source.owner || defaultValue.owner || 'You'),
+      priority: String(source.priority || defaultValue.priority || 'medium'),
+      description: String(source.description || defaultValue.description || 'No description provided yet.'),
+      attachments: getAttachmentNames(source.attachments || defaultValue.attachments),
+      dailyChecklist: Array.isArray(source.daily_checklist)
+        ? source.daily_checklist.map((item) => ({
+            label: String(item?.label || '').trim(),
+            done: !!item?.done,
+          }))
+        : defaultValue.dailyChecklist || [],
+    };
+  }
+
+  async function addNewTask() {
+    const rawTitle = addTaskForm.title.trim();
+    const owner = addTaskForm.owner.trim() || 'You';
+    const cleanedChecklist = addTaskForm.dailyChecklist
+      .filter((item) => item.label.trim())
+      .map((item) => ({ label: item.label.trim(), done: !!item.done }));
+    const cleanedAttachments = getAttachmentNames(addTaskForm.attachments);
+
+    if (!rawTitle || !addTaskForm.dueDate) {
       return;
     }
 
-    const nextTask = {
-      title: getUniqueTaskTitle(rawTitle),
-      status: 'Pending',
-      dueDate: formattedDueDate,
-      owner: addTaskForm.owner.trim() || 'You',
+    const nextTaskPayload = {
+      title: rawTitle,
+      status: addTaskForm.status,
+      due_date: addTaskForm.dueDate,
+      owner,
       priority: 'medium',
       description: addTaskForm.description.trim() || 'No description provided yet.',
-      attachments: getAttachmentNames(addTaskForm.attachments),
-      dailyChecklist: addTaskForm.dailyChecklist
-        .filter((item) => item.label.trim())
-        .map((item) => ({ label: item.label.trim(), done: !!item.done })),
+      attachments: cleanedAttachments,
+      dailyChecklist: cleanedChecklist,
+      createdBy: owner,
+      updatedBy: owner,
     };
 
-    assignedTasks = [nextTask, ...assignedTasks];
-    selectedOverviewTaskTitle = nextTask.title;
-    activeView = 'Overview';
-    isAddTaskOpen = false;
-    resetAddTaskForm();
+    isSavingAddTask = true;
+    addTaskError = '';
+
+    try {
+      const result = await callCreateActivityTask(nextTaskPayload);
+
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Unable to save the task.');
+      }
+
+      const savedTask = mapCreatedTaskToUi(result.task, nextTaskPayload);
+      assignedTasks = [savedTask, ...assignedTasks];
+      selectedOverviewTaskTitle = savedTask.title;
+      activeView = 'Overview';
+      isAddTaskOpen = false;
+      resetAddTaskForm();
+    } catch (error) {
+      addTaskError = error?.message || 'Unable to save the task.';
+    } finally {
+      isSavingAddTask = false;
+    }
   }
 
   function addNewTaskChecklistItem() {
@@ -811,7 +882,7 @@
 <section class="documents-page">
   <div class="stats-grid">
     {#each summaryCards as card}
-      <article class="stat-card">
+      <article class={`stat-card tone-card-${card.tone}`}>
         <div class={`stat-icon tone-${card.tone}`}>
           <svelte:component this={card.icon} size={17} />
         </div>
@@ -883,91 +954,125 @@
   </div>
 
   {#if isAddTaskOpen}
-    <form class="add-task-form" on:submit|preventDefault={addNewTask}>
-      <label>
-        <span>Task Title</span>
-        <input type="text" bind:value={addTaskForm.title} placeholder="Enter task title" required />
-      </label>
-
-      <label>
-        <span>Assigned by</span>
-        <input type="text" bind:value={addTaskForm.owner} placeholder="Who is assigning this task?" />
-      </label>
-
-      <label>
-        <span>Deadline</span>
-        <input type="date" bind:value={addTaskForm.dueDate} required />
-      </label>
-
-      <label class="full-width">
-        <span>Description</span>
-        <textarea rows="2" bind:value={addTaskForm.description} placeholder="Task details"></textarea>
-      </label>
-
-      <div class="tracker-checklist-editor full-width">
-        <div class="tracker-checklist-editor-head">
-          <span>Checklist</span>
-          <button type="button" on:click={addNewTaskChecklistItem}>+ Add item</button>
-        </div>
-
-        {#if addTaskForm.dailyChecklist.length === 0}
-          <p class="overview-empty-copy">No checklist items yet.</p>
-        {:else}
-          {#each addTaskForm.dailyChecklist as item, index}
-            <div class="tracker-checklist-editor-row">
-              <input
-                type="checkbox"
-                checked={item.done}
-                on:change={() => updateNewTaskChecklistItem(index, 'done', !item.done)}
-              />
-              <input
-                type="text"
-                value={item.label}
-                on:input={(event) => updateNewTaskChecklistItem(index, 'label', event.currentTarget.value)}
-                placeholder="Checklist item"
-              />
-              <button type="button" class="remove-item" on:click={() => removeNewTaskChecklistItem(index)}>
-                Remove
+    <div class="task-view-modal-overlay" role="presentation" on:click={handleAddTaskOverlayClick}>
+      <div
+        class="task-view-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add task form"
+      >
+        <form on:submit|preventDefault={addNewTask}>
+          <div class="task-view-modal-head">
+            <h4>Add Task</h4>
+            <div class="task-view-head-actions">
+              <button type="button" class="task-view-action" on:click={cancelAddTask}>Cancel</button>
+              <button type="submit" class="task-view-action primary" disabled={isSavingAddTask}>
+                {isSavingAddTask ? 'Saving...' : 'Save Task'}
               </button>
             </div>
-          {/each}
-        {/if}
-      </div>
+          </div>
 
-      <div class="attachment-editor full-width">
-        <div class="attachment-editor-head">
-          <span>Attachments</span>
-          <label class="attachment-upload-btn" for="add-task-file-upload">Upload files</label>
-          <input
-            id="add-task-file-upload"
-            class="hidden-file-input"
-            type="file"
-            multiple
-            on:change={handleAddTaskAttachmentUpload}
-          />
-        </div>
+          {#if addTaskError}
+            <p class="task-form-error">{addTaskError}</p>
+          {/if}
 
-        {#if addTaskForm.attachments.length === 0}
-          <p class="overview-empty-copy">No attachments yet.</p>
-        {:else}
-          <ul class="attachment-list">
-            {#each addTaskForm.attachments as fileName, index}
-              <li>
-                <span>{fileName}</span>
-                <button type="button" class="remove-item" on:click={() => removeAddTaskAttachment(index)}>
-                  Remove
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
+          <div class="task-view-grid">
+            <label>
+              <span>Task Title</span>
+              <input type="text" bind:value={addTaskForm.title} placeholder="Enter task title" required />
+            </label>
 
-      <div class="add-task-actions">
-        <button type="button" class="secondary" on:click={cancelAddTask}>Cancel</button>
-        <button type="submit" class="primary">Save Task</button>
+            <label>
+              <span>Status</span>
+              <select bind:value={addTaskForm.status}>
+                {#each editStatusOptions as option}
+                  <option value={option}>{option}</option>
+                {/each}
+              </select>
+            </label>
+
+            <label>
+              <span>Due Date</span>
+              <input type="date" bind:value={addTaskForm.dueDate} required />
+            </label>
+
+            <label>
+              <span>Assigned by</span>
+              <input type="text" bind:value={addTaskForm.owner} placeholder="Who is assigning this task?" />
+            </label>
+          </div>
+
+          <label class="task-view-description">
+            <span>Description</span>
+            <textarea rows="3" bind:value={addTaskForm.description} placeholder="Task details"></textarea>
+          </label>
+
+          <div class="task-view-section">
+            <span>Checklist</span>
+            <div class="tracker-checklist-editor">
+              <div class="tracker-checklist-editor-head">
+                <button type="button" on:click={addNewTaskChecklistItem}>+ Add item</button>
+              </div>
+
+              {#if addTaskForm.dailyChecklist.length === 0}
+                <p class="overview-empty-copy">No checklist items.</p>
+              {:else}
+                {#each addTaskForm.dailyChecklist as item, index}
+                  <div class="tracker-checklist-editor-row">
+                    <input
+                      type="checkbox"
+                      checked={item.done}
+                      on:change={() => updateNewTaskChecklistItem(index, 'done', !item.done)}
+                    />
+                    <input
+                      type="text"
+                      value={item.label}
+                      on:input={(event) => updateNewTaskChecklistItem(index, 'label', event.currentTarget.value)}
+                      placeholder="Checklist item"
+                    />
+                    <button type="button" class="remove-item" on:click={() => removeNewTaskChecklistItem(index)}>
+                      Remove
+                    </button>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </div>
+
+          <div class="task-view-section">
+            <span>Attachments</span>
+            <div class="attachment-editor">
+              <div class="attachment-editor-head">
+                <label class="attachment-upload-btn" for="add-task-file-upload">Upload files</label>
+                <input
+                  id="add-task-file-upload"
+                  class="hidden-file-input"
+                  type="file"
+                  multiple
+                  on:change={handleAddTaskAttachmentUpload}
+                />
+              </div>
+
+              {#if addTaskForm.attachments.length === 0}
+                <p class="overview-empty-copy">No attachments.</p>
+              {:else}
+                <ul class="attachment-list">
+                  {#each addTaskForm.attachments as fileName, index}
+                    <li>
+                      <span>{fileName}</span>
+                      <button type="button" class="remove-item" on:click={() => removeAddTaskAttachment(index)}>
+                        Remove
+                      </button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+          </div>
+
+        </form>
       </div>
-    </form>
+    </div>
   {/if}
 
   <div class="documents-grid">
@@ -1042,9 +1147,12 @@
           </div>
 
           {#if selectedOverviewTask}
-            <section class="overview-tracker">
-              <div class="overview-tracker-head">
-                <h4>Let's Get Things Done!</h4>
+            <section class="overview-tracker tracker-card">
+              <div class="tracker-card-head">
+                <div class="tracker-card-heading">
+                  <h4>Task Focus</h4>
+                  <p class="tracker-purpose">Review the selected task, track progress, and update checklist items.</p>
+                </div>
                 <div class="tracker-head-actions">
                   <span class={`status-pill ${statusClassMap[selectedOverviewTask.status]}`}>
                     {selectedOverviewTask.status}
@@ -1158,26 +1266,33 @@
                   </div>
                 </div>
               {:else}
-                <p class="tracker-title">{selectedOverviewTask.title}</p>
-                <p class="tracker-meta">
-                  Due {formatDueDate(selectedOverviewTask.dueDate)}
-                  <span aria-hidden="true">•</span>
-                  {formatAttachmentMeta(selectedOverviewTask.attachments)}
-                </p>
-                <p class="tracker-description">{selectedOverviewTask.description}</p>
+                <div class="tracker-summary">
+                  <p class="tracker-title">{selectedOverviewTask.title}</p>
+                  <p class="tracker-meta">
+                    Due {formatDueDate(selectedOverviewTask.dueDate)}
+                    <span aria-hidden="true">•</span>
+                    {formatAttachmentMeta(selectedOverviewTask.attachments)}
+                  </p>
+                  <p class="tracker-description">{selectedOverviewTask.description}</p>
+                </div>
 
-                <ul class="tracker-checklist">
-                  {#each selectedOverviewTask.dailyChecklist as item}
-                    <li>
-                      <input
-                        type="checkbox"
-                        checked={item.done}
-                        disabled
-                      />
-                      <span>{item.label}</span>
-                    </li>
-                  {/each}
-                </ul>
+                <div class="tracker-section-shell">
+                  <div class="tracker-section-head">
+                    <span>Checklist</span>
+                  </div>
+                  <ul class="tracker-checklist">
+                    {#each selectedOverviewTask.dailyChecklist as item}
+                      <li>
+                        <input
+                          type="checkbox"
+                          checked={item.done}
+                          disabled
+                        />
+                        <span>{item.label}</span>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
               {/if}
             </section>
           {/if}
@@ -1210,13 +1325,6 @@
                     <div class="task-accordion-meta-modern">
                       <span class={`status-chip ${statusClassMap[task.status]}`}>{task.status}</span>
                       <span>Due {task.dueDate}</span>
-                      <span>Assigned by {task.owner}</span>
-                      {#if task.attachments && task.attachments.length > 0}
-                        <span>{formatAttachmentMeta(task.attachments)}</span>
-                      {/if}
-                      {#if task.dailyChecklist && task.dailyChecklist.length > 0}
-                        <span>{formatChecklistMeta(task.dailyChecklist)}</span>
-                      {/if}
                     </div>
                     <div class="task-description-row">
                       <p class="task-description-modern">{task.description}</p>
@@ -1454,8 +1562,9 @@
 
   .stat-label {
     margin: 0.15rem 0 0;
-    color: var(--color-sidebar-text);
+    color: #605f5f;
     font-size: 0.86rem;
+    font-weight: 700;
   }
 
   .documents-grid {
@@ -1554,68 +1663,6 @@
     border-color: #4338ca;
   }
 
-  .add-task-form {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.65rem;
-    padding: 0.8rem;
-    border: 1px solid var(--color-border);
-    background: #ffffff;
-    border-radius: 0.8rem;
-  }
-
-  .add-task-form label {
-    display: grid;
-    gap: 0.25rem;
-  }
-
-  .add-task-form label span {
-    color: #64748b;
-    font-size: 0.74rem;
-    font-weight: 600;
-  }
-
-  .add-task-form input,
-  .add-task-form textarea {
-    border: 1px solid #dbe2f0;
-    border-radius: 0.55rem;
-    background: #ffffff;
-    color: #1f2937;
-    font-size: 0.82rem;
-    padding: 0.45rem 0.55rem;
-    outline: none;
-  }
-
-  .add-task-form .full-width {
-    grid-column: 1 / -1;
-  }
-
-  .add-task-actions {
-    grid-column: 1 / -1;
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.45rem;
-  }
-
-  .add-task-actions button {
-    border-radius: 0.5rem;
-    padding: 0.35rem 0.65rem;
-    font-size: 0.76rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .add-task-actions .secondary {
-    border: 1px solid #dbe2f0;
-    background: #ffffff;
-    color: #475569;
-  }
-
-  .add-task-actions .primary {
-    border: 1px solid #4f46e5;
-    background: #4f46e5;
-    color: #ffffff;
-  }
 
   .view-toggle {
     display: inline-flex;
@@ -1767,17 +1814,52 @@
   }
 
   .overview-tracker {
+    position: relative;
+    overflow: hidden;
     border: 1px solid #dbe2f0;
-    border-radius: 0.8rem;
-    background: #ffffff;
-    padding: 0.95rem;
+    border-radius: 1rem;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+    padding: 0.85rem 1rem 1rem;
+    box-shadow: 0 12px 26px -24px rgba(15, 23, 42, 0.34);
   }
 
-  .overview-tracker-head {
+  .tracker-card-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 0.6rem;
+    gap: 1rem;
+    margin-bottom: 0.55rem;
+    padding-left: 0.15rem;
+  }
+
+  .tracker-card-heading {
+    display: grid;
+    gap: 0.18rem;
+    min-width: 0;
+  }
+
+  .tracker-eyebrow {
+    margin: 0;
+    color: #6366f1;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .tracker-card-heading h4 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .tracker-purpose {
+    margin: 0.12rem 0 0;
+    color: #64748b;
+    font-size: 0.82rem;
+    line-height: 1.35;
   }
 
   .tracker-head-actions {
@@ -1785,6 +1867,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
+    flex-shrink: 0;
   }
 
   .tracker-menu-trigger {
@@ -1832,15 +1915,8 @@
     background: #f8fafc;
   }
 
-  .overview-tracker-head h4 {
-    margin: 0;
-    color: #0f172a;
-    font-size: 1rem;
-    font-weight: 650;
-  }
-
   .tracker-title {
-    margin: 0.65rem 0 0;
+    margin: 0.2rem 0 0;
     color: #0f172a;
     font-size: 0.87rem;
     font-weight: 600;
@@ -1863,10 +1939,40 @@
     line-height: 1.45;
   }
 
+  .tracker-summary {
+    display: grid;
+    gap: 0.1rem;
+    padding: 0.5rem 0.75rem 0.65rem;
+    border: 1px solid #e7ecf4;
+    border-radius: 0.85rem;
+    background: #ffffff;
+  }
+
+  .tracker-section-shell {
+    margin-top: 0.55rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #e7ecf4;
+    border-radius: 0.85rem;
+    background: #ffffff;
+  }
+
+  .tracker-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }
+
+  .tracker-section-head span {
+    color: #292828;
+    font-size: 0.87rem;
+    font-weight: 600;
+  }
+
   .tracker-checklist {
     list-style: none;
     padding: 0;
-    margin: 0.85rem 0 0;
+    margin: 0;
     display: grid;
     gap: 0.45rem;
   }
@@ -1875,8 +1981,10 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    color: #334155;
+    color: #475569;
     font-size: 0.87rem;
+    line-height: 1.45;
+    padding: 0.2rem 0.15rem;
   }
 
   .tracker-checklist input {
@@ -1952,7 +2060,7 @@
 
   .tracker-checklist-editor {
     display: grid;
-    gap: 0.55rem;
+    gap: 0.45rem;
   }
 
   .tracker-checklist-editor-head {
@@ -1983,12 +2091,19 @@
   .tracker-checklist-editor-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.45rem;
+    gap: 0.35rem;
     align-items: center;
+  }
+
+  .tracker-checklist-editor-row input[type='checkbox'] {
+    width: 0.82rem;
+    height: 0.82rem;
   }
 
   .tracker-checklist-editor-row input[type='text'] {
     width: 100%;
+    font-size: 0.78rem;
+    padding: 0.32rem 0.45rem;
   }
 
   .attachment-editor {
@@ -2295,6 +2410,24 @@
     background: #ffffff;
   }
 
+  .task-view-action.primary {
+    border-color: #4f46e5;
+    background: #4f46e5;
+    color: #ffffff;
+  }
+
+  .task-view-action.primary:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
+  .task-form-error {
+    margin: 0;
+    color: #dc2626;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
   .task-view-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2398,12 +2531,6 @@
     margin-left: 0;
   }
 
-  @media (max-width: 900px) {
-    .add-task-form {
-      grid-template-columns: 1fr;
-    }
-  }
-
   .task-due {
     justify-self: center;
     text-align: center;
@@ -2486,6 +2613,36 @@
     color: #4f46e5;
     background: #eef2ff;
     border-color: #e0e7ff;
+  }
+
+  .tone-card-indigo {
+    background: #f5f7ff;
+    border-color: #bfd0ff;
+  }
+
+  .tone-card-blue {
+    background: #f3f7ff;
+    border-color: #bfd5ff;
+  }
+
+  .tone-card-green {
+    background: #edf8f4;
+    border-color: #a8e6c7;
+  }
+
+  .tone-card-violet {
+    background: #f7f5ff;
+    border-color: #d7cdfa;
+  }
+
+  .tone-card-red {
+    background: #fff3f2;
+    border-color: #ffc9c4;
+  }
+
+  .tone-card-amber {
+    background: #fffaf0;
+    border-color: #f8dfa3;
   }
 
   .tone-blue {
