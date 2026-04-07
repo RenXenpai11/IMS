@@ -80,11 +80,128 @@ function dispatchAction_(payload) {
     return handleListTimeLogsByUser_(payload);
   }
 
-  if (action === 'delete_time_log') {
-    return handleDeleteTimeLog_(payload);
+  // --- Dashboard additions (additive) ---
+  if (action === 'get_student_dashboard') {
+    return handleGetStudentDashboard_(payload);
   }
 
+  if (action === 'list_activity_logs_by_user') {
+    return handleListActivityLogsByUser_(payload);
+  }
+
+  if (action === 'list_tasks_by_user') {
+    return handleListTasksByUser_(payload);
+  }
+
+  // ...existing code...
+
   return { ok: false, error: 'Unknown action: ' + action };
+}
+
+// --- Dashboard additions (additive) ---
+function handleGetStudentDashboard_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  var userRecord = findUserRecordByUserId_(userId);
+  if (!userRecord) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  var profile = getStudentProfileByUserId_(userId);
+  var logsResult = handleListTimeLogsByUser_({ user_id: userId });
+  if (!logsResult || logsResult.ok !== true) {
+    return { ok: false, error: logsResult && logsResult.error ? logsResult.error : 'Unable to load time logs.' };
+  }
+
+  var activityResult = handleListActivityLogsByUser_({ user_id: userId, limit: payload.limit || 10 });
+  var tasksResult = handleListTasksByUser_({ user_id: userId, limit: payload.limit || 10 });
+
+  return {
+    ok: true,
+    user: {
+      user_id: String(userRecord.user.user_id || ''),
+      full_name: String(userRecord.user.full_name || ''),
+      email: String(userRecord.user.email || ''),
+      role: String(userRecord.user.role || ''),
+      status: String(userRecord.user.status || ''),
+      department: String(userRecord.user.department || '')
+    },
+    profile: profile,
+    time_logs: Array.isArray(logsResult.logs) ? logsResult.logs : [],
+    activity_logs: activityResult && activityResult.ok === true ? activityResult.logs : [],
+    tasks: tasksResult && tasksResult.ok === true ? tasksResult.tasks : []
+  };
+}
+
+function handleListActivityLogsByUser_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var limit = Number(payload.limit || 10);
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  try {
+    var sheet = getSheet_('activity_logs');
+    var rows = readSheetObjects_(sheet)
+      .filter(function (row) {
+        return String(serializeCellValue_(row.user_id) || '').trim() === userId;
+      })
+      .sort(function (a, b) {
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      })
+      .slice(0, Math.max(0, limit))
+      .map(function (row) {
+        return sanitizeObjectForClient_(row);
+      });
+
+    return { ok: true, logs: rows };
+  } catch (err) {
+    // If sheet doesn't exist yet, return empty list (keeps dashboard working)
+    var message = err && err.message ? err.message : String(err);
+    if (String(message).indexOf('Sheet not found') === 0) {
+      return { ok: true, logs: [] };
+    }
+
+    return { ok: false, error: 'Unable to load activity logs. ' + message };
+  }
+}
+
+function handleListTasksByUser_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var limit = Number(payload.limit || 10);
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  try {
+    var sheet = getSheet_('tasks');
+    var rows = readSheetObjects_(sheet)
+      .filter(function (row) {
+        return String(serializeCellValue_(row.user_id) || '').trim() === userId;
+      })
+      .sort(function (a, b) {
+        // Prefer due_date desc, fallback created_at
+        var dueCmp = String(a.due_date || '').localeCompare(String(b.due_date || ''));
+        if (dueCmp !== 0) return dueCmp;
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      })
+      .slice(0, Math.max(0, limit))
+      .map(function (row) {
+        return sanitizeObjectForClient_(row);
+      });
+
+    return { ok: true, tasks: rows };
+  } catch (err) {
+    var message = err && err.message ? err.message : String(err);
+    if (String(message).indexOf('Sheet not found') === 0) {
+      return { ok: true, tasks: [] };
+    }
+
+    return { ok: false, error: 'Unable to load tasks. ' + message };
+  }
 }
 
 function handleRegisterAccount_(payload) {
