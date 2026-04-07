@@ -1,19 +1,312 @@
+<script>
+  import { onDestroy, onMount } from 'svelte';
+  import {
+    getCurrentUser,
+    subscribeToCurrentUser,
+    getStudentDashboard,
+    upsertStudentOjtProfile,
+  } from '../lib/auth.js';
+
+  const PROGRESS_MODES = {
+    APPROVED: 'APPROVED',
+    ALL: 'ALL',
+  };
+
+  let currentUser = getCurrentUser();
+  let unsubscribeAuth = null;
+
+  let loading = true;
+  let errorMessage = '';
+  let successMessage = '';
+
+  let progressMode = PROGRESS_MODES.APPROVED;
+
+  // Server data (raw)
+  let profile = null;
+  let timeLogs = [];
+  let activityLogs = [];
+  let tasks = [];
+
+  // Editable form state
+  let formStartDate = '';
+  let formTotalOjtHours = 0;
+  let readonlyCourse = '';
+  let readonlySchool = '';
+
+  function clearMessages() {
+    errorMessage = '';
+    successMessage = '';
+  }
+
+  function parseIsoDateOnly(value) {
+    // Accepts "YYYY-MM-DD" and returns Date in local time.
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const m = raw.match(/^\d{4}-\d{2}-\d{2}$/);
+    if (!m) return null;
+    const [y, mo, d] = raw.split('-').map((n) => Number(n));
+    const dt = new Date(y, mo - 1, d);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt;
+  }
+
+  function formatDateLong(dateInput) {
+    if (!dateInput) return '';
+    const dt = typeof dateInput === 'string' ? parseIsoDateOnly(dateInput) : dateInput;
+    if (!dt) return '';
+    // Use MM/DD/YYYY for clarity (local-independent)
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const yyyy = String(dt.getFullYear());
+    return `${mm}/${dd}/${yyyy}`;
+  }
+
+  function toIsoDateOnly(dateInput) {
+    if (!dateInput) return '';
+    const dt = dateInput instanceof Date ? dateInput : parseIsoDateOnly(dateInput);
+    if (!dt) return '';
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function isWeekend(dt) {
+    const day = dt.getDay();
+    return day === 0 || day === 6;
+  }
+
+  function addWorkingDays(startDate, workingDays) {
+    // workingDays: integer >= 0
+    const start = startDate instanceof Date ? new Date(startDate) : parseIsoDateOnly(startDate);
+    if (!start || Number.isNaN(start.getTime())) return null;
+
+    let remaining = Math.max(0, Math.trunc(Number(workingDays || 0)));
+    const cursor = new Date(start);
+
+    // If start lands on weekend, move to next Monday
+    while (isWeekend(cursor)) {
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    while (remaining > 0) {
+      cursor.setDate(cursor.getDate() + 1);
+      if (!isWeekend(cursor)) {
+        remaining -= 1;
+      }
+    }
+
+    return cursor;
+  }
+
+  function sumHours(logs, mode) {
+    const rows = Array.isArray(logs) ? logs : [];
+    return rows.reduce((acc, row) => {
+      if (mode === PROGRESS_MODES.APPROVED && String(row?.status || '').toLowerCase() !== 'approved') {
+        return acc;
+      }
+      const hours = Number(row?.hours_rendered || 0);
+      return acc + (Number.isFinite(hours) ? hours : 0);
+    }, 0);
+  }
+
+  $: totalOjtHours = Number(formTotalOjtHours || profile?.total_ojt_hours || 0);
+  $: hoursCompleted = sumHours(timeLogs, progressMode);
+  $: hoursRemaining = Math.max(0, totalOjtHours - hoursCompleted);
+  $: workingDaysNeeded = Math.ceil(hoursRemaining / 8);
+
+  $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / 8);
+  $: computedEstimatedEndDateObj = formStartDate
+    ? addWorkingDays(parseIsoDateOnly(formStartDate), Math.max(0, totalWorkingDays - 1))
+    : null;
+  $: computedEstimatedEndDate = computedEstimatedEndDateObj ? toIsoDateOnly(computedEstimatedEndDateObj) : '';
+
+  $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
+
+  function normalizeActivityDotKind(item) {
+    const type = String(item?.type || item?.action || item?.status || '').toLowerCase();
+    if (type.includes('complete')) return 'completed';
+    if (type.includes('submit')) return 'submitted';
+    if (type.includes('review')) return 'reviewed';
+    if (type.includes('assign')) return 'assigned';
+    return 'submitted';
+  }
+
+  function activityTitle(item) {
+    return String(item?.title || item?.message || item?.details || item?.action || 'Activity').trim() || 'Activity';
+  }
+
+  function activityWhen(item) {
+    const raw = String(item?.created_at || item?.log_date || '').trim();
+    if (!raw) return '';
+    // Keep it simple: show ISO date part if present
+    const isoDate = raw.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? formatDateLong(isoDate) : raw;
+  }
+
+  async function loadDashboard() {
+    clearMessages();
+
+    if (!currentUser?.user_id) {
+      loading = false;
+      errorMessage = 'Please sign in to view your dashboard.';
+      return;
+    }
+
+    loading = true;
+    try {
+      const data = await getStudentDashboard(currentUser.user_id, { limit: 10 });
+      profile = data.profile;
+      timeLogs = data.time_logs;
+      activityLogs = data.activity_logs;
+      tasks = data.tasks;
+
+      // Initialize form fields (only if empty / first load)
+      formStartDate = String(profile?.start_date || formStartDate || '').slice(0, 10);
+      formTotalOjtHours = Number(profile?.total_ojt_hours || formTotalOjtHours || 0);
+      readonlyCourse = String(profile?.course || currentUser?.ojt?.course || '').trim();
+      readonlySchool = String(profile?.school || currentUser?.ojt?.school || '').trim();
+    } catch (err) {
+      errorMessage = err?.message || 'Failed to load dashboard.';
+    } finally {
+      loading = false;
+    }
+  }
+
+  let saving = false;
+  let lastSaveDebug = '';
+
+  async function saveProfile(event) {
+    // Ensure button click doesn't get swallowed by any parent form submit behavior
+    if (event?.preventDefault) event.preventDefault();
+    if (event?.stopPropagation) event.stopPropagation();
+
+    clearMessages();
+    lastSaveDebug = '';
+
+    const userId = String(currentUser?.user_id || '').trim();
+    const startDateObj = parseIsoDateOnly(formStartDate);
+    const totalHours = Number(formTotalOjtHours || 0);
+
+    if (!userId) {
+      errorMessage = 'Missing user ID.';
+      return;
+    }
+
+    if (!startDateObj) {
+      errorMessage = 'Start date is required.';
+      return;
+    }
+
+    if (!Number.isFinite(totalHours) || totalHours <= 0) {
+      errorMessage = 'Total OJT hours must be greater than 0.';
+      return;
+    }
+
+    const course = String(readonlyCourse || '').trim();
+    const school = String(readonlySchool || '').trim();
+    if (!course || !school) {
+      errorMessage = 'Course and School are required (from signup).';
+      return;
+    }
+
+    if (!computedEstimatedEndDate) {
+      errorMessage = 'Unable to compute estimated end date.';
+      return;
+    }
+
+    saving = true;
+    loading = true;
+
+    const payload = {
+      user_id: userId,
+      total_ojt_hours: totalHours,
+      start_date: toIsoDateOnly(startDateObj),
+      estimated_end_date: computedEstimatedEndDate,
+      course,
+      school,
+    };
+
+    try {
+      const result = await upsertStudentOjtProfile(payload);
+      lastSaveDebug = `Saved profile: ${JSON.stringify(result || payload)}`;
+      successMessage = 'OJT profile saved.';
+      await loadDashboard();
+    } catch (err) {
+      errorMessage = err?.message || 'Failed to save OJT profile.';
+      lastSaveDebug = `Save error: ${String(err)}`;
+    } finally {
+      saving = false;
+      loading = false;
+    }
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      loadDashboard();
+    }
+  }
+
+  onMount(() => {
+    unsubscribeAuth = subscribeToCurrentUser((user) => {
+      currentUser = user;
+      loadDashboard();
+    });
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    loadDashboard();
+  });
+
+  onDestroy(() => {
+    if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+  });
+</script>
+
 <section class="page-shell">
   <div class="dashboard-container">
-    <!-- Attendance Summary Section -->
-    <div class="summary-grid">
+    <div class="welcome-banner">
+      <div>
+        <h2 class="welcome-title">Welcome back{currentUser?.full_name ? `, ${currentUser.full_name}` : ''}!</h2>
+        <p class="welcome-subtitle">Here’s your OJT progress overview.</p>
+      </div>
+
+      <div class="mode-toggle">
+        <span class="mode-label">Hours mode:</span>
+        <button
+          class:active={progressMode === PROGRESS_MODES.APPROVED}
+          type="button"
+          on:click={() => (progressMode = PROGRESS_MODES.APPROVED)}
+        >
+          Approved
+        </button>
+        <button
+          class:active={progressMode === PROGRESS_MODES.ALL}
+          type="button"
+          on:click={() => (progressMode = PROGRESS_MODES.ALL)}
+        >
+          All
+        </button>
+      </div>
+    </div>
+
+    {#if errorMessage}
+      <div class="banner error">{errorMessage}</div>
+    {/if}
+    {#if successMessage}
+      <div class="banner success">{successMessage}</div>
+    {/if}
+
+    <!-- KPI Row -->
+    <div class="summary-grid" aria-busy={loading}>
       <div class="summary-card">
         <div class="card-header">
-          <h3>Days Completed</h3>
-          <span class="card-icon">📅</span>
+          <h3>Hours Needed</h3>
+          <span class="card-icon">🎯</span>
         </div>
         <div class="card-content">
-          <div class="stat-value">45</div>
-          <div class="stat-label">out of 120 days</div>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width: 37.5%"></div>
-          </div>
-          <p class="remaining-text">75 days remaining</p>
+          <div class="stat-value">{totalOjtHours || 0}</div>
+          <div class="stat-label">total OJT hours</div>
         </div>
       </div>
 
@@ -23,112 +316,149 @@
           <span class="card-icon">⏱️</span>
         </div>
         <div class="card-content">
-          <div class="stat-value">360</div>
-          <div class="stat-label">out of 960 hours</div>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width: 37.5%"></div>
-          </div>
-          <p class="remaining-text">600 hours remaining</p>
+          <div class="stat-value">{hoursCompleted}</div>
+          <div class="stat-label">{progressMode === PROGRESS_MODES.APPROVED ? 'approved logs' : 'all logs'}</div>
         </div>
       </div>
 
       <div class="summary-card">
         <div class="card-header">
-          <h3>Tasks Assigned</h3>
-          <span class="card-icon">📋</span>
+          <h3>Hours Remaining</h3>
+          <span class="card-icon">🧭</span>
         </div>
         <div class="card-content">
-          <div class="stat-value">12</div>
-          <div class="stat-label">total tasks</div>
-          <div class="task-status">
-            <span class="task-badge completed">8 Completed</span>
-            <span class="task-badge pending">4 Pending</span>
-          </div>
+          <div class="stat-value">{hoursRemaining}</div>
+          <div class="stat-label">left to finish</div>
+        </div>
+      </div>
+
+      <div class="summary-card">
+        <div class="card-header">
+          <h3>Working Days Needed</h3>
+          <span class="card-icon">📅</span>
+        </div>
+        <div class="card-content">
+          <div class="stat-value">{workingDaysNeeded}</div>
+          <div class="stat-label">@ 8 hrs/day (Mon–Fri)</div>
         </div>
       </div>
     </div>
 
-    <!-- Main Content Grid -->
+    <!-- Estimated end date + progress -->
+    <div class="wide-card">
+      <div class="wide-left">
+        <h3>Estimated End Date</h3>
+        <div class="wide-value">{computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : '—'}</div>
+        <div class="wide-meta">
+          Start: {formStartDate ? formatDateLong(formStartDate) : '—'} • Weekdays only (Mon–Fri)
+        </div>
+      </div>
+
+      <div class="wide-right">
+        <div class="progress-top">
+          <span class="progress-label">Progress</span>
+          <span class="progress-stats">{hoursCompleted} / {totalOjtHours || 0} hrs</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style={`width: ${progressPercent}%`}></div>
+        </div>
+        <div class="progress-percent">{progressPercent}%</div>
+      </div>
+    </div>
+
+    <!-- OJT Profile (editable) + Panels -->
     <div class="content-grid">
-      <!-- Recent Activity -->
+      <div class="card">
+        <div class="card-header-main">
+          <h3>OJT Profile</h3>
+          <span class="muted">Edit and save your OJT details</span>
+        </div>
+
+        <div class="profile-grid">
+          <label class="field">
+            <span>Start Date</span>
+            <input type="date" bind:value={formStartDate} />
+          </label>
+
+          <label class="field">
+            <span>Total OJT Hours</span>
+            <input type="number" min="1" step="1" bind:value={formTotalOjtHours} />
+          </label>
+
+          <label class="field">
+            <span>Estimated End Date</span>
+            <input type="text" readonly value={computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : ''} />
+          </label>
+
+          <label class="field">
+            <span>Course</span>
+            <input type="text" readonly value={readonlyCourse} />
+          </label>
+
+          <label class="field">
+            <span>School</span>
+            <input type="text" readonly value={readonlySchool} />
+          </label>
+        </div>
+
+        <div class="profile-actions">
+          <button class="primary" type="button" disabled={saving || loading} on:click={saveProfile}>
+            {saving || loading ? 'Saving…' : 'Save OJT Profile'}
+          </button>
+        </div>
+
+        {#if lastSaveDebug}
+          <p class="save-debug">{lastSaveDebug}</p>
+        {/if}
+      </div>
+
       <div class="card">
         <div class="card-header-main">
           <h3>Recent Activity</h3>
           <a href="/activity" class="view-all">View All →</a>
         </div>
+
         <div class="activity-list">
-          <div class="activity-item">
-            <div class="activity-dot completed"></div>
-            <div class="activity-content">
-              <p class="activity-title">Task Completed: Database Design</p>
-              <p class="activity-time">2 hours ago</p>
-            </div>
-          </div>
-
-          <div class="activity-item">
-            <div class="activity-dot submitted"></div>
-            <div class="activity-content">
-              <p class="activity-title">Document Submitted: System Architecture</p>
-              <p class="activity-time">5 hours ago</p>
-            </div>
-          </div>
-
-          <div class="activity-item">
-            <div class="activity-dot reviewed"></div>
-            <div class="activity-content">
-              <p class="activity-title">Supervisor Review: Login Module</p>
-              <p class="activity-time">1 day ago</p>
-            </div>
-          </div>
-
-          <div class="activity-item">
-            <div class="activity-dot assigned"></div>
-            <div class="activity-content">
-              <p class="activity-title">New Task Assigned: API Integration</p>
-              <p class="activity-time">2 days ago</p>
-            </div>
-          </div>
-
-          <div class="activity-item">
-            <div class="activity-dot completed"></div>
-            <div class="activity-content">
-              <p class="activity-title">Task Completed: UI Redesign</p>
-              <p class="activity-time">3 days ago</p>
-            </div>
-          </div>
+          {#if Array.isArray(activityLogs) && activityLogs.length}
+            {#each activityLogs as item (item.id || item.activity_id || item.created_at || activityTitle(item))}
+              <div class="activity-item">
+                <div class={`activity-dot ${normalizeActivityDotKind(item)}`}></div>
+                <div class="activity-content">
+                  <p class="activity-title">{activityTitle(item)}</p>
+                  <p class="activity-time">{activityWhen(item)}</p>
+                </div>
+              </div>
+            {/each}
+          {:else}
+            <p class="empty">No recent activity yet.</p>
+          {/if}
         </div>
       </div>
 
-      <!-- Upcoming Tasks -->
       <div class="card">
         <div class="card-header-main">
           <h3>Upcoming Tasks</h3>
           <a href="/tasks" class="view-all">View All →</a>
         </div>
+
         <div class="tasks-list">
-          <div class="task-item">
-            <div class="task-info">
-              <p class="task-name">API Integration</p>
-              <p class="task-deadline">Due: April 10, 2026</p>
-            </div>
-            <span class="priority-badge high">High</span>
-          </div>
-
-          <div class="task-item">
-            <div class="task-info">
-              <p class="task-name">Testing & QA</p>
-              <p class="task-deadline">Due: April 15, 2026</p>
-            </div>
-            <span class="priority-badge medium">Medium</span>
-          </div>
-
-          <div class="task-item">
-            <div class="task-info">
-              <p class="task-name">Documentation Review</p>
-              <p class="task-deadline">Due: April 20, 2026</p>
-            </div>
-            <span class="priority-badge low">Low</span>
-          </div>
+          {#if Array.isArray(tasks) && tasks.length}
+            {#each tasks as task (task.task_id || task.id || task.due_date || task.title)}
+              <div class="task-item">
+                <div class="task-info">
+                  <p class="task-name">{String(task.title || task.name || 'Task')}</p>
+                  <p class="task-deadline">
+                    {task.due_date ? `Due: ${formatDateLong(String(task.due_date).slice(0, 10))}` : 'No due date'}
+                  </p>
+                </div>
+                <span class={`priority-badge ${(String(task.priority || 'medium')).toLowerCase()}`}>
+                  {String(task.priority || 'Medium')}
+                </span>
+              </div>
+            {/each}
+          {:else}
+            <p class="empty">No upcoming tasks yet.</p>
+          {/if}
         </div>
       </div>
     </div>
@@ -139,15 +469,210 @@
   .dashboard-container {
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: 1.25rem;
   }
 
-  /* Summary Grid */
+  .welcome-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem 1.25rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: linear-gradient(135deg, #111827 0%, #4f46e5 50%, #7c3aed 100%);
+    color: #ffffff;
+    box-shadow: 0 12px 30px rgba(17, 24, 39, 0.18);
+  }
+
+  .welcome-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: 0.2px;
+  }
+
+  .welcome-subtitle {
+    margin: 0.25rem 0 0;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.95rem;
+  }
+
+  .mode-label {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.9rem;
+  }
+
+  .mode-toggle button {
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    padding: 0.45rem 0.65rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 0.9rem;
+    backdrop-filter: blur(8px);
+  }
+
+  .mode-toggle button.active {
+    background: rgba(255, 255, 255, 0.92);
+    color: #111827;
+    border-color: rgba(255, 255, 255, 0.92);
+  }
+
+  .banner {
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    font-size: 0.95rem;
+  }
+
+  .banner.error {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #991b1b;
+  }
+
+  .banner.success {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #166534;
+  }
+
+  .wide-card {
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 1.25rem;
+    padding: 1.25rem;
+    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+    background: #ffffff;
+  }
+
+  .wide-left h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #111827;
+  }
+
+  .wide-value {
+    margin-top: 0.5rem;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #111827;
+  }
+
+  .wide-meta {
+    margin-top: 0.35rem;
+    color: #6b7280;
+    font-size: 0.9rem;
+  }
+
+  .progress-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .progress-label {
+    font-weight: 700;
+    color: #111827;
+  }
+
+  .progress-stats {
+    color: #6b7280;
+    font-size: 0.9rem;
+  }
+
+  .progress-percent {
+    margin-top: 0.5rem;
+    font-weight: 700;
+    color: #111827;
+  }
+
+  .muted {
+    color: #6b7280;
+    font-size: 0.9rem;
+  }
+
+  .profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-top: 1rem;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .field span {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #111827;
+  }
+
+  .field input {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.95rem;
+    outline: none;
+  }
+
+  .field input[readonly] {
+    background: #f9fafb;
+    color: #6b7280;
+  }
+
+  .profile-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+  }
+
+  button.primary {
+    background: #111827;
+    color: #fff;
+    border: 1px solid #111827;
+    padding: 0.65rem 0.9rem;
+    border-radius: 10px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  button.primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .empty {
+    margin: 0.25rem 0 0;
+    color: #6b7280;
+    font-size: 0.95rem;
+  }
+
+  .save-debug {
+    margin: 0.75rem 0 0;
+    color: #6b7280;
+    font-size: 0.8rem;
+    word-break: break-word;
+  }
+
+  /* Original dashboard styles (kept so existing classes still look right) */
   .summary-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 1.5rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0.25rem;
   }
 
   .summary-card {
@@ -170,6 +695,10 @@
 
   .summary-card:nth-child(3) {
     background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  }
+
+  .summary-card:nth-child(4) {
+    background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
   }
 
   .card-header {
@@ -223,39 +752,10 @@
     transition: width 0.3s ease;
   }
 
-  .remaining-text {
-    font-size: 0.85rem;
-    opacity: 0.85;
-    margin: 0;
-  }
-
-  .task-status {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-top: 0.5rem;
-  }
-
-  .task-badge {
-    font-size: 0.8rem;
-    padding: 0.3rem 0.6rem;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  .task-badge.completed {
-    background: rgba(34, 197, 94, 0.3);
-  }
-
-  .task-badge.pending {
-    background: rgba(251, 146, 60, 0.3);
-  }
-
-  /* Content Grid */
   .content-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-    gap: 2rem;
+    gap: 1.5rem;
   }
 
   .card {
@@ -275,7 +775,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.25rem;
     padding-bottom: 1rem;
     border-bottom: 1px solid #e5e7eb;
   }
@@ -299,7 +799,6 @@
     color: #764ba2;
   }
 
-  /* Activity List */
   .activity-list {
     display: flex;
     flex-direction: column;
@@ -358,7 +857,6 @@
     margin: 0;
   }
 
-  /* Tasks List */
   .tasks-list {
     display: flex;
     flex-direction: column;
@@ -402,6 +900,7 @@
     border-radius: 6px;
     font-size: 0.8rem;
     font-weight: 600;
+    text-transform: capitalize;
   }
 
   .priority-badge.high {
@@ -419,13 +918,25 @@
     color: #166534;
   }
 
-  /* Responsive */
   @media (max-width: 768px) {
+    .welcome-banner {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .wide-card {
+      grid-template-columns: 1fr;
+    }
+
     .summary-grid {
       grid-template-columns: 1fr;
     }
 
     .content-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .profile-grid {
       grid-template-columns: 1fr;
     }
 
