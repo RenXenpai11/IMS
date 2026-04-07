@@ -69,6 +69,9 @@ export async function restoreAuthSession() {
     return null;
   }
 
+  // Broadcast hydrated local session right away to avoid UI fallback flicker on refresh.
+  notifyCurrentUserChanged();
+
   try {
     const result = await postAction('get_user_by_id', {
       user_id: String(restoredUser.user_id || '').trim(),
@@ -385,25 +388,20 @@ export async function deleteTimeLog(userId, timelogId) {
   return result;
 }
 
-<<<<<<< HEAD
-export async function listStudentsForAssignment(supervisorUserId, filters = {}) {
+export async function listStudentsForAssignment(supervisorUserId) {
   const result = await postAction('list_students_for_assignment', {
     supervisor_user_id: String(supervisorUserId || '').trim(),
-    company: String(filters?.company || '').trim(),
-    department: String(filters?.department || '').trim(),
   });
 
   return Array.isArray(result.students) ? result.students : [];
 }
 
-export async function assignStudentsToSupervisor(supervisorUserId, studentUserIds, options = {}) {
+export async function assignStudentsToSupervisor(supervisorUserId, studentUserIds) {
   const result = await postAction('assign_students_to_supervisor', {
     supervisor_user_id: String(supervisorUserId || '').trim(),
     student_user_ids: Array.isArray(studentUserIds)
       ? studentUserIds.map((value) => String(value || '').trim()).filter(Boolean)
       : [],
-    company: String(options?.company || '').trim(),
-    department: String(options?.department || '').trim(),
   });
 
   return result;
@@ -421,8 +419,29 @@ export async function listSupervisorTimeLogs(supervisorUserId, studentUserId) {
   const result = await postAction('list_supervisor_time_logs', {
     supervisor_user_id: String(supervisorUserId || '').trim(),
     student_user_id: String(studentUserId || '').trim(),
-=======
-// --- Dashboard helpers (additive) ---
+  });
+
+  return Array.isArray(result.logs) ? result.logs : [];
+}
+
+export async function deleteSupervisorTimeLog(supervisorUserId, studentUserId, timelogId) {
+  const result = await postAction('delete_supervisor_time_log', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    student_user_id: String(studentUserId || '').trim(),
+    timelog_id: String(timelogId || '').trim(),
+  });
+
+  return result;
+}
+
+export async function debugSupervisorAssignment(supervisorUserId) {
+  const result = await postAction('debug_supervisor_assignment', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+  });
+
+  return result?.debug || null;
+}
+
 export async function getStudentDashboard(userId, options = {}) {
   const result = await postAction('get_student_dashboard', {
     user_id: String(userId || '').trim(),
@@ -447,22 +466,11 @@ export async function listActivityLogsByUser(userId, options = {}) {
   const result = await postAction('list_activity_logs_by_user', {
     user_id: String(userId || '').trim(),
     limit: Number(options?.limit || 10),
->>>>>>> 74c6c05878754bdf663fa0d9dcd0ba10e0b5bb37
   });
 
   return Array.isArray(result.logs) ? result.logs : [];
 }
 
-<<<<<<< HEAD
-export async function deleteSupervisorTimeLog(supervisorUserId, studentUserId, timelogId) {
-  const result = await postAction('delete_supervisor_time_log', {
-    supervisor_user_id: String(supervisorUserId || '').trim(),
-    student_user_id: String(studentUserId || '').trim(),
-    timelog_id: String(timelogId || '').trim(),
-  });
-
-  return result;
-=======
 export async function listTasksByUser(userId, options = {}) {
   const result = await postAction('list_tasks_by_user', {
     user_id: String(userId || '').trim(),
@@ -470,5 +478,4 @@ export async function listTasksByUser(userId, options = {}) {
   });
 
   return Array.isArray(result.tasks) ? result.tasks : [];
->>>>>>> 74c6c05878754bdf663fa0d9dcd0ba10e0b5bb37
 }

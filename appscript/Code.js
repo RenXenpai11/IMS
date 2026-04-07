@@ -82,6 +82,34 @@ function dispatchAction_(payload) {
     return handleListTimeLogsByUser_(payload);
   }
 
+  if (action === 'delete_time_log') {
+    return handleDeleteTimeLog_(payload);
+  }
+
+  if (action === 'list_students_for_assignment') {
+    return handleListStudentsForAssignment_(payload);
+  }
+
+  if (action === 'assign_students_to_supervisor') {
+    return handleAssignStudentsToSupervisor_(payload);
+  }
+
+  if (action === 'list_supervisor_assigned_students') {
+    return handleListSupervisorAssignedStudents_(payload);
+  }
+
+  if (action === 'list_supervisor_time_logs') {
+    return handleListSupervisorTimeLogs_(payload);
+  }
+
+  if (action === 'delete_supervisor_time_log') {
+    return handleDeleteSupervisorTimeLog_(payload);
+  }
+
+  if (action === 'debug_supervisor_assignment') {
+    return handleDebugSupervisorAssignment_(payload);
+  }
+
   // --- Dashboard additions (additive) ---
   if (action === 'get_student_dashboard') {
     return handleGetStudentDashboard_(payload);
@@ -886,8 +914,6 @@ function handleDeleteTimeLog_(payload) {
 
 function handleListStudentsForAssignment_(payload) {
   var supervisorUserId = String(payload.supervisor_user_id || '').trim();
-  var companyFilter = String(payload.company || '').trim().toLowerCase();
-  var departmentFilter = String(payload.department || '').trim().toLowerCase();
 
   if (!supervisorUserId) {
     return { ok: false, error: 'supervisor_user_id is required.' };
@@ -914,19 +940,20 @@ function handleListStudentsForAssignment_(payload) {
   var users = readSheetObjects_(usersSheet);
   var students = users
     .filter(function (row) {
-      return String(row.role || '').trim() === 'Student';
-    })
-    .filter(function (row) {
-      if (!companyFilter) {
-        return true;
+      var roleValue = String(row.role || '').trim().toLowerCase();
+      var userId = String(row.user_id || '').trim();
+      var fullName = String(row.full_name || '').trim();
+
+      if (!userId || !fullName) {
+        return false;
       }
-      return String(row.company || '').trim().toLowerCase() === companyFilter;
-    })
-    .filter(function (row) {
-      if (!departmentFilter) {
-        return true;
+
+      if (userId === supervisorUserId) {
+        return false;
       }
-      return String(row.department || '').trim().toLowerCase() === departmentFilter;
+
+      // Treat any non-supervisor account as assignable student to avoid role label mismatches.
+      return roleValue !== 'supervisor';
     })
     .map(function (row) {
       var studentUserId = String(row.user_id || '').trim();
@@ -934,6 +961,7 @@ function handleListStudentsForAssignment_(payload) {
         user_id: studentUserId,
         full_name: String(row.full_name || ''),
         email: String(row.email || ''),
+        profile_photo_url: String(row.profile_photo_url || ''),
         company: String(row.company || ''),
         department: String(row.department || ''),
         is_assigned: Boolean(assignedIds[studentUserId])
@@ -949,8 +977,6 @@ function handleListStudentsForAssignment_(payload) {
 function handleAssignStudentsToSupervisor_(payload) {
   var supervisorUserId = String(payload.supervisor_user_id || '').trim();
   var studentUserIdsInput = Array.isArray(payload.student_user_ids) ? payload.student_user_ids : [];
-  var company = String(payload.company || '').trim();
-  var department = String(payload.department || '').trim();
 
   if (!supervisorUserId) {
     return { ok: false, error: 'supervisor_user_id is required.' };
@@ -981,8 +1007,16 @@ function handleAssignStudentsToSupervisor_(payload) {
   var users = readSheetObjects_(usersSheet);
   var validStudents = {};
   for (var j = 0; j < users.length; j++) {
-    if (String(users[j].role || '').trim() === 'Student') {
-      validStudents[String(users[j].user_id || '').trim()] = users[j];
+    var roleValue = String(users[j].role || '').trim().toLowerCase();
+    var rowUserId = String(users[j].user_id || '').trim();
+    var fullName = String(users[j].full_name || '').trim();
+
+    if (!rowUserId || !fullName || rowUserId === supervisorUserId) {
+      continue;
+    }
+
+    if (roleValue !== 'supervisor') {
+      validStudents[rowUserId] = users[j];
     }
   }
 
@@ -1019,8 +1053,8 @@ function handleAssignStudentsToSupervisor_(payload) {
       assignment_id: createId_('ASG'),
       supervisor_user_id: supervisorUserId,
       student_user_id: studentUserIds[s],
-      company: company || String(studentRow.company || ''),
-      department: department || String(studentRow.department || ''),
+      company: String(studentRow.company || ''),
+      department: String(studentRow.department || ''),
       status: 'active',
       created_at: createdAt,
     });
@@ -1078,7 +1112,11 @@ function handleListSupervisorAssignedStudents_(payload) {
     var assignmentStudentId = String(assignment.student_user_id || '').trim();
     var student = userLookup[assignmentStudentId];
 
-    if (!student || String(student.role || '').trim() !== 'Student') {
+    if (!student) {
+      continue;
+    }
+
+    if (String(student.role || '').trim().toLowerCase() === 'supervisor') {
       continue;
     }
 
@@ -1090,6 +1128,7 @@ function handleListSupervisorAssignedStudents_(payload) {
       user_id: assignmentStudentId,
       full_name: String(student.full_name || ''),
       email: String(student.email || ''),
+      profile_photo_url: String(student.profile_photo_url || ''),
       company: String(assignment.company || student.company || ''),
       department: String(assignment.department || student.department || ''),
       required_hours: requiredHours,
@@ -1188,6 +1227,64 @@ function handleDeleteSupervisorTimeLog_(payload) {
 
   sheet.deleteRow(rowIndex);
   return { ok: true, message: 'Student time log deleted.' };
+}
+
+function handleDebugSupervisorAssignment_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var mainDbId = String(PropertiesService.getScriptProperties().getProperty('MAIN_DB') || '').trim();
+
+  var users = [];
+  try {
+    users = readSheetObjects_(getSheet_('users'));
+  } catch (err) {
+    return {
+      ok: true,
+      debug: {
+        main_db_id: mainDbId,
+        users_count: 0,
+        candidate_students_count: 0,
+        supervisor_found: false,
+        supervisor_role: '',
+        sample_users: [],
+        sheet_error: err && err.message ? String(err.message) : String(err),
+      },
+    };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  var candidateCount = 0;
+  var sampleUsers = [];
+
+  for (var i = 0; i < users.length; i++) {
+    var rowUserId = String(users[i].user_id || '').trim();
+    var roleValue = String(users[i].role || '').trim().toLowerCase();
+    var fullName = String(users[i].full_name || '').trim();
+
+    if (rowUserId && rowUserId !== supervisorUserId && roleValue !== 'supervisor') {
+      candidateCount += 1;
+    }
+
+    if (sampleUsers.length < 8) {
+      sampleUsers.push({
+        user_id: rowUserId,
+        full_name: fullName,
+        role: String(users[i].role || ''),
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    debug: {
+      main_db_id: mainDbId,
+      users_count: users.length,
+      candidate_students_count: candidateCount,
+      supervisor_found: Boolean(supervisorRecord),
+      supervisor_role: supervisorRecord ? String(supervisorRecord.user.role || '') : '',
+      sample_users: sampleUsers,
+      sheet_error: '',
+    },
+  };
 }
 
 function getCompletedHoursLookupByUserIds_(userIds) {

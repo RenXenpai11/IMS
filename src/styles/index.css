@@ -433,6 +433,40 @@ button {
   gap: 0.5rem;
 }
 
+.sync-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 0.45rem 0.65rem;
+  background: var(--color-soft);
+  color: var(--color-heading);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.sync-button:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.sync-button:disabled {
+  opacity: 0.75;
+  cursor: default;
+}
+
+.sync-icon-spin {
+  animation: sync-rotate 0.9s linear infinite;
+}
+
+@keyframes sync-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .profile-button {
   display: inline-flex;
   align-items: center;

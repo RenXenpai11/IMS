@@ -14,6 +14,7 @@
   import { getPageMeta, normalizePath } from './app/routes.js';
   import {
     getCurrentUser,
+    hydrateAuthSession,
     isAuthenticated,
     restoreAuthSession,
     subscribeToCurrentUser,
@@ -67,7 +68,9 @@
 
   onMount(() => {
     initializeTheme();
-    currentUser = getCurrentUser();
+    // Hydrate local session immediately so role-based UI is correct on first paint.
+    currentUser = hydrateAuthSession() || getCurrentUser();
+    syncRoute();
 
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
@@ -75,7 +78,6 @@
     });
 
     restoreAuthSession();
-    syncRoute();
     window.addEventListener('hashchange', syncRoute);
 
     return () => {

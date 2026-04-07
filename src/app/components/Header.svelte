@@ -1,7 +1,8 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Bell, Check, ChevronDown, LogOut, Search, Settings, User } from 'lucide-svelte';
+  import { Bell, Check, ChevronDown, LogOut, RefreshCw, Search, Settings, User } from 'lucide-svelte';
   import { signOut, subscribeToCurrentUser } from '../lib/auth.js';
+  import { subscribeToSyncState, triggerSync } from '../lib/sync.js';
 
   export let pageTitle = 'Internship Management System';
   export let pageDescription = '';
@@ -62,6 +63,8 @@
   let notifications = initialNotifications;
   let currentUser = null;
   let unsubscribeAuth;
+  let unsubscribeSyncState;
+  let syncing = false;
 
   function buildInitials(fullName) {
     const value = String(fullName || '').trim();
@@ -121,15 +124,27 @@
     window.location.hash = '/login';
   }
 
+  function handleSyncNow() {
+    triggerSync('manual');
+  }
+
   onMount(() => {
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
+    });
+
+    unsubscribeSyncState = subscribeToSyncState((state) => {
+      syncing = Boolean(state?.syncing);
     });
   });
 
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') {
       unsubscribeAuth();
+    }
+
+    if (typeof unsubscribeSyncState === 'function') {
+      unsubscribeSyncState();
     }
   });
 </script>
@@ -148,6 +163,11 @@
   </div>
 
   <div class="header-actions">
+    <button class="sync-button" type="button" on:click={handleSyncNow} disabled={syncing} aria-label="Sync latest data">
+      <RefreshCw size={14} class={syncing ? 'sync-icon-spin' : ''} />
+      <span>{syncing ? 'Syncing...' : 'Sync'}</span>
+    </button>
+
     <div class="menu-shell">
       <button class="icon-button" type="button" on:click={toggleNotifications} aria-label="Notifications">
         <Bell size={17} />

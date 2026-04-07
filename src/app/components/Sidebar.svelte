@@ -30,8 +30,8 @@
   ];
 
   const supervisorNavItems = [
-    { path: '/', label: 'Supervisor Dashboard', icon: LayoutDashboard },
-    { path: '/time-log', label: 'Time Log Management', icon: Clock },
+    { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/time-log', label: 'Time Logs', icon: Clock },
     { path: '/requests', label: 'Requests', icon: FileCheck },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];

@@ -8,14 +8,16 @@
     listSupervisorTimeLogs,
     subscribeToCurrentUser,
   } from '../lib/auth.js';
+  import { subscribeToSync } from '../lib/sync.js';
 
   let currentUser = null;
   let unsubscribeAuth;
+  let unsubscribeSync;
   let assignedStudents = [];
   let selectedStudentId = '';
   let selectedStudent = null;
   let logs = [];
-  let loadingStudents = false;
+  let loadingStudents = true;
   let loadingLogs = false;
   let deletingId = '';
   let errorMessage = '';
@@ -46,6 +48,11 @@
       return '-';
     }
 
+    const isoTime = text.match(/T(\d{2}):(\d{2})/);
+    if (isoTime) {
+      return toTimeText(`${isoTime[1]}:${isoTime[2]}`);
+    }
+
     const amPmTime = text.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
     if (amPmTime) {
       return `${amPmTime[1]}:${amPmTime[2]} ${String(amPmTime[3] || '').toUpperCase()}`;
@@ -69,6 +76,63 @@
     return `${hours}:${minutes} ${marker}`;
   }
 
+  function normalizeTimeValue(value, fallback = '') {
+    const to24HourString = (hours, minutes) => {
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    };
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return to24HourString(value.getHours(), value.getMinutes());
+    }
+
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      const fraction = ((numeric % 1) + 1) % 1;
+      const totalMinutes = Math.round(fraction * 24 * 60) % (24 * 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return to24HourString(hours, minutes);
+    }
+
+    const text = String(value || '').trim();
+    if (!text) {
+      return fallback;
+    }
+
+    const isoTime = text.match(/T(\d{2}):(\d{2})/);
+    if (isoTime) {
+      return `${isoTime[1]}:${isoTime[2]}`;
+    }
+
+    const amPmTime = text.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
+    if (amPmTime) {
+      let hours = Number(amPmTime[1]);
+      const minutes = Number(amPmTime[2]);
+      const marker = String(amPmTime[3] || '').toUpperCase();
+
+      if (marker === 'PM' && hours < 12) {
+        hours += 12;
+      }
+      if (marker === 'AM' && hours === 12) {
+        hours = 0;
+      }
+
+      return to24HourString(hours, minutes);
+    }
+
+    const h24Time = text.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
+    if (h24Time) {
+      const hours = Number(h24Time[1]);
+      const minutes = Number(h24Time[2]);
+
+      if (Number.isFinite(hours) && Number.isFinite(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+        return to24HourString(hours, minutes);
+      }
+    }
+
+    return fallback;
+  }
+
   function formatDate(value) {
     const text = toDateOnly(value);
     const parsed = new Date(`${text}T00:00:00`);
@@ -87,8 +151,8 @@
     return {
       timelog_id: String(row?.timelog_id || ''),
       log_date: toDateOnly(row?.log_date),
-      time_in: String(row?.time_in || ''),
-      time_out: String(row?.time_out || ''),
+      time_in: normalizeTimeValue(row?.time_in, ''),
+      time_out: normalizeTimeValue(row?.time_out, ''),
       notes: String(row?.notes || ''),
       hours_rendered: toNumber(row?.hours_rendered),
       created_at: String(row?.created_at || ''),
@@ -97,11 +161,14 @@
 
   async function loadAssignedStudents() {
     const supervisorId = String(currentUser?.user_id || '').trim();
-    if (!supervisorId || !isSupervisorUser) {
+    const roleNow = String(currentUser?.role || '').trim().toLowerCase();
+
+    if (!supervisorId || roleNow !== 'supervisor') {
       assignedStudents = [];
       selectedStudentId = '';
       selectedStudent = null;
       logs = [];
+      loadingStudents = false;
       return;
     }
 
@@ -136,8 +203,9 @@
   async function loadLogs() {
     const supervisorId = String(currentUser?.user_id || '').trim();
     const studentId = String(selectedStudentId || '').trim();
+    const roleNow = String(currentUser?.role || '').trim().toLowerCase();
 
-    if (!supervisorId || !studentId || !isSupervisorUser) {
+    if (!supervisorId || !studentId || roleNow !== 'supervisor') {
       logs = [];
       return;
     }
@@ -195,12 +263,20 @@
       loadAssignedStudents();
     });
 
-    loadAssignedStudents();
+    unsubscribeSync = subscribeToSync(() => {
+      if (!deletingId) {
+        loadAssignedStudents();
+      }
+    });
   });
 
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') {
       unsubscribeAuth();
+    }
+
+    if (typeof unsubscribeSync === 'function') {
+      unsubscribeSync();
     }
   });
 
@@ -228,9 +304,11 @@
 
         <div class="flex w-full gap-2 lg:w-auto">
           <label class="relative flex-1 lg:w-[20rem]">
-            <ListFilter size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--color-muted)]" />
+            <ListFilter size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-(--color-muted)" />
             <select bind:value={selectedStudentId} class="supervisor-input w-full rounded-lg border px-3 py-2.5 pl-9 outline-none" on:change={loadLogs}>
-              {#if assignedStudents.length === 0}
+              {#if loadingStudents}
+                <option value="">Loading student accounts...</option>
+              {:else if assignedStudents.length === 0}
                 <option value="">No assigned students</option>
               {:else}
                 {#each assignedStudents as student (student.user_id)}
@@ -260,7 +338,11 @@
       </p>
     {/if}
 
-    {#if selectedStudent}
+    {#if loadingStudents}
+      <section class="supervisor-card rounded-xl border p-6 shadow-md">
+        <p class="supervisor-sub text-sm">Loading student accounts...</p>
+      </section>
+    {:else if selectedStudent}
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <article class="supervisor-card rounded-xl border p-5 shadow-md">
           <div class="supervisor-icon icon-blue"><UserCircle2 size={18} /></div>

@@ -1,35 +1,40 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
   import {
-    Building2,
     Clock3,
     Layers3,
     RefreshCw,
+    Search,
     Save,
     TrendingUp,
     UserPlus2,
     Users,
+    X,
   } from 'lucide-svelte';
   import {
     assignStudentsToSupervisor,
+    debugSupervisorAssignment,
     getCurrentUser,
     listStudentsForAssignment,
     listSupervisorAssignedStudents,
     subscribeToCurrentUser,
   } from '../lib/auth.js';
+  import { subscribeToSync } from '../lib/sync.js';
 
   let currentUser = null;
   let unsubscribeAuth;
-  let loading = false;
+  let unsubscribeSync;
+  let loading = true;
   let saving = false;
   let errorMessage = '';
   let successMessage = '';
+  let debugInfo = null;
+  const SHOW_ASSIGN_DEBUG = false;
 
-  let companyFilter = '';
-  let departmentFilter = '';
   let availableStudents = [];
   let assignedStudents = [];
   let selectedStudentIds = [];
+  let studentSearch = '';
 
   function normalizeDate(value) {
     const text = String(value || '').trim();
@@ -61,6 +66,22 @@
     return Math.min(100, Math.round((completed / required) * 100));
   }
 
+  function getInitials(fullName) {
+    const value = String(fullName || '').trim();
+    if (!value) {
+      return 'ST';
+    }
+
+    const initials = value
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('');
+
+    return initials || 'ST';
+  }
+
   function syncSelectedFromAvailable() {
     selectedStudentIds = availableStudents
       .filter((student) => student?.is_assigned)
@@ -69,30 +90,62 @@
 
   async function loadData() {
     const supervisorId = String(currentUser?.user_id || '').trim();
-    if (!supervisorId || !isSupervisorUser) {
+    const roleNow = String(currentUser?.role || '').trim().toLowerCase();
+
+    if (!supervisorId || roleNow !== 'supervisor') {
       availableStudents = [];
       assignedStudents = [];
       selectedStudentIds = [];
+      debugInfo = {
+        local_user_id: supervisorId || '(missing)',
+        local_role: roleNow || '(missing)',
+        debug_call_error: !supervisorId
+          ? 'Missing supervisor user_id in current session.'
+          : 'Current user is not supervisor.',
+      };
       return;
     }
 
     loading = true;
     errorMessage = '';
+    debugInfo = {
+      local_user_id: supervisorId,
+      local_role: roleNow || '(missing)',
+      debug_call_error: '',
+    };
 
     try {
       const [students, assigned] = await Promise.all([
-        listStudentsForAssignment(supervisorId, {
-          company: companyFilter,
-          department: departmentFilter,
-        }),
+        listStudentsForAssignment(supervisorId),
         listSupervisorAssignedStudents(supervisorId),
       ]);
 
       availableStudents = students;
       assignedStudents = assigned;
       syncSelectedFromAvailable();
+
+      if (!students.length) {
+        try {
+          const serverDebug = await debugSupervisorAssignment(supervisorId);
+          debugInfo = {
+            ...debugInfo,
+            ...(serverDebug || {}),
+          };
+        } catch (err) {
+          debugInfo = {
+            ...debugInfo,
+            debug_call_error: err?.message || 'Debug action call failed.',
+          };
+        }
+      } else {
+        debugInfo = null;
+      }
     } catch (err) {
       errorMessage = err?.message || 'Unable to load supervisor dashboard data.';
+      debugInfo = {
+        ...debugInfo,
+        debug_call_error: errorMessage,
+      };
     } finally {
       loading = false;
     }
@@ -112,9 +165,31 @@
     selectedStudentIds = [...selectedStudentIds, target];
   }
 
+  function selectAllShown() {
+    const ids = filteredStudents
+      .map((student) => String(student?.user_id || '').trim())
+      .filter(Boolean);
+
+    selectedStudentIds = Array.from(new Set([...selectedStudentIds, ...ids]));
+  }
+
+  function clearSelection() {
+    selectedStudentIds = [];
+  }
+
+  function removeSelectedStudent(studentId) {
+    const target = String(studentId || '').trim();
+    if (!target) {
+      return;
+    }
+    selectedStudentIds = selectedStudentIds.filter((id) => id !== target);
+  }
+
   async function handleSaveAssignments() {
     const supervisorId = String(currentUser?.user_id || '').trim();
-    if (!supervisorId || !isSupervisorUser) {
+    const roleNow = String(currentUser?.role || '').trim().toLowerCase();
+
+    if (!supervisorId || roleNow !== 'supervisor') {
       errorMessage = 'Only supervisor accounts can save assignments.';
       return;
     }
@@ -124,10 +199,7 @@
     successMessage = '';
 
     try {
-      await assignStudentsToSupervisor(supervisorId, selectedStudentIds, {
-        company: companyFilter,
-        department: departmentFilter,
-      });
+      await assignStudentsToSupervisor(supervisorId, selectedStudentIds);
       successMessage = 'Assigned students updated successfully.';
       await loadData();
     } catch (err) {
@@ -139,22 +211,26 @@
 
   onMount(() => {
     currentUser = getCurrentUser();
-    departmentFilter = String(currentUser?.department || '').trim();
 
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
-      if (!departmentFilter) {
-        departmentFilter = String(user?.department || '').trim();
-      }
       loadData();
     });
 
-    loadData();
+    unsubscribeSync = subscribeToSync(() => {
+      if (!saving) {
+        loadData();
+      }
+    });
   });
 
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') {
       unsubscribeAuth();
+    }
+
+    if (typeof unsubscribeSync === 'function') {
+      unsubscribeSync();
     }
   });
 
@@ -164,6 +240,27 @@
   $: averageProgress = totalRequiredHours > 0 ? Math.round((totalCompletedHours / totalRequiredHours) * 100) : 0;
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
   $: isSupervisorUser = currentRole === 'supervisor';
+  $: normalizedStudentSearch = String(studentSearch || '').trim().toLowerCase();
+  $: filteredStudents = availableStudents.filter((student) => {
+    if (!normalizedStudentSearch) {
+      return true;
+    }
+
+    const haystack = [
+      String(student?.full_name || ''),
+      String(student?.email || ''),
+      String(student?.department || ''),
+      String(student?.company || ''),
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(normalizedStudentSearch);
+  });
+  $: selectedStudentsPreview = availableStudents.filter((student) =>
+    selectedStudentIds.includes(String(student?.user_id || ''))
+  );
+  $: selectedCount = selectedStudentIds.length;
 </script>
 
 {#if currentUser && !isSupervisorUser}
@@ -214,7 +311,7 @@
       <div class="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h3 class="supervisor-heading text-lg font-semibold">Assign Students</h3>
-          <p class="supervisor-sub mt-1 text-sm">Pick students that will be handled by your account.</p>
+          <p class="supervisor-sub mt-1 text-sm">Pick students from the spreadsheet that will be handled by your account.</p>
         </div>
 
         <div class="flex gap-2">
@@ -229,37 +326,84 @@
         </div>
       </div>
 
-      <div class="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <label class="flex flex-col gap-1.5">
-          <span class="supervisor-sub text-sm font-medium">Company</span>
-          <div class="relative">
-            <Building2 size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[color:var(--color-muted)]" />
-            <input bind:value={companyFilter} type="text" class="supervisor-input w-full rounded-lg border px-4 py-2.5 pl-9 outline-none" placeholder="e.g. Globe" />
-          </div>
+      <div class="assign-toolbar mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <label class="search-wrap w-full lg:max-w-md">
+          <span class="search-icon"><Search size={14} /></span>
+          <input
+            bind:value={studentSearch}
+            type="text"
+            class="search-input w-full rounded-lg border px-3 py-2.5 pl-9 text-sm outline-none"
+            placeholder="Search students by name, email, or department"
+          />
         </label>
 
-        <label class="flex flex-col gap-1.5">
-          <span class="supervisor-sub text-sm font-medium">Department</span>
-          <input bind:value={departmentFilter} type="text" class="supervisor-input w-full rounded-lg border px-4 py-2.5 outline-none" placeholder="e.g. IT Department" />
-        </label>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="selected-chip rounded-full px-3 py-1 text-xs font-semibold">{selectedCount} selected</span>
+          <button
+            type="button"
+            class="btn-light rounded-lg px-3 py-2 text-xs font-semibold"
+            on:click={selectAllShown}
+            disabled={!filteredStudents.length || saving}
+          >
+            Select All Shown
+          </button>
+          <button
+            type="button"
+            class="btn-light rounded-lg px-3 py-2 text-xs font-semibold"
+            on:click={clearSelection}
+            disabled={!selectedCount || saving}
+          >
+            Clear Selection
+          </button>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {#if availableStudents.length === 0}
-          <p class="supervisor-sub text-sm">No students found for the selected filters.</p>
+        {#if loading}
+          <p class="supervisor-sub text-sm">Loading student accounts...</p>
+        {:else if availableStudents.length === 0}
+          <p class="supervisor-sub text-sm">No student accounts found in the spreadsheet yet.</p>
+
+          {#if SHOW_ASSIGN_DEBUG && debugInfo}
+            <article class="debug-card mt-1 rounded-lg border p-3 text-xs">
+              <p><strong>Debug:</strong> Local supervisor_id = {debugInfo?.local_user_id || '(empty)'}</p>
+              <p>Local role = {debugInfo?.local_role || '(empty)'}</p>
+              <p>Connected MAIN_DB = {debugInfo?.main_db_id || '(empty)'}</p>
+              <p>Users read from DB: {debugInfo?.users_count ?? 0}</p>
+              <p>Candidate students found: {debugInfo?.candidate_students_count ?? 0}</p>
+              <p>Supervisor record found: {debugInfo?.supervisor_found ? 'Yes' : 'No'} ({debugInfo?.supervisor_role || '-'})</p>
+              {#if debugInfo?.sheet_error}
+                <p>Sheet error: {debugInfo.sheet_error}</p>
+              {/if}
+              {#if debugInfo?.debug_call_error}
+                <p>Debug call error: {debugInfo.debug_call_error}</p>
+              {/if}
+            </article>
+          {/if}
+        {:else if filteredStudents.length === 0}
+          <p class="supervisor-sub text-sm">No students match your search.</p>
         {:else}
-          {#each availableStudents as student (student.user_id)}
+          {#each filteredStudents as student (student.user_id)}
             <button
               type="button"
-              class="student-pick-card w-full rounded-lg border p-3 text-left"
+              class="student-pick-card w-full rounded-xl border p-3 text-left"
               class:student-picked={selectedStudentIds.includes(String(student.user_id || ''))}
               on:click={() => toggleStudentSelection(student.user_id)}
             >
               <div class="flex items-start justify-between gap-3">
-                <div>
-                  <p class="supervisor-heading text-sm font-semibold">{student.full_name}</p>
-                  <p class="supervisor-sub text-xs">{student.email}</p>
-                  <p class="supervisor-sub mt-1 text-xs">{student.company || '-'} • {student.department || '-'}</p>
+                <div class="flex min-w-0 items-start gap-3">
+                  <span class="student-avatar">
+                    {#if student.profile_photo_url}
+                      <img src={student.profile_photo_url} alt={`${student.full_name} avatar`} class="student-avatar-image" />
+                    {:else}
+                      {getInitials(student.full_name)}
+                    {/if}
+                  </span>
+                  <div class="min-w-0">
+                    <p class="supervisor-heading truncate text-sm font-semibold">{student.full_name}</p>
+                    <p class="supervisor-sub truncate text-xs">{student.email}</p>
+                    <p class="supervisor-sub mt-1 text-xs">{student.company || '-'} • {student.department || '-'}</p>
+                  </div>
                 </div>
                 <span class="pick-indicator rounded-full px-2 py-0.5 text-[11px] font-semibold">
                   {selectedStudentIds.includes(String(student.user_id || '')) ? 'Selected' : 'Select'}
@@ -269,6 +413,24 @@
           {/each}
         {/if}
       </div>
+
+      {#if selectedStudentsPreview.length > 0}
+        <div class="selected-preview mt-4 rounded-lg border p-3">
+          <p class="supervisor-heading mb-2 text-xs font-semibold uppercase tracking-[0.08em]">Selected Students</p>
+          <div class="flex flex-wrap gap-2">
+            {#each selectedStudentsPreview as student (student.user_id)}
+              <button
+                type="button"
+                class="selected-pill inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
+                on:click={() => removeSelectedStudent(student.user_id)}
+              >
+                <span>{student.full_name}</span>
+                <X size={12} />
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
     </section>
 
     <section class="supervisor-card rounded-xl border p-6 shadow-md">
@@ -376,12 +538,6 @@
     color: #a5f3fc;
   }
 
-  .supervisor-input {
-    background: var(--color-soft);
-    border-color: var(--color-border);
-    color: var(--color-text);
-  }
-
   .btn-primary,
   .btn-light {
     display: inline-flex;
@@ -405,9 +561,43 @@
     color: var(--color-heading);
   }
 
+  .assign-toolbar {
+    border-top: 1px solid var(--color-border);
+    padding-top: 0.85rem;
+  }
+
+  .search-wrap {
+    position: relative;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-muted);
+    pointer-events: none;
+  }
+
+  .search-input {
+    background: var(--color-soft);
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+
+  .selected-chip {
+    background: var(--color-active-bg);
+    color: var(--color-active-text);
+  }
+
   .student-pick-card {
     background: var(--color-soft);
     border-color: var(--color-border);
+    transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .student-pick-card:hover {
+    transform: translateY(-1px);
   }
 
   .student-picked {
@@ -418,6 +608,46 @@
   .pick-indicator {
     background: var(--color-active-bg);
     color: var(--color-active-text);
+  }
+
+  .student-avatar {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #ffffff;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    overflow: hidden;
+  }
+
+  .student-avatar-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .selected-preview {
+    border-color: var(--color-border);
+    background: var(--color-soft);
+  }
+
+  .selected-pill {
+    background: color-mix(in srgb, var(--color-active-bg) 75%, transparent);
+    color: var(--color-active-text);
+    border: 1px solid color-mix(in srgb, var(--color-active-text) 25%, transparent);
+  }
+
+  .debug-card {
+    border-color: var(--color-border);
+    background: var(--color-soft);
+    color: var(--color-sidebar-text);
+    line-height: 1.45;
   }
 
 </style>
