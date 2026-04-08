@@ -28,6 +28,7 @@
   // Server data (raw)
   let profile = null;
   let timeLogs = [];
+  let totalCompletedHours = 0;
   let activityLogs = [];
   let tasks = [];
 
@@ -115,9 +116,18 @@
   }
 
   $: totalOjtHours = Number(formTotalOjtHours || profile?.total_ojt_hours || 0);
-  $: hoursCompleted = sumHours(timeLogs, progressMode);
+  $: hoursCompleted = totalCompletedHours;
   $: hoursRemaining = Math.max(0, totalOjtHours - hoursCompleted);
   $: workingDaysNeeded = Math.ceil(hoursRemaining / 8);
+  // Calculate days and remaining hours (e.g., "54 days 4 hours")
+  $: daysAndHoursNeeded = (() => {
+    const fullDays = Math.floor(hoursRemaining / 8);
+    const remainingHoursOnly = Math.round((hoursRemaining % 8) * 10) / 10;
+    if (remainingHoursOnly === 0) {
+      return `${fullDays} day${fullDays !== 1 ? 's' : ''}`;
+    }
+    return `${fullDays} day${fullDays !== 1 ? 's' : ''} ${remainingHoursOnly}h`;
+  })();
 
   $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / 8);
   $: computedEstimatedEndDateObj = formStartDate
@@ -164,6 +174,8 @@
       const data = await getStudentDashboard(currentUser.user_id, { limit: 10 });
       profile = data.profile;
       timeLogs = data.time_logs;
+      // Read completed hours from localStorage (synced by TimeLog page), fallback to backend if empty
+      totalCompletedHours = Number(localStorage.getItem('ojt_completed_hours') ?? data.total_completed_hours ?? 0);
       tasks = data.tasks;
 
       // Create activity items from time logs (Logged In / Logged Out entries)
@@ -204,7 +216,7 @@
       activityLogs = allActivities;
 
       // Initialize form fields (only if empty / first load)
-      formStartDate = String(profile?.start_date || formStartDate || '').slice(0, 10);
+      formStartDate = String(profile?.start_date || currentUser?.ojt?.start_date || formStartDate || '').slice(0, 10);
       formTotalOjtHours = Number(profile?.total_ojt_hours || formTotalOjtHours || 0);
       readonlyCourse = String(profile?.course || currentUser?.ojt?.course || '').trim();
       readonlySchool = String(profile?.school || currentUser?.ojt?.school || '').trim();
@@ -304,7 +316,7 @@
         </div>
         <div class="card-content">
           <div class="stat-value">{hoursCompleted}</div>
-          <div class="stat-label">{progressMode === PROGRESS_MODES.APPROVED ? 'approved logs' : 'all logs'}</div>
+          <div class="stat-label">all rendered hours</div>
         </div>
       </div>
 
@@ -325,8 +337,8 @@
           <span class="card-icon">📅</span>
         </div>
         <div class="card-content">
-          <div class="stat-value">{workingDaysNeeded}</div>
-          <div class="stat-label">@ 8 hrs/day (Mon–Fri)</div>
+          <div class="stat-value">{daysAndHoursNeeded}</div>
+          <div class="stat-label">to complete OJT</div>
         </div>
       </div>
     </div>
@@ -365,11 +377,6 @@
           <label class="field">
             <span>Start Date</span>
             <input type="text" readonly value={formStartDate ? formatDateLong(parseIsoDateOnly(formStartDate)) : ''} />
-          </label>
-
-          <label class="field">
-            <span>Total OJT Hours</span>
-            <input type="text" readonly value={formTotalOjtHours || ''} />
           </label>
 
           <label class="field">

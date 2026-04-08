@@ -293,11 +293,25 @@
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
   $: remainingHours = Math.max(0, requiredHours - completedHours);
   $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
+  // Save completed hours to localStorage whenever it changes (for Dashboard to read)
+  $: if (typeof window !== 'undefined' && completedHours >= 0) {
+    localStorage.setItem('ojt_completed_hours', String(completedHours));
+  }
   $: effectiveRemaining = Math.max(0, remainingHours - overtimeHours);
   $: baseDaysNeeded = Math.ceil(effectiveRemaining / AVERAGE_DAILY_HOURS);
   $: totalDaysNeeded = baseDaysNeeded + absenceDays;
   $: estimatedDate = addWorkingDays(TODAY, totalDaysNeeded);
   $: overtimeDaysAhead = Math.round((overtimeHours / AVERAGE_DAILY_HOURS) * 10) / 10;
+  // Calculate days and remaining hours (e.g., "54 days 4 hours")
+  $: daysAndHours = (() => {
+    const totalHours = Math.max(0, effectiveRemaining);
+    const fullDays = Math.floor(totalHours / AVERAGE_DAILY_HOURS);
+    const remainingHoursOnly = Math.round((totalHours % AVERAGE_DAILY_HOURS) * 10) / 10;
+    if (remainingHoursOnly === 0) {
+      return `${fullDays} day${fullDays !== 1 ? 's' : ''}`;
+    }
+    return `${fullDays} day${fullDays !== 1 ? 's' : ''} ${remainingHoursOnly}h`;
+  })();
   $: statCards = [
     {
       label: 'Total Hours Required',
