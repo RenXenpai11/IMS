@@ -209,6 +209,10 @@ async function postAction(action, payload = {}) {
   return result;
 }
 
+export async function callApiAction(action, payload = {}) {
+  return postAction(action, payload);
+}
+
 export function getCurrentUser() {
   return currentUser;
 }

@@ -1,5 +1,6 @@
 <script>
 import { onMount, onDestroy, tick } from 'svelte';
+import { theme } from '../context/ThemeContext.js';
 // For real-time update of 'Updated X minutes ago'
 let now = new Date();
 let intervalId;
@@ -1233,9 +1234,9 @@ const summaryCards = [
       {#if activeView === 'Overview'}
         <div class="overview-shell">
           <div class="overview-panels">
-            <section class="overview-panel" style="background: #fff;">
+            <section class="overview-panel" style="background: var(--color-surface);">
               <h4 style="display: flex; align-items: center; gap: 0.5rem;">
-                <LayoutGrid size={18} style="color: #6366f1; background: #eef2ff; border-radius: 0.4rem; padding: 0.18rem;" />
+                <LayoutGrid size={18} style="color: #6366f1; background: color-mix(in srgb, #6366f1 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 Today's Task
               </h4>
               {#if todayTasks.length === 0}
@@ -1261,7 +1262,7 @@ const summaryCards = [
 
             <section class="overview-panel">
               <h4 style="display: flex; align-items: center; gap: 0.5rem;">
-                <Clock size={18} style="color: #22c55e; background: #e0f7ef; border-radius: 0.4rem; padding: 0.18rem;" />
+                <Clock size={18} style="color: #22c55e; background: color-mix(in srgb, #22c55e 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 Due Soon
               </h4>
               {#if dueSoonTasks.length === 0}
@@ -1287,7 +1288,7 @@ const summaryCards = [
 
             <section class="overview-panel notes-panel">
               <div class="notes-header" style="display: flex; align-items: center; gap: 0.5rem;">
-                <List size={18} style="color: #a21caf; background: #f3e8ff; border-radius: 0.4rem; padding: 0.18rem;" />
+                <List size={18} style="color: #a21caf; background: color-mix(in srgb, #a21caf 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                 <div class="notes-title">Today's Learnings</div>
               </div>
               <div class="notes-textarea-wrap">
@@ -1305,7 +1306,7 @@ const summaryCards = [
             <section class="overview-tracker tracker-card">
               <div class="tracker-card-head" style="display: flex; align-items: center; gap: 0.5rem;">
                 <div class="tracker-card-heading" style="display: flex; align-items: center; gap: 0.5rem;">
-                  <LayoutGrid size={18} style="color: #6366f1; background: #eef2ff; border-radius: 0.4rem; padding: 0.18rem;" />
+                  <LayoutGrid size={18} style="color: #6366f1; background: color-mix(in srgb, #6366f1 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
                   <h4 style="margin: 0;">Task Focus</h4>
                 </div>
                 <div class="tracker-head-actions">
@@ -1423,8 +1424,8 @@ const summaryCards = [
               {:else}
                 <div class="tracker-summary">
                   <p class="tracker-title">{selectedOverviewTask.title}</p>
-                  <p class="tracker-description" style="color: #334155; margin-bottom: 0.25em; line-height: 1.4;">{selectedOverviewTask.description}</p>
-                  <p class="tracker-meta" style="font-style: italic; color: #64748b; font-size: 0.97em; margin-bottom: 0.1em; line-height: 1.3;">
+                  <p class="tracker-description" style="color: var(--color-text); margin-bottom: 0.25em; line-height: 1.4;">{selectedOverviewTask.description}</p>
+                  <p class="tracker-meta" style="font-style: italic; color: var(--color-muted); font-size: 0.97em; margin-bottom: 0.1em; line-height: 1.3;">
                     Due {selectedOverviewTask.dueDate}
                     <span aria-hidden="true">•</span>
                     {formatAttachmentMeta(selectedOverviewTask.attachments)}
@@ -1466,7 +1467,7 @@ const summaryCards = [
                     <div class="task-description-row">
                       <p class="task-description-modern">{task.description}</p>
                       {#if task.dateCreated}
-                        <p class="task-meta-modern" style="font-style: italic; color: #64748b; font-size: 0.92em; margin-bottom: 0.2em;">
+                        <p class="task-meta-modern" style="font-style: italic; color: var(--color-muted); font-size: 0.92em; margin-bottom: 0.2em;">
                           Date Created: {task.dateCreated}
                         </p>
                       {/if}
@@ -1661,7 +1662,7 @@ const summaryCards = [
 
   <style>
   .notes-panel {
-    background: linear-gradient(135deg, #f8fafc 60%, #ede9fe 100%);
+    background: var(--color-surface);
     border-radius: 1.1rem;
     box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07);
     padding: 1.2rem 1.3rem 1.1rem 1.3rem;
@@ -1669,7 +1670,7 @@ const summaryCards = [
     flex-direction: column;
     align-items: stretch;
     min-height: 210px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--color-border);
     gap: 0.7rem;
   }
   .notes-header {
@@ -1683,7 +1684,7 @@ const summaryCards = [
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #ede9fe;
+    background: color-mix(in srgb, #ede9fe 50%, var(--color-surface));
     border-radius: 0.7rem;
     width: 2.5rem;
     height: 2.5rem;
@@ -1691,28 +1692,28 @@ const summaryCards = [
   .notes-title {
     font-size: 1rem;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--color-heading);
     margin-bottom: 0.1rem;
     letter-spacing: 0.01em;
   }
   .notes-subtitle {
     font-size: 0.86rem;
-    color: #605f5f;
+    color: var(--color-muted);
     font-weight: 500;
     margin-bottom: 0.1rem;
   }
   .notes-textarea-wrap {
-    background: #f3f4f6;
+    background: var(--color-soft);
     border-radius: 0.7rem;
     padding: 0.7rem 0.7rem 0.5rem 0.7rem;
-    border: 1.5px solid #ede9fe;
+    border: 1.5px solid var(--color-border);
   }
   .notes-textarea {
     width: 100%;
     border: none;
     background: transparent;
     font-size: 0.9rem;
-    color: #1f2937;
+    color: var(--color-text);
     min-height: 90px;
     resize: vertical;
     outline: none;
@@ -1720,7 +1721,7 @@ const summaryCards = [
     font-weight: 500;
   }
   .notes-textarea::placeholder {
-    color: #6b7280;
+    color: var(--color-muted);
     font-size: 0.9rem;
     font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
     font-weight: 500;
@@ -1728,20 +1729,34 @@ const summaryCards = [
   }
   :global(html) {
     font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
-    background: var(--color-bg, #f8fafc);
-    color: var(--color-text, #1e293b);
+    --color-bg: #f8fafc;
+    --color-surface: #ffffff;
+    --color-soft: #f3f4f6;
+    --color-card: #ffffff;
+    --color-border: #e5e7eb;
+    --color-heading: #0f172a;
+    --color-text: #1f2937;
+    --color-muted: #605f5f;
+    --color-accent: #6366f1;
+    --color-accent-bg: #232263;
+    --color-danger: #ef4444;
+    --color-success: #22c55e;
+    --color-warning: #f59e42;
+    background: var(--color-bg);
+    color: var(--color-text);
     scrollbar-gutter: stable;
   }
   :global(html.dark) {
     --color-bg: #181a20;
     --color-surface: #23263a;
+    --color-soft: #2a2d42;
     --color-card: #23263a;
-    --color-border: #23263a;
+    --color-border: #3a3f5a;
     --color-heading: #f3f4f6;
     --color-text: #e5e7eb;
+    --color-muted: #a1a1aa;
     --color-accent: #6366f1;
     --color-accent-bg: #232263;
-    --color-muted: #a1a1aa;
     --color-danger: #ef4444;
     --color-success: #22c55e;
     --color-warning: #f59e42;
@@ -1795,7 +1810,7 @@ const summaryCards = [
 
   .stat-value {
     margin: 0;
-    color: #111827;
+    color: var(--color-heading);
     font-size: 1.7rem;
     font-weight: 800;
     line-height: 1;
@@ -1809,7 +1824,7 @@ const summaryCards = [
 
   .stat-label {
     margin: 0.15rem 0 0;
-    color: #605f5f;
+    color: var(--color-muted);
     font-size: 0.86rem;
     font-weight: 700;
   }
@@ -1851,7 +1866,7 @@ const summaryCards = [
     align-items: center;
     gap: 0.4rem;
     padding: 0 0.7rem;
-    color: #8a94a7;
+    color: var(--color-muted);
   }
 
   .search-control input {
@@ -1875,8 +1890,8 @@ const summaryCards = [
     right: 0.75rem;
     width: 0.42rem;
     height: 0.42rem;
-    border-right: 1.8px solid #6b7280;
-    border-bottom: 1.8px solid #6b7280;
+    border-right: 1.8px solid var(--color-muted);
+    border-bottom: 1.8px solid var(--color-muted);
     transform: rotate(45deg) translateY(-0.08rem);
     pointer-events: none;
   }
@@ -1886,7 +1901,7 @@ const summaryCards = [
     -webkit-appearance: none;
     -moz-appearance: none;
     padding: 0 1.85rem 0 0.75rem;
-    color: #4b5563;
+    color: var(--color-text);
     font-size: 0.84rem;
     cursor: pointer;
     outline: none;
@@ -1922,7 +1937,7 @@ const summaryCards = [
     align-items: center;
     gap: 0.35rem;
     padding: 0 0.75rem;
-    color: #6b7280;
+    color: var(--color-muted);
     font-size: 0.84rem;
     cursor: pointer;
   }
@@ -1930,7 +1945,7 @@ const summaryCards = [
   .view-toggle button.active {
     color: #4f46e5;
     border-color: #c7d2fe;
-    background: #eef2ff;
+    background: color-mix(in srgb, #4f46e5 10%, var(--color-surface));
   }
 
   .view-toggle button.active span {
@@ -1947,7 +1962,7 @@ const summaryCards = [
 
   .panel-header h3 {
     margin: 0;
-    color: #111827;
+    color: var(--color-heading);
     font-size: 1rem;
     font-weight: 700;
     letter-spacing: -0.01em;
@@ -1973,7 +1988,7 @@ const summaryCards = [
     align-items: center;
     gap: 1.1rem;
     margin-right: 0.8rem;
-    color: #1f2937;
+    color: var(--color-heading);
     font-size: 1rem;
     font-weight: 650;
     letter-spacing: -0.01em;
@@ -1983,7 +1998,7 @@ const summaryCards = [
     display: grid;
     gap: 1rem;
     padding: 1rem;
-    background: #fafbff;
+    background: var(--color-soft);
   }
 
   .overview-panels {
@@ -1993,16 +2008,16 @@ const summaryCards = [
   }
 
   .overview-panel {
-    border: 1px solid #dbe2f0;
+    border: 1px solid var(--color-border);
     border-radius: 0.8rem;
-    background: #ffffff;
+    background: var(--color-surface);
     padding: 0.95rem;
     min-height: 10.25rem;
   }
 
   .overview-panel h4 {
     margin: 0;
-    color: #0f172a;
+    color: var(--color-heading);
     font-size: 1rem;
     font-weight: 650;
   }
@@ -2026,7 +2041,7 @@ const summaryCards = [
     justify-content: space-between;
     gap: 0.6rem;
     font-size: 0.81rem;
-    color: #334155;
+    color: var(--color-text);
     text-align: left;
     border: 1px solid transparent;
     border-radius: 0.5rem;
@@ -2037,8 +2052,8 @@ const summaryCards = [
 
   .overview-task-link:hover,
   .overview-task-link.active {
-    background: #f8fafc;
-    border-color: #dbe2f0;
+    background: var(--color-soft);
+    border-color: var(--color-border);
   }
 
   .overview-panel li span {
@@ -2049,13 +2064,13 @@ const summaryCards = [
   }
 
   .overview-panel li small {
-    color: #64748b;
+    color: var(--color-muted);
     font-size: 0.77rem;
   }
 
   .overview-empty-copy {
     margin: 0.7rem 0 0;
-    color: #94a3b8;
+    color: var(--color-muted);
     font-size: 0.76rem;
   }
 
@@ -2068,9 +2083,9 @@ const summaryCards = [
   .overview-tracker {
     position: relative;
     overflow: hidden;
-    border: 1px solid #dbe2f0;
+    border: 1px solid var(--color-border);
     border-radius: 0.8rem;
-    background: #ffffff;
+    background: var(--color-surface);
     padding: 0.95rem;
     min-height: 10.25rem;
     box-shadow: 0 12px 24px -24px rgba(15, 23, 42, 0.3);
@@ -2102,7 +2117,7 @@ const summaryCards = [
 
   .tracker-card-heading h4 {
     margin: 0;
-    color: #0f172a;
+    color: var(--color-heading);
     font-size: 1rem;
     font-weight: 650;
     letter-spacing: -0.01em;
@@ -2110,7 +2125,7 @@ const summaryCards = [
 
   .tracker-purpose {
     margin: 0.12rem 0 0;
-    color: #64748b;
+    color: var(--color-muted);
     font-size: 0.82rem;
     line-height: 1.35;
   }
@@ -2131,14 +2146,14 @@ const summaryCards = [
     justify-content: center;
     border: 1px solid transparent;
     border-radius: 999px;
-    color: #94a3b8;
+    color: var(--color-muted);
     cursor: pointer;
   }
 
   .tracker-menu-trigger:hover {
-    color: #64748b;
-    background: #f8fafc;
-    border-color: #dbe2f0;
+    color: var(--color-text);
+    background: var(--color-soft);
+    border-color: var(--color-border);
   }
 
   .tracker-menu {
@@ -2146,8 +2161,8 @@ const summaryCards = [
     top: calc(100% + 0.3rem);
     right: 0;
     min-width: 8rem;
-    background: #ffffff;
-    border: 1px solid #dbe2f0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: 0.6rem;
     box-shadow: 0 12px 24px -20px rgba(15, 23, 42, 0.35);
     padding: 0.25rem;
@@ -2159,25 +2174,25 @@ const summaryCards = [
     text-align: left;
     border-radius: 0.45rem;
     padding: 0.42rem 0.5rem;
-    color: #475569;
+    color: var(--color-text);
     font-size: 0.75rem;
     cursor: pointer;
   }
 
   .tracker-menu button:hover {
-    background: #f8fafc;
+    background: var(--color-soft);
   }
 
   .tracker-title {
     margin: 0.2rem 0 0;
-    color: #0f172a;
+    color: var(--color-heading);
     font-size: 0.87rem;
     font-weight: 600;
   }
 
   .tracker-meta {
     margin: 0.35rem 0 0;
-    color: #64748b;
+    color: var(--color-muted);
     font-size: 0.83rem;
     display: flex;
     align-items: center;
@@ -2187,7 +2202,7 @@ const summaryCards = [
 
   .tracker-description {
     margin: 0.55rem 0 0;
-    color: #475569;
+    color: var(--color-text);
     font-size: 0.87rem;
     line-height: 1.45;
   }
@@ -2196,7 +2211,7 @@ const summaryCards = [
     display: grid;
     gap: 0.1rem;
     padding: 0.5rem 0.75rem 0.65rem;
-    border: 1px solid #e7ecf4;
+    border: 1px solid var(--color-border);
     border-radius: 0.85rem;
     background: none;
   }
@@ -2204,7 +2219,7 @@ const summaryCards = [
   .tracker-section-shell {
     margin-top: 0.55rem;
     padding: 0.65rem 0.75rem;
-    border: 1px solid #e7ecf4;
+    border: 1px solid var(--color-border);
     border-radius: 0.85rem;
     background: none;
   }
@@ -2229,7 +2244,7 @@ const summaryCards = [
   }
 
   .tracker-form label span {
-    color: #64748b;
+    color: var(--color-muted);
     font-size: 0.74rem;
     font-weight: 600;
   }
@@ -2237,10 +2252,10 @@ const summaryCards = [
   .tracker-form input,
   .tracker-form select,
   .tracker-form textarea {
-    border: 1px solid #dbe2f0;
+    border: 1px solid var(--color-border);
     border-radius: 0.55rem;
-    background: #ffffff;
-    color: #1f2937;
+    background: var(--color-soft);
+    color: var(--color-text);
     font-size: 0.82rem;
     padding: 0.45rem 0.55rem;
     outline: none;
@@ -2267,9 +2282,9 @@ const summaryCards = [
   }
 
   .tracker-form-actions .secondary {
-    border: 1px solid #dbe2f0;
-    background: #ffffff;
-    color: #475569;
+    border: 1px solid var(--color-border);
+    background: var(--color-soft);
+    color: var(--color-text);
   }
 
   .tracker-form-actions .primary {
@@ -2290,16 +2305,16 @@ const summaryCards = [
   }
 
   .tracker-checklist-editor-head span {
-    color: #64748b;
+    color: var(--color-muted);
     font-size: 0.74rem;
     font-weight: 600;
   }
 
   .tracker-checklist-editor-head button,
   .remove-item {
-    border: 1px solid #dbe2f0;
-    background: #ffffff;
-    color: #475569;
+    border: 1px solid var(--color-border);
+    background: var(--color-soft);
+    color: var(--color-text);
     border-radius: 0.45rem;
     padding: 0.32rem 0.5rem;
     font-size: 0.72rem;
@@ -2338,15 +2353,15 @@ const summaryCards = [
   }
 
   .attachment-editor-head span {
-    color: #64748b;
+    color: var(--color-muted);
     font-size: 0.74rem;
     font-weight: 600;
   }
 
   .attachment-upload-btn {
-    border: 1px solid #dbe2f0;
-    background: #ffffff;
-    color: #475569;
+    border: 1px solid var(--color-border);
+    background: var(--color-soft);
+    color: var(--color-text);
     border-radius: 0.45rem;
     padding: 0.32rem 0.5rem;
     font-size: 0.72rem;
@@ -2371,14 +2386,14 @@ const summaryCards = [
     align-items: center;
     justify-content: space-between;
     gap: 0.45rem;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--color-border);
     border-radius: 0.5rem;
     padding: 0.32rem 0.45rem;
-    background: #f8fafc;
+    background: var(--color-soft);
   }
 
   .attachment-list li span {
-    color: #334155;
+    color: var(--color-text);
     font-size: 0.78rem;
     min-width: 0;
     white-space: nowrap;
@@ -2394,10 +2409,10 @@ const summaryCards = [
   }
 
   .overview-link {
-    border: 1px solid #dbe2f0;
+    border: 1px solid var(--color-border);
     border-radius: 999px;
-    background: #f8fafc;
-    color: #475569;
+    background: var(--color-soft);
+    color: var(--color-text);
     padding: 0.3rem 0.6rem;
     font-size: 0.72rem;
     font-weight: 600;
@@ -2407,7 +2422,7 @@ const summaryCards = [
 
   .task-list {
     display: grid;
-    background: #f8fafc;
+    background: var(--color-soft);
     padding: 0.4rem;
     gap: 0.45rem;
   }
@@ -2418,28 +2433,28 @@ const summaryCards = [
     align-items: center;
     gap: 1.1rem;
     padding: 0.9rem 1rem;
-    border: 1px solid #e6ebf3;
+    border: 1px solid var(--color-border);
     border-radius: 0.65rem;
-    background: #ffffff;
+    background: var(--color-surface);
     transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
   }
 
   .task-row:hover {
-    border-color: #d6deea;
-    background: #f8fafc;
+    border-color: var(--color-accent);
+    background: var(--color-soft);
     box-shadow: 0 8px 22px -20px rgba(15, 23, 42, 0.35);
   }
 
   .task-accordion-item {
-    border: 1px solid #e6ebf3;
+    border: 1px solid var(--color-border);
     border-radius: 0.65rem;
-    background: #ffffff;
+    background: var(--color-surface);
     overflow: hidden;
     transition: border-color 140ms ease, box-shadow 140ms ease;
   }
 
   .task-accordion-item.expanded {
-    border-color: #d6deea;
+    border-color: var(--color-accent);
     box-shadow: 0 8px 22px -20px rgba(15, 23, 42, 0.45);
   }
 
@@ -2450,14 +2465,14 @@ const summaryCards = [
     justify-content: space-between;
     gap: 0.7rem;
     text-align: left;
-    background: #ffffff;
+    background: var(--color-surface);
     padding: 0.9rem 1rem;
     cursor: pointer;
     transition: background-color 140ms ease;
   }
 
   .task-accordion-trigger:hover {
-    background: #f8fafc;
+    background: var(--color-soft);
   }
 
   .task-trigger-left {
@@ -2471,12 +2486,12 @@ const summaryCards = [
     width: 0.45rem;
     height: 0.45rem;
     border-radius: 999px;
-    background: #9ca3af;
+    background: var(--color-muted);
     flex-shrink: 0;
   }
 
   .task-trigger-title {
-    color: #0f172a;
+    color: var(--color-heading);
     font-size: 0.9rem;
     font-weight: 500;
     min-width: 0;
@@ -2486,7 +2501,7 @@ const summaryCards = [
   }
 
   .task-accordion-trigger :global(svg) {
-    color: #94a3b8;
+    color: var(--color-muted);
     transition: transform 140ms ease;
     flex-shrink: 0;
   }
@@ -2499,8 +2514,8 @@ const summaryCards = [
     display: grid;
     gap: 0.75rem;
     padding: 0.1rem 1rem 1rem 2rem;
-    border-top: 1px solid #eef2f7;
-    background: #fcfdff;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-soft);
   }
 
   .task-accordion-meta-modern {
@@ -2508,7 +2523,7 @@ const summaryCards = [
     align-items: center;
     flex-wrap: wrap;
     gap: 0.65rem;
-    color: #7b8aa0;
+    color: var(--color-muted);
     font-size: 0.79rem;
     font-weight: 600;
   }
@@ -2523,7 +2538,7 @@ const summaryCards = [
 
   .task-description-modern {
     margin: 0;
-    color: #1f2937;
+    color: var(--color-text);
     font-size: 0.87rem;
     line-height: 1.45;
     flex: 1 1 auto;
@@ -2545,7 +2560,7 @@ const summaryCards = [
   .task-view-form-btn {
     border: 0;
     background: transparent;
-    color: #6b7280;
+    color: var(--color-muted);
     font-size: 0.76rem;
     font-weight: 700;
     padding: 0;
@@ -2570,8 +2585,8 @@ const summaryCards = [
     width: min(38rem, 100%);
     max-height: calc(100vh - 2rem);
     overflow: auto;
-    background: #fff;
-    border: 1px solid #dbe2f0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: 0.9rem;
     box-shadow: 0 24px 40px -30px rgba(15, 23, 42, 0.45);
     padding: 1rem;
@@ -2600,16 +2615,16 @@ const summaryCards = [
 
   .task-view-modal-head h4 {
     margin: 0;
-    color: #0f172a;
+    color: var(--color-heading);
     font-size: 1rem;
     font-weight: 700;
   }
 
   .task-view-close {
-    border: 1px solid #dbe2f0;
+    border: 1px solid var(--color-border);
     border-radius: 999px;
-    background: #f8fafc;
-    color: #475569;
+    background: var(--color-soft);
+    color: var(--color-text);
     padding: 0.3rem 0.7rem;
     font-size: 0.74rem;
     font-weight: 600;
@@ -2617,10 +2632,10 @@ const summaryCards = [
   }
 
   .task-view-action {
-    border: 1px solid #dbe2f0;
+    border: 1px solid var(--color-border);
     border-radius: 999px;
-    background: #ffffff;
-    color: #475569;
+    background: var(--color-soft);
+    color: var(--color-text);
     padding: 0.3rem 0.65rem;
     font-size: 0.74rem;
     font-weight: 600;
@@ -2628,9 +2643,9 @@ const summaryCards = [
   }
 
   .task-view-action.danger {
-    border-color: #dbe2f0;
-    color: #475569;
-    background: #ffffff;
+    border-color: var(--color-border);
+    color: var(--color-text);
+    background: var(--color-soft);
   }
 
   .task-view-action.primary {
@@ -2665,13 +2680,13 @@ const summaryCards = [
 
   .task-view-grid label span,
   .task-view-description span {
-    color: #64748b;
+    color: var(--color-muted);
     font-size: 0.74rem;
     font-weight: 600;
   }
 
   .task-view-section > span {
-    color: #64748b;
+    color: var(--color-muted);
     font-size: 0.74rem;
     font-weight: 600;
   }
@@ -2680,10 +2695,10 @@ const summaryCards = [
   .task-view-grid select,
   .task-view-description textarea {
     width: 100%;
-    border: 1px solid #dbe2f0;
+    border: 1px solid var(--color-border);
     border-radius: 0.55rem;
-    background: #ffffff;
-    color: #1f2937;
+    background: var(--color-soft);
+    color: var(--color-text);
     font-size: 0.82rem;
     padding: 0.45rem 0.55rem;
   }
@@ -2709,16 +2724,16 @@ const summaryCards = [
     display: flex;
     align-items: center;
     gap: 0.45rem;
-    color: #1f2937;
+    color: var(--color-text);
     font-size: 0.82rem;
   }
 
   .task-view-section .attachment-list li {
-    background: #ffffff;
+    background: var(--color-soft);
   }
 
   .task-view-section .attachment-list li span {
-    color: #1f2937;
+    color: var(--color-text);
     font-size: 0.82rem;
   }
 
@@ -2728,11 +2743,11 @@ const summaryCards = [
   }
 
   .archived-row {
-    background: #ffffff;
+    background: var(--color-surface);
   }
 
   .task-name {
-    color: #1f2937;
+    color: var(--color-text);
     font-size: 0.87rem;
     font-weight: 600;
     min-width: 0;
@@ -2757,7 +2772,7 @@ const summaryCards = [
   .task-due {
     justify-self: center;
     text-align: center;
-    color: #6b7280;
+    color: var(--color-muted);
     font-size: 0.83rem;
     font-weight: 500;
   }
@@ -2765,9 +2780,9 @@ const summaryCards = [
   .attachment-btn {
     justify-self: center;
     margin-left: 0;
-    border: 1px solid #dbe2f0;
-    background: #f8fafc;
-    color: #6b7280;
+    border: 1px solid var(--color-border);
+    background: var(--color-soft);
+    color: var(--color-muted);
     border-radius: 999px;
     padding: 0.28rem 0.55rem;
     font-size: 0.72rem;
@@ -2787,8 +2802,8 @@ const summaryCards = [
   }
 
   .attachment-btn:hover {
-    background: #eef2ff;
-    border-color: #c7d2fe;
+    background: color-mix(in srgb, #6366f1 10%, var(--color-surface));
+    border-color: var(--color-accent);
   }
 
   .attachment-btn:focus-visible,
@@ -2802,7 +2817,7 @@ const summaryCards = [
   .empty-state {
     margin: 0;
     padding: 1.2rem 1rem;
-    color: #8b97ab;
+    color: var(--color-muted);
     font-size: 0.85rem;
   }
 

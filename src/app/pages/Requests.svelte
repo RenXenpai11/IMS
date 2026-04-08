@@ -1,7 +1,8 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
   import { Calendar, Clock3, FileText, ShieldCheck } from 'lucide-svelte';
-  import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
+  import { callApiAction, getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
+  import { subscribeToSync } from '../lib/sync.js';
 
   const REQUEST_TYPES = ['Absence', 'Overtime'];
 
@@ -17,42 +18,15 @@
     },
   };
 
-  const SAMPLE_REQUESTS = [
-    {
-      id: 'REQ-1001',
-      requestType: 'Absence',
-      date: '2026-04-08',
-      time: '',
-      reason: 'Medical check-up and travel time after appointment.',
-      status: 'Pending',
-      requester_name: 'Laurence Jan',
-    },
-    {
-      id: 'REQ-1002',
-      requestType: 'Overtime',
-      date: '2026-04-05',
-      time: '19:00',
-      reason: 'Need to complete API testing and submit the consolidated report.',
-      status: 'Approved',
-      requester_name: 'Kris Santos',
-    },
-    {
-      id: 'REQ-1003',
-      requestType: 'Absence',
-      date: '2026-04-02',
-      time: '',
-      reason: 'Personal errand requested at short notice.',
-      status: 'Rejected',
-      requester_name: 'Mika Dela Cruz',
-    },
-  ];
-
   let activeTab = 'my-requests';
   let currentUser = null;
   let unsubscribeAuth;
-  let requests = SAMPLE_REQUESTS;
+  let unsubscribeSync;
+  let requests = [];
+  let isLoading = false;
   let formError = '';
   let formSuccess = '';
+  let isSubmitting = false;
 
   let form = {
     requestType: 'Absence',
@@ -62,6 +36,39 @@
   };
 
   $: showTimeField = form.requestType === 'Overtime';
+
+  async function callBackend(action, payload) {
+    return callApiAction(action, payload || {});
+  }
+
+  async function loadRequests() {
+    if (!currentUser) return;
+
+    isLoading = true;
+    try {
+      const isSupervisor = String(currentUser?.role || '').trim() === 'Supervisor';
+      let result;
+
+      if (isSupervisor) {
+        result = await callBackend('list_assigned_student_requests', {
+          supervisor_user_id: currentUser.user_id,
+        });
+      } else {
+        result = await callBackend('list_requests_by_user', {
+          user_id: currentUser.user_id,
+        });
+      }
+
+      if (result && result.ok) {
+        requests = result.requests || [];
+      }
+    } catch (err) {
+      console.error('Failed to load requests:', err);
+      requests = [];
+    } finally {
+      isLoading = false;
+    }
+  }
 
   function formatDate(dateValue) {
     const parsed = new Date(`${dateValue}T00:00:00`);
@@ -115,7 +122,7 @@
     };
   }
 
-  function submitRequest() {
+  async function submitRequest() {
     if (isSupervisor) {
       formError = 'Supervisor accounts cannot create requests.';
       formSuccess = '';
@@ -130,46 +137,77 @@
       return;
     }
 
-    const request = {
-      id: `REQ-${Date.now()}`,
-      requestType: form.requestType,
-      date: form.date,
-      time: form.requestType === 'Overtime' ? form.time : '',
-      reason: String(form.reason || '').trim(),
-      status: 'Pending',
-      requester_name: String(currentUser?.full_name || '').trim() || 'Student',
-    };
+    isSubmitting = true;
+    try {
+      const result = await callBackend('create_request', {
+        user_id: currentUser.user_id,
+        requester_name: String(currentUser?.full_name || '').trim() || 'Student',
+        request_type: form.requestType,
+        request_date: form.date,
+        request_time: form.requestType === 'Overtime' ? form.time : '',
+        reason: String(form.reason || '').trim(),
+      });
 
-    requests = [request, ...requests];
-    formSuccess = 'Request submitted. Status is set to Pending.';
-    formError = '';
-    resetForm();
-    activeTab = 'my-requests';
+      if (result && result.ok) {
+        formSuccess = 'Request submitted successfully!';
+        formError = '';
+        resetForm();
+        await loadRequests();
+        activeTab = 'my-requests';
+      } else {
+        formError = result?.error || 'Failed to submit request.';
+        formSuccess = '';
+      }
+    } catch (err) {
+      console.error('Submit request error:', err);
+      formError = err?.message || 'An error occurred while submitting the request.';
+      formSuccess = '';
+    } finally {
+      isSubmitting = false;
+    }
   }
 
-  function updateRequestStatus(requestId, nextStatus) {
-    requests = requests.map((request) => {
-      if (request.id !== requestId) {
-        return request;
-      }
-
-      return {
-        ...request,
+  async function updateRequestStatus(requestId, nextStatus) {
+    try {
+      const result = await callBackend('update_request_status', {
+        request_id: requestId,
         status: nextStatus,
-      };
-    });
+      });
+
+      if (result && result.ok) {
+        await loadRequests();
+      } else {
+        console.error('Failed to update request status:', result?.error);
+      }
+    } catch (err) {
+      console.error('Update request status error:', err);
+    }
   }
 
   onMount(() => {
     currentUser = getCurrentUser();
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
+      if (user) {
+        loadRequests();
+      }
     });
+
+    unsubscribeSync = subscribeToSync(() => {
+      loadRequests();
+    });
+
+    if (currentUser) {
+      loadRequests();
+    }
   });
 
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') {
       unsubscribeAuth();
+    }
+    if (typeof unsubscribeSync === 'function') {
+      unsubscribeSync();
     }
   });
 
@@ -264,67 +302,78 @@
       {/if}
 
       <div class="mt-5 flex justify-end">
-        <button type="button" class="submit-button rounded-xl px-5 py-2.5 text-sm font-semibold" on:click={submitRequest}>
-          Submit Request
+        <button 
+          type="button" 
+          class="submit-button rounded-xl px-5 py-2.5 text-sm font-semibold" 
+          on:click={submitRequest}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? 'Submitting...' : 'Submit Request'}
         </button>
       </div>
     </section>
   {:else}
     <section class="flex flex-col gap-4">
-      {#each requests as request (request.id)}
-        {@const statusMeta = STATUS_META[request.status] ?? STATUS_META.Pending}
-        <article class="requests-panel request-card rounded-xl border p-5 shadow-md">
-          <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div class="flex items-start gap-3">
-              <div class="inline-flex h-10 w-10 items-center justify-center rounded-lg request-type-icon">
-                {#if request.requestType === 'Overtime'}
-                  <Clock3 size={16} />
-                {:else}
-                  <Calendar size={16} />
-                {/if}
-              </div>
-              <div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <h4 class="requests-heading text-base font-semibold">{request.requestType}</h4>
-                  <span class={statusMeta.badgeClass}>{request.status}</span>
+      {#if isLoading}
+        <p class="requests-subtitle text-center py-8">Loading requests...</p>
+      {:else if requests.length === 0}
+        <p class="requests-subtitle text-center py-8">No requests yet.</p>
+      {:else}
+        {#each requests as request (request.id)}
+          {@const statusMeta = STATUS_META[request.status] ?? STATUS_META.Pending}
+          <article class="requests-panel request-card rounded-xl border p-5 shadow-md">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div class="flex items-start gap-3">
+                <div class="inline-flex h-10 w-10 items-center justify-center rounded-lg request-type-icon">
+                  {#if request.requestType === 'Overtime'}
+                    <Clock3 size={16} />
+                  {:else}
+                    <Calendar size={16} />
+                  {/if}
                 </div>
-                <p class="requests-subtitle mt-1 text-sm">Date: {formatDate(request.date)}</p>
-                {#if request.time}
-                  <p class="requests-subtitle text-sm">Time: {request.time}</p>
-                {/if}
-                {#if isSupervisor}
-                  <p class="requests-subtitle text-sm">Student: {request.requester_name || 'Unknown'}</p>
-                {/if}
+                <div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h4 class="requests-heading text-base font-semibold">{request.requestType}</h4>
+                    <span class={statusMeta.badgeClass}>{request.status}</span>
+                  </div>
+                  <p class="requests-subtitle mt-1 text-sm">Date: {formatDate(request.date)}</p>
+                  {#if request.time}
+                    <p class="requests-subtitle text-sm">Time: {request.time}</p>
+                  {/if}
+                  {#if isSupervisor}
+                    <p class="requests-subtitle text-sm">Student: {request.requester_name || 'Unknown'}</p>
+                  {/if}
+                </div>
               </div>
+
+              {#if isSupervisor && request.status === 'Pending'}
+                <div class="inline-flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="action-button action-approve rounded-lg px-3 py-2 text-xs font-semibold"
+                    on:click={() => updateRequestStatus(request.id, 'Approved')}
+                  >
+                    <ShieldCheck size={13} />
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    class="action-button action-reject rounded-lg px-3 py-2 text-xs font-semibold"
+                    on:click={() => updateRequestStatus(request.id, 'Rejected')}
+                  >
+                    Reject
+                  </button>
+                </div>
+              {/if}
             </div>
 
-            {#if isSupervisor}
-              <div class="inline-flex items-center gap-2">
-                <button
-                  type="button"
-                  class="action-button action-approve rounded-lg px-3 py-2 text-xs font-semibold"
-                  on:click={() => updateRequestStatus(request.id, 'Approved')}
-                >
-                  <ShieldCheck size={13} />
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  class="action-button action-reject rounded-lg px-3 py-2 text-xs font-semibold"
-                  on:click={() => updateRequestStatus(request.id, 'Rejected')}
-                >
-                  Reject
-                </button>
-              </div>
-            {/if}
-          </div>
-
-          <div class="mt-4 rounded-lg border reason-box px-4 py-3">
-            <p class="requests-label text-xs font-semibold uppercase tracking-[0.08em]">Reason</p>
-            <p class="requests-subtitle mt-1 text-sm">{previewReason(request.reason)}</p>
-          </div>
-        </article>
-      {/each}
+            <div class="mt-4 rounded-lg border reason-box px-4 py-3">
+              <p class="requests-label text-xs font-semibold uppercase tracking-[0.08em]">Reason</p>
+              <p class="requests-subtitle mt-1 text-sm">{previewReason(request.reason)}</p>
+            </div>
+          </article>
+        {/each}
+      {/if}
     </section>
   {/if}
 </section>
@@ -401,9 +450,14 @@
     transition: all 0.2s ease;
   }
 
-  .submit-button:hover {
+  .submit-button:hover:not(:disabled) {
     background: #4338ca;
     transform: translateY(-1px);
+  }
+
+  .submit-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   .alert-error {

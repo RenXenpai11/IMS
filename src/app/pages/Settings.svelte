@@ -163,6 +163,19 @@
     systemUpdates: true,
   };
 
+  const MAIN_DB_URL = 'https://docs.google.com/spreadsheets/d/1cHfXzp8gRD-x8sVf_j_WtNf-1h_JUqt_O_MOEfBlNVk/edit?pli=1&gid=0#gid=0';
+  let copyMessage = '';
+  let copyTimer;
+
+  function copyToClipboard() {
+    navigator.clipboard.writeText(MAIN_DB_URL);
+    copyMessage = 'Copied!';
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => {
+      copyMessage = '';
+    }, 2000);
+  }
+
 
   const profileFields = [
     { key: 'firstName', label: 'First Name', icon: User, type: 'text' },
@@ -245,6 +258,7 @@
 
   onDestroy(() => {
     clearTimeout(saveTimer);
+    clearTimeout(copyTimer);
     if (typeof unsubscribeAuth === 'function') {
       unsubscribeAuth();
     }
@@ -272,7 +286,8 @@
     .join('') || 'U';
 </script>
 
-<section class="mr-auto w-full max-w-5xl space-y-6">
+<section class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+  <div class="lg:col-span-2 space-y-6">
   <section class="theme-section rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <header class="theme-divider border-b px-6 py-4">
       <div class="flex items-center gap-2">
@@ -555,6 +570,38 @@
   {#if saveError}
     <p class="text-right text-[12px] text-rose-600">{saveError}</p>
   {/if}
+  </div>
+
+  <!-- MAIN_DB Section on Right -->
+  <div class="lg:col-span-1">
+    <section class="theme-section rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)] p-6 sticky top-6">
+      <h3 class="theme-heading text-[16px] font-bold mb-4">MAIN_DB</h3>
+      <p class="theme-text text-[13px] mb-4">Access the main database spreadsheet for this project.</p>
+      
+      <div class="mb-4 p-4 rounded-lg theme-section border">
+        <a 
+          href={MAIN_DB_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-indigo-600 hover:text-indigo-700 text-[13px] font-medium break-all line-clamp-3 hover:underline"
+        >
+          {MAIN_DB_URL}
+        </a>
+      </div>
+
+      <button
+        type="button"
+        on:click={copyToClipboard}
+        class="w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-[14px] font-medium transition-colors"
+      >
+        {copyMessage || 'Copy Link'}
+      </button>
+      
+      {#if copyMessage}
+        <p class="mt-2 text-[12px] text-emerald-600 text-center font-medium">{copyMessage}</p>
+      {/if}
+    </section>
+  </div>
 </section>
 
 <style>
