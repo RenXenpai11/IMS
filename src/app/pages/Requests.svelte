@@ -71,14 +71,24 @@
   }
 
   function formatDate(dateValue) {
-    const parsed = new Date(`${dateValue}T00:00:00`);
+    const dateString = String(dateValue || '').trim();
+    if (!dateString) return '';
+
+    // Extract just the date part if it's a full datetime string
+    let dateToFormat = dateString;
+    if (dateString.includes('T') || dateString.includes(' ')) {
+      dateToFormat = dateString.split('T')[0].split(' ')[0];
+    }
+
+    const parsed = new Date(`${dateToFormat}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) {
       return dateValue;
     }
 
     return new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
       month: 'short',
-      day: 'numeric',
+      day: '2-digit',
       year: 'numeric',
     }).format(parsed);
   }

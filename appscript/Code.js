@@ -1429,7 +1429,7 @@ function handleListRequestsByUser_(payload) {
       userRequests.push({
         id: String(row.request_id || ''),
         requestType: String(row.request_type || ''),
-        date: String(row.request_date || ''),
+        date: formatDateValue_(row.request_date),
         time: String(row.request_time || ''),
         reason: String(row.reason || ''),
         status: String(row.status || 'Pending'),
@@ -1470,7 +1470,7 @@ function handleListAssignedStudentRequests_(payload) {
       studentRequests.push({
         id: String(row.request_id || ''),
         requestType: String(row.request_type || ''),
-        date: String(row.request_date || ''),
+        date: formatDateValue_(row.request_date),
         time: String(row.request_time || ''),
         reason: String(row.reason || ''),
         status: String(row.status || 'Pending'),
@@ -1755,6 +1755,31 @@ function isPendingRegistrationExpired_(pendingRecord) {
 
   var expiresAt = new Date(createdAt.getTime() + PENDING_REG_TTL_HOURS_ * 3600000);
   return expiresAt.getTime() < new Date().getTime();
+}
+
+function formatDateValue_(value) {
+  var dateStr = String(value || '').trim();
+  if (!dateStr) return '';
+  
+  // If it looks like a Date object's toString(), extract date portion
+  if (dateStr.includes('GMT') || dateStr.length > 20) {
+    try {
+      var date = new Date(value);
+      if (!isNaN(date.getTime())) {
+        var year = date.getFullYear();
+        var month = String(date.getMonth() + 1).padStart(2, '0');
+        var day = String(date.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+      }
+    } catch (e) {}
+  }
+  
+  // If it's already in YYYY-MM-DD format, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  
+  return dateStr;
 }
 
 function getSheet_(sheetName) {
