@@ -4,22 +4,17 @@
     Bell,
     Building,
     Camera,
-    Eye,
-    EyeOff,
     Mail,
     MapPin,
     Moon,
     Phone,
     Save,
-    Shield,
     Sun,
     User,
   } from 'lucide-svelte';
   import { subscribeToCurrentUser, updateProfilePhoto, updateUserProfile } from '../lib/auth.js';
   import { setTheme, theme, toggleTheme } from '../context/ThemeContext.js';
 
-  let showCurrentPassword = false;
-  let showNewPassword = false;
   let saved = false;
   let saveTimer;
   let unsubscribeAuth;
@@ -367,72 +362,6 @@
             class="theme-input w-full resize-none rounded-xl border px-3 py-2.5 text-[14px] outline-none transition-colors focus:border-indigo-400"
           ></textarea>
         </label>
-      </div>
-    </div>
-  </section>
-
-  <section class="theme-section rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-    <header class="theme-divider border-b px-6 py-4">
-      <div class="flex items-center gap-2">
-        <Shield size={16} class="text-indigo-600" />
-        <h2 class="theme-heading text-[15px] font-semibold">Security</h2>
-      </div>
-      <p class="theme-text mt-1 text-[13px]">Manage your password and account security settings.</p>
-    </header>
-
-    <div class="space-y-4 px-6 py-5">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <label class="block">
-          <span class="theme-text mb-1.5 block text-[13px]">Current Password</span>
-          <span class="relative block">
-            <input
-              type={showCurrentPassword ? 'text' : 'password'}
-              placeholder="********"
-              class="theme-input w-full rounded-xl border px-3 py-2.5 pr-10 text-[14px] outline-none transition-colors focus:border-indigo-400"
-            />
-            <button
-              type="button"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
-              on:click={() => (showCurrentPassword = !showCurrentPassword)}
-              aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}
-            >
-              {#if showCurrentPassword}
-                <EyeOff size={14} />
-              {:else}
-                <Eye size={14} />
-              {/if}
-            </button>
-          </span>
-        </label>
-
-        <label class="block">
-          <span class="theme-text mb-1.5 block text-[13px]">New Password</span>
-          <span class="relative block">
-            <input
-              type={showNewPassword ? 'text' : 'password'}
-              placeholder="********"
-              class="theme-input w-full rounded-xl border px-3 py-2.5 pr-10 text-[14px] outline-none transition-colors focus:border-indigo-400"
-            />
-            <button
-              type="button"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
-              on:click={() => (showNewPassword = !showNewPassword)}
-              aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
-            >
-              {#if showNewPassword}
-                <EyeOff size={14} />
-              {:else}
-                <Eye size={14} />
-              {/if}
-            </button>
-          </span>
-        </label>
-      </div>
-
-      <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
-        <p class="text-[13px] text-amber-700">
-          Password must be at least 8 characters and include uppercase, lowercase, number, and special character.
-        </p>
       </div>
     </div>
   </section>

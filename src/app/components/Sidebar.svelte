@@ -7,8 +7,6 @@
     Clock,
     FileText,
     FileCheck,
-    HelpCircle,
-    KeyRound,
     LayoutDashboard,
     LogOut,
     Settings,
@@ -171,14 +169,6 @@
           <button class="menu-item" type="button" on:click={() => goTo('/settings')}>
             <User size={14} />
             <span>Profile Settings</span>
-          </button>
-          <button class="menu-item" type="button" on:click={() => goTo('/settings')}>
-            <KeyRound size={14} />
-            <span>Change Password</span>
-          </button>
-          <button class="menu-item" type="button" on:click={toggleProfile}>
-            <HelpCircle size={14} />
-            <span>Help & Support</span>
           </button>
           <div class="menu-divider"></div>
           <button class="menu-item danger" type="button" on:click={handleSignOut}>
