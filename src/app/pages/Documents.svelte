@@ -11,60 +11,9 @@
     },
   };
 
-  let documents = [
-    {
-      id: 'doc1',
-      name: 'NDA Agreement',
-      category: 'Legal',
-      type: 'pdf',
-      size: '2.4 MB',
-      uploadedDate: '2025-04-01',
-      url: '#',
-      folder: '/Legal',
-      sharedWith: [
-        { email: 'supervisor@company.com', role: 'Supervisor', sharedDate: '2025-04-01' }
-      ],
-      accessLevel: 'restricted',
-    },
-    {
-      id: 'doc2',
-      name: 'Company Handbook',
-      category: 'Reference',
-      type: 'pdf',
-      size: '5.1 MB',
-      uploadedDate: '2025-04-02',
-      url: '#',
-      folder: '/Reference',
-      sharedWith: [],
-      accessLevel: 'private',
-    },
-    {
-      id: 'doc3',
-      name: 'Meeting Recording - Week 1',
-      category: 'Meetings',
-      type: 'link',
-      url: 'https://drive.google.com/...',
-      uploadedDate: '2025-04-03',
-      isLink: true,
-      folder: '/Meetings',
-      sharedWith: [
-        { email: 'team@company.com', role: 'Team', sharedDate: '2025-04-03' }
-      ],
-      accessLevel: 'shared',
-    },
-    {
-      id: 'doc4',
-      name: 'Project Specifications',
-      category: 'Work',
-      type: 'pdf',
-      size: '3.2 MB',
-      uploadedDate: '2025-04-05',
-      url: '#',
-      folder: '/Work',
-      sharedWith: [],
-      accessLevel: 'private',
-    },
-  ];
+  let documents = [];
+  let isLoading = true;
+  let userId = null;
 
   let searchQuery = '';
   let selectedCategory = 'All';
@@ -86,6 +35,9 @@
   let renameFolderInputValue = '';
   let folderToDelete = null;
   let showDeleteFolderConfirm = false;
+  let showUploadPreview = false;
+  let pendingFile = null;
+  let pendingFilePreview = null;
 
   const categories = ['All', 'Legal', 'Reference', 'Meetings', 'Work', 'Other'];
 
@@ -99,47 +51,124 @@
   $: folderDocuments = documents.filter(doc => doc.folder === currentFolder);
   $: documentsInFolder = folderDocuments.length;
 
-  function handleFileUpload(event) {
+  // API Call helper
+  function callBackend_(action, payload) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler((response) => {
+          resolve(response);
+        })
+        .withFailureHandler((error) => {
+          reject(error);
+        })
+        .apiAction(action, payload);
+    });
+  }
+
+  // Load documents from backend
+  async function loadDocuments_() {
+    try {
+      isLoading = true;
+      const response = await callBackend_('get_all_documents', { user_id: userId });
+      if (response.ok) {
+        documents = response.documents || [];
+      } else {
+        console.error('Failed to load documents:', response.error);
+      }
+    } catch (err) {
+      console.error('Error loading documents:', err);
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  async function handleFileUpload(event) {
     const files = event.target.files;
     if (files && files.length > 0) {
       const file = files[0];
-      const newDoc = {
-        id: 'doc' + Date.now(),
+      // Create preview without saving to database yet
+      pendingFile = {
         name: file.name,
         category: 'Other',
         type: file.type.includes('pdf') ? 'pdf' : 'file',
         size: (file.size / 1024 / 1024).toFixed(1) + ' MB',
-        uploadedDate: new Date().toISOString().slice(0, 10),
-        url: '#',
         folder: uploadToFolder,
-        sharedWith: [],
-        accessLevel: 'private',
       };
-      documents = [newDoc, ...documents];
-      showUploadModal = false;
-      uploadToFolder = '/';
+      
+      pendingFilePreview = {
+        ...pendingFile,
+        uploadedDate: new Date().toISOString().slice(0, 10),
+      };
+      
+      showUploadPreview = true;
     }
   }
 
-  function addLink() {
+  async function confirmUpload() {
+    if (!pendingFile) return;
+    
+    try {
+      const response = await callBackend_('upload_document', {
+        user_id: userId,
+        name: pendingFile.name,
+        category: pendingFile.category,
+        type: pendingFile.type,
+        size: pendingFile.size,
+        folder: pendingFile.folder,
+        uploaded_date: new Date().toISOString().slice(0, 10),
+        url: '#',
+        is_link: false
+      });
+
+      if (response.ok) {
+        documents = [response.document, ...documents];
+        showUploadModal = false;
+        showUploadPreview = false;
+        uploadToFolder = '/';
+        pendingFile = null;
+        pendingFilePreview = null;
+      } else {
+        alert('Error uploading document: ' + response.error);
+      }
+    } catch (err) {
+      console.error('Upload error:', err);
+      alert('Error uploading document');
+    }
+  }
+
+  function cancelUpload() {
+    showUploadPreview = false;
+    pendingFile = null;
+    pendingFilePreview = null;
+  }
+
+  async function addLink() {
     if (newLinkName.trim() && newLinkUrl.trim()) {
-      const newDoc = {
-        id: 'doc' + Date.now(),
-        name: newLinkName,
-        category: 'Meetings',
-        type: 'link',
-        url: newLinkUrl,
-        uploadedDate: new Date().toISOString().slice(0, 10),
-        isLink: true,
-        folder: uploadToFolder,
-        sharedWith: [],
-        accessLevel: 'private',
-      };
-      documents = [newDoc, ...documents];
-      newLinkName = '';
-      newLinkUrl = '';
-      showLinkModal = false;
-      uploadToFolder = '/';
+      try {
+        const response = await callBackend_('upload_document', {
+          user_id: userId,
+          name: newLinkName,
+          category: 'Meetings',
+          type: 'link',
+          url: newLinkUrl,
+          folder: uploadToFolder,
+          uploaded_date: new Date().toISOString().slice(0, 10),
+          is_link: true
+        });
+
+        if (response.ok) {
+          documents = [response.document, ...documents];
+          newLinkName = '';
+          newLinkUrl = '';
+          showLinkModal = false;
+          uploadToFolder = '/';
+        } else {
+          alert('Error adding link: ' + response.error);
+        }
+      } catch (err) {
+        console.error('Link error:', err);
+        alert('Error adding link');
+      }
     }
   }
 
@@ -149,7 +178,7 @@
     shareEmail = '';
   }
 
-  function shareDocument() {
+  async function shareDocument() {
     if (!selectedDocForShare || !shareEmail.trim()) return;
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -158,33 +187,64 @@
       return;
     }
 
-    const docIndex = documents.findIndex(d => d.id === selectedDocForShare.id);
-    if (docIndex !== -1) {
-      const existingShare = documents[docIndex].sharedWith.find(s => s.email === shareEmail);
-      
-      if (!existingShare) {
-        documents[docIndex].sharedWith.push({
-          email: shareEmail,
-          role: shareRole,
-          sharedDate: new Date().toISOString().slice(0, 10),
-        });
-        documents[docIndex].accessLevel = 'shared';
-        documents = documents;
-      }
-    }
+    try {
+      const response = await callBackend_('share_document', {
+        user_id: userId,
+        doc_id: selectedDocForShare.id,
+        email: shareEmail,
+        role: shareRole
+      });
 
-    shareEmail = '';
-    shareRole = 'Viewer';
+      if (response.ok) {
+        // Update local document
+        const docIndex = documents.findIndex(d => d.id === selectedDocForShare.id);
+        if (docIndex !== -1) {
+          documents[docIndex].sharedWith.push({
+            email: shareEmail,
+            role: shareRole,
+            sharedDate: new Date().toISOString().slice(0, 10),
+          });
+          documents[docIndex].access_level = 'shared';
+          documents = documents;
+          selectedDocForShare = documents[docIndex];
+        }
+        shareEmail = '';
+        shareRole = 'Viewer';
+      } else {
+        alert('Error sharing document: ' + response.error);
+      }
+    } catch (err) {
+      console.error('Share error:', err);
+      alert('Error sharing document');
+    }
   }
 
-  function removeShare(docId, email) {
-    const docIndex = documents.findIndex(d => d.id === docId);
-    if (docIndex !== -1) {
-      documents[docIndex].sharedWith = documents[docIndex].sharedWith.filter(s => s.email !== email);
-      if (documents[docIndex].sharedWith.length === 0) {
-        documents[docIndex].accessLevel = 'private';
+  async function removeShare(docId, email) {
+    try {
+      const response = await callBackend_('remove_share', {
+        user_id: userId,
+        doc_id: docId,
+        email: email
+      });
+
+      if (response.ok) {
+        const docIndex = documents.findIndex(d => d.id === docId);
+        if (docIndex !== -1) {
+          documents[docIndex].sharedWith = documents[docIndex].sharedWith.filter(s => s.email !== email);
+          if (documents[docIndex].sharedWith.length === 0) {
+            documents[docIndex].access_level = 'private';
+          }
+          documents = documents;
+          if (selectedDocForShare && selectedDocForShare.id === docId) {
+            selectedDocForShare = documents[docIndex];
+          }
+        }
+      } else {
+        alert('Error removing share: ' + response.error);
       }
-      documents = documents;
+    } catch (err) {
+      console.error('Remove share error:', err);
+      alert('Error removing share');
     }
   }
 
@@ -197,8 +257,22 @@
     }, 2000);
   }
 
-  function deleteDocument(id) {
-    documents = documents.filter((doc) => doc.id !== id);
+  async function deleteDocument(id) {
+    try {
+      const response = await callBackend_('delete_document', {
+        user_id: userId,
+        doc_id: id
+      });
+
+      if (response.ok) {
+        documents = documents.filter((doc) => doc.id !== id);
+      } else {
+        alert('Error deleting document: ' + response.error);
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Error deleting document');
+    }
   }
 
   function openRenameFolderModal(folderName) {
@@ -274,8 +348,18 @@
     }
   }
 
-  onMount(() => {
-    // Initialize if needed
+  onMount(async () => {
+    // Get user ID from local storage or window object
+    try {
+      userId = localStorage.getItem('current_user_id') || window.__ims_user_id || 'user-' + Date.now();
+      if (!localStorage.getItem('current_user_id')) {
+        localStorage.setItem('current_user_id', userId);
+      }
+      // Load documents from backend
+      await loadDocuments_();
+    } catch (err) {
+      console.error('Error initializing documents:', err);
+    }
   });
 </script>
 
@@ -538,6 +622,72 @@
 
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={() => (showUploadModal = false)}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Upload Preview Modal -->
+  {#if showUploadPreview && pendingFilePreview}
+    <div class="modal-overlay" on:click={() => cancelUpload()}>
+      <div class="modal" on:click={(e) => e.stopPropagation()}>
+        <div class="modal-header">
+          <h2>Review Document</h2>
+          <button class="close-btn" on:click={() => cancelUpload()}>×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="preview-content">
+            <div class="preview-icon">
+              {#if pendingFilePreview.type === 'pdf' || pendingFilePreview.type.includes('pdf')}
+                <div class="icon-pdf">📄</div>
+              {:else}
+                <div class="icon-file">📋</div>
+              {/if}
+            </div>
+
+            <div class="preview-details">
+              <div class="preview-section">
+                <label for="preview-name">File Name</label>
+                <p class="preview-value" id="preview-name">{pendingFilePreview.name}</p>
+              </div>
+
+              <div class="preview-section">
+                <label for="preview-size">File Size</label>
+                <p class="preview-value" id="preview-size">{pendingFilePreview.size}</p>
+              </div>
+
+              <div class="preview-section">
+                <label for="preview-folder">Upload Folder</label>
+                <p class="preview-value" id="preview-folder">
+                  {#if pendingFilePreview.folder === '/'}
+                    All Documents
+                  {:else}
+                    {pendingFilePreview.folder.substring(1)}
+                  {/if}
+                </p>
+              </div>
+
+              <div class="preview-section">
+                <label for="preview-category">Category</label>
+                <select id="preview-category" bind:value={pendingFile.category} style="width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #e5e7eb;">
+                  <option value="Other">Other</option>
+                  <option value="Legal">Legal</option>
+                  <option value="Reference">Reference</option>
+                  <option value="Meetings">Meetings</option>
+                  <option value="Work">Work</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" on:click={() => cancelUpload()}>Delete</button>
+          <button class="btn btn-primary" on:click={() => confirmUpload()}>
+            <Check size={18} />
+            <span>Save Document</span>
+          </button>
         </div>
       </div>
     </div>

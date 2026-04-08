@@ -125,6 +125,31 @@ function dispatchAction_(payload) {
     return handleListTasksByUser_(payload);
   }
 
+  // --- Document management actions ---
+  if (action === 'get_all_documents') {
+    return handleGetAllDocuments_(payload);
+  }
+
+  if (action === 'upload_document') {
+    return handleUploadDocument_(payload);
+  }
+
+  if (action === 'delete_document') {
+    return handleDeleteDocument_(payload);
+  }
+
+  if (action === 'share_document') {
+    return handleShareDocument_(payload);
+  }
+
+  if (action === 'remove_share') {
+    return handleRemoveShare_(payload);
+  }
+
+  if (action === 'create_folder') {
+    return handleCreateFolder_(payload);
+  }
+
   return { ok: false, error: 'Unknown action: ' + action };
 }
 
@@ -2023,6 +2048,258 @@ function jsonResponse_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Document Management Functions
+var DOCUMENTS_SHEET_ = 'documents';
+var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'category', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
+
+function handleGetAllDocuments_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    if (!userId) {
+      return { ok: false, error: 'Missing user_id.' };
+    }
+
+    var sheet = getSheet_(DOCUMENTS_SHEET_);
+    if (!sheet) {
+      return { ok: false, error: 'Documents sheet not found.' };
+    }
+
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0] || [];
+    var documents = [];
+
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      var doc = {
+        id: row[0],
+        user_id: row[1],
+        name: row[2],
+        folder: row[3],
+        category: row[4],
+        type: row[5],
+        size: row[6],
+        url: row[7],
+        is_link: row[8],
+        uploaded_date: row[9],
+        access_level: row[10],
+        shared_with: row[11] ? JSON.parse(String(row[11])) : [],
+        created_by: row[12],
+        created_date: row[13]
+      };
+
+      if (doc.user_id === userId) {
+        documents.push(doc);
+      }
+    }
+
+    return { ok: true, documents: documents };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleUploadDocument_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var name = String(payload.name || '').trim();
+    var folder = String(payload.folder || '/').trim();
+    var category = String(payload.category || 'Other').trim();
+    var type = String(payload.type || 'file').trim();
+    var size = String(payload.size || '0').trim();
+    var url = String(payload.url || '#').trim();
+    var isLink = Boolean(payload.is_link || false);
+    var uploadedDate = String(payload.uploaded_date || new Date().toISOString().split('T')[0]).trim();
+
+    if (!userId || !name) {
+      return { ok: false, error: 'Missing user_id or name.' };
+    }
+
+    var docId = 'doc' + Date.now();
+    var sheet = getSheet_(DOCUMENTS_SHEET_);
+    if (!sheet) {
+      sheet = createSheet_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
+    }
+
+    var newRow = [
+      docId,
+      userId,
+      name,
+      folder,
+      category,
+      type,
+      size,
+      url,
+      isLink ? 'true' : 'false',
+      uploadedDate,
+      'private',
+      '[]',
+      userId,
+      new Date().toISOString().split('T')[0]
+    ];
+
+    sheet.appendRow(newRow);
+
+    return {
+      ok: true,
+      document: {
+        id: docId,
+        user_id: userId,
+        name: name,
+        folder: folder,
+        category: category,
+        type: type,
+        size: size,
+        url: url,
+        is_link: isLink,
+        uploaded_date: uploadedDate,
+        access_level: 'private',
+        shared_with: [],
+        created_by: userId,
+        created_date: new Date().toISOString().split('T')[0]
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleDeleteDocument_(payload) {
+  try {
+    var docId = String(payload.doc_id || '').trim();
+    var userId = String(payload.user_id || '').trim();
+
+    if (!docId || !userId) {
+      return { ok: false, error: 'Missing doc_id or user_id.' };
+    }
+
+    var sheet = getSheet_(DOCUMENTS_SHEET_);
+    if (!sheet) {
+      return { ok: false, error: 'Documents sheet not found.' };
+    }
+
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      if (row[0] === docId && row[1] === userId) {
+        sheet.deleteRow(i + 1);
+        return { ok: true, message: 'Document deleted.' };
+      }
+    }
+
+    return { ok: false, error: 'Document not found.' };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleShareDocument_(payload) {
+  try {
+    var docId = String(payload.doc_id || '').trim();
+    var userId = String(payload.user_id || '').trim();
+    var email = String(payload.email || '').trim();
+    var role = String(payload.role || 'Viewer').trim();
+
+    if (!docId || !userId || !email) {
+      return { ok: false, error: 'Missing docId, userId, or email.' };
+    }
+
+    var sheet = getSheet_(DOCUMENTS_SHEET_);
+    if (!sheet) {
+      return { ok: false, error: 'Documents sheet not found.' };
+    }
+
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      if (row[0] === docId && row[1] === userId) {
+        var sharedWith = row[11] ? JSON.parse(String(row[11])) : [];
+        
+        // Check if already shared
+        var alreadyShared = sharedWith.some(function(s) { return s.email === email; });
+        if (!alreadyShared) {
+          sharedWith.push({
+            email: email,
+            role: role,
+            sharedDate: new Date().toISOString().split('T')[0]
+          });
+        }
+
+        sheet.getRange(i + 1, 12).setValue(JSON.stringify(sharedWith));
+        sheet.getRange(i + 1, 11).setValue('shared');
+
+        return { ok: true, message: 'Document shared.' };
+      }
+    }
+
+    return { ok: false, error: 'Document not found.' };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleRemoveShare_(payload) {
+  try {
+    var docId = String(payload.doc_id || '').trim();
+    var userId = String(payload.user_id || '').trim();
+    var email = String(payload.email || '').trim();
+
+    if (!docId || !userId || !email) {
+      return { ok: false, error: 'Missing docId, userId, or email.' };
+    }
+
+    var sheet = getSheet_(DOCUMENTS_SHEET_);
+    if (!sheet) {
+      return { ok: false, error: 'Documents sheet not found.' };
+    }
+
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      if (row[0] === docId && row[1] === userId) {
+        var sharedWith = row[11] ? JSON.parse(String(row[11])) : [];
+        sharedWith = sharedWith.filter(function(s) { return s.email !== email; });
+
+        sheet.getRange(i + 1, 12).setValue(JSON.stringify(sharedWith));
+        if (sharedWith.length === 0) {
+          sheet.getRange(i + 1, 11).setValue('private');
+        }
+
+        return { ok: true, message: 'Share removed.' };
+      }
+    }
+
+    return { ok: false, error: 'Document not found.' };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleCreateFolder_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var folderName = String(payload.folder_name || '').trim();
+
+    if (!userId || !folderName) {
+      return { ok: false, error: 'Missing user_id or folder_name.' };
+    }
+
+    // For now, folders are managed in the frontend
+    // This is a placeholder for future backend folder management
+    return {
+      ok: true,
+      folder: {
+        name: folderName,
+        user_id: userId,
+        path: '/' + folderName,
+        created_date: new Date().toISOString().split('T')[0],
+        is_default: false
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
 }
 
 function authorizeImsScopes_() {
