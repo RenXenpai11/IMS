@@ -16,6 +16,7 @@
     User,
   } from 'lucide-svelte';
   import { signOut, subscribeToCurrentUser } from '../lib/auth.js';
+  import { theme } from '../context/ThemeContext.js';
 
   export let currentPath = '/';
   export let collapsed = false;
@@ -71,6 +72,7 @@
   $: userInitials = buildInitials(userName);
   $: isSupervisorUser = String(currentUser?.role || '').trim() === 'Supervisor';
   $: navItems = isSupervisorUser ? supervisorNavItems : studentNavItems;
+  $: logoSrc = $theme === 'dark' ? '/ims-logo-dark.jfif' : '/ims-logo-white.jfif';
 
   function goTo(path) {
     window.location.hash = path;
@@ -114,8 +116,7 @@
   </button>
 
   <div class="sidebar-brand">
-    <div class="brand-mark">IMS</div>
-    <span class="sidebar-text">Internship Management System</span>
+    <img src={logoSrc} alt="IMS Logo" class="brand-logo" />
   </div>
 
   <nav class="sidebar-nav">

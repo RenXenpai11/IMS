@@ -227,6 +227,12 @@ button {
   font-size: 0.75rem;
 }
 
+.brand-logo {
+  max-width: 90%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
 .sidebar-nav {
   flex: 1;
   padding: 1rem 0.75rem;
