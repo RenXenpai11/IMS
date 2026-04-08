@@ -237,6 +237,7 @@
     }
 
     const hours = calculateHours(timeIn, timeOut);
+    const isFirstTimeLog = entries.length === 0; // Check if this is the first time log
 
     try {
       const saved = await authApi.createTimeLog({
@@ -246,6 +247,7 @@
         time_out: timeOut,
         hours_rendered: hours,
         notes: trimmedNotes,
+        updateStartDate: isFirstTimeLog, // Update start date on first time log
       });
 
       entries = [mapApiLogToEntry(saved), ...entries];

@@ -2,8 +2,8 @@
   import { onMount } from 'svelte';
   import Layout from './app/components/Layout.svelte';
   import Dashboard from './app/pages/Dashboard.svelte';
-  import Documents from './app/pages/ActivityIntern.svelte';
-  import Evaluation from './app/pages/Evaluation.svelte';
+  import ActivityIntern from './app/pages/ActivityIntern.svelte';
+  import Documents from './app/pages/Documents.svelte';
   import LoginPage from './app/pages/LoginPage.svelte';
   import Requests from './app/pages/Requests.svelte';
   import Settings from './app/pages/Settings.svelte';
@@ -25,8 +25,8 @@
     '/login': LoginPage,
     '/signup': SignUpPage,
     '/': Dashboard,
+    '/activity': ActivityIntern,
     '/documents': Documents,
-    '/evaluation': Evaluation,
     '/requests': Requests,
     '/settings': Settings,
     '/time-log': TimeLog,

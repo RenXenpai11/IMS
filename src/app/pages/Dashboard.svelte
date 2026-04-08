@@ -12,6 +12,10 @@
     ALL: 'ALL',
   };
 
+  // Debounce visibility changes to avoid rapid reloads
+  let visibilityChangeTimeout = null;
+  const VISIBILITY_RELOAD_DELAY = 200; // ms - short delay for quick responsiveness
+
   let currentUser = getCurrentUser();
   let unsubscribeAuth = null;
 
@@ -125,6 +129,8 @@
 
   function normalizeActivityDotKind(item) {
     const type = String(item?.type || item?.action || item?.status || '').toLowerCase();
+    if (type.includes('login')) return 'submitted';
+    if (type.includes('logout')) return 'completed';
     if (type.includes('complete')) return 'completed';
     if (type.includes('submit')) return 'submitted';
     if (type.includes('review')) return 'reviewed';
@@ -158,8 +164,44 @@
       const data = await getStudentDashboard(currentUser.user_id, { limit: 10 });
       profile = data.profile;
       timeLogs = data.time_logs;
-      activityLogs = data.activity_logs;
       tasks = data.tasks;
+
+      // Create activity items from time logs (Logged In / Logged Out entries)
+      const timeLogActivities = [];
+      if (Array.isArray(data.time_logs)) {
+        for (const log of data.time_logs) {
+          const logDate = String(log?.log_date || '').trim();
+          
+          // Add "Logged Out" entry if time_out exists
+          if (String(log?.time_out || '').trim()) {
+            timeLogActivities.push({
+              id: `logout-${logDate}`,
+              type: 'logout',
+              title: `Logged Out: ${String(log.time_out || '').trim()}`,
+              created_at: `${logDate}T${String(log.time_out || '').trim()}:00`,
+            });
+          }
+          
+          // Add "Logged In" entry if time_in exists
+          if (String(log?.time_in || '').trim()) {
+            timeLogActivities.push({
+              id: `login-${logDate}`,
+              type: 'login',
+              title: `Logged In: ${String(log.time_in || '').trim()}`,
+              created_at: `${logDate}T${String(log.time_in || '').trim()}:00`,
+            });
+          }
+        }
+      }
+
+      // Merge time log activities with regular activity logs and sort by date (most recent first)
+      const allActivities = [...timeLogActivities, ...(Array.isArray(data.activity_logs) ? data.activity_logs : [])];
+      allActivities.sort((a, b) => {
+        const dateA = String(a?.created_at || '').trim();
+        const dateB = String(b?.created_at || '').trim();
+        return dateB.localeCompare(dateA); // Most recent first
+      });
+      activityLogs = allActivities;
 
       // Initialize form fields (only if empty / first load)
       formStartDate = String(profile?.start_date || formStartDate || '').slice(0, 10);
@@ -173,93 +215,38 @@
     }
   }
 
-  let saving = false;
-  let lastSaveDebug = '';
-
-  async function saveProfile(event) {
-    // Ensure button click doesn't get swallowed by any parent form submit behavior
-    if (event?.preventDefault) event.preventDefault();
-    if (event?.stopPropagation) event.stopPropagation();
-
-    clearMessages();
-    lastSaveDebug = '';
-
-    const userId = String(currentUser?.user_id || '').trim();
-    const startDateObj = parseIsoDateOnly(formStartDate);
-    const totalHours = Number(formTotalOjtHours || 0);
-
-    if (!userId) {
-      errorMessage = 'Missing user ID.';
-      return;
-    }
-
-    if (!startDateObj) {
-      errorMessage = 'Start date is required.';
-      return;
-    }
-
-    if (!Number.isFinite(totalHours) || totalHours <= 0) {
-      errorMessage = 'Total OJT hours must be greater than 0.';
-      return;
-    }
-
-    const course = String(readonlyCourse || '').trim();
-    const school = String(readonlySchool || '').trim();
-    if (!course || !school) {
-      errorMessage = 'Course and School are required (from signup).';
-      return;
-    }
-
-    if (!computedEstimatedEndDate) {
-      errorMessage = 'Unable to compute estimated end date.';
-      return;
-    }
-
-    saving = true;
-    loading = true;
-
-    const payload = {
-      user_id: userId,
-      total_ojt_hours: totalHours,
-      start_date: toIsoDateOnly(startDateObj),
-      estimated_end_date: computedEstimatedEndDate,
-      course,
-      school,
-    };
-
-    try {
-      const result = await upsertStudentOjtProfile(payload);
-      lastSaveDebug = `Saved profile: ${JSON.stringify(result || payload)}`;
-      successMessage = 'OJT profile saved.';
-      await loadDashboard();
-    } catch (err) {
-      errorMessage = err?.message || 'Failed to save OJT profile.';
-      lastSaveDebug = `Save error: ${String(err)}`;
-    } finally {
-      saving = false;
-      loading = false;
-    }
-  }
-
   function onVisibilityChange() {
     if (document.visibilityState === 'visible') {
-      loadDashboard();
+      // Clear any pending reload
+      if (visibilityChangeTimeout) clearTimeout(visibilityChangeTimeout);
+      // Schedule reload with debounce
+      visibilityChangeTimeout = setTimeout(() => {
+        loadDashboard();
+        visibilityChangeTimeout = null;
+      }, VISIBILITY_RELOAD_DELAY);
     }
   }
 
   onMount(() => {
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
-      loadDashboard();
+      if (user?.user_id) {
+        loadDashboard();
+      }
     });
 
     document.addEventListener('visibilitychange', onVisibilityChange);
-    loadDashboard();
+    // Only load if we already have a current user (avoid double load)
+    if (currentUser?.user_id) {
+      loadDashboard();
+    }
   });
 
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     document.removeEventListener('visibilitychange', onVisibilityChange);
+    // Clean up any pending visibility reload
+    if (visibilityChangeTimeout) clearTimeout(visibilityChangeTimeout);
   });
 </script>
 
@@ -366,28 +353,23 @@
       </div>
     </div>
 
-    <!-- OJT Profile (editable) + Panels -->
+    <!-- OJT Profile (read-only display) -->
     <div class="content-grid">
       <div class="card">
         <div class="card-header-main">
           <h3>OJT Profile</h3>
-          <span class="muted">Edit and save your OJT details</span>
+          <span class="muted">Your OJT details</span>
         </div>
 
         <div class="profile-grid">
           <label class="field">
             <span>Start Date</span>
-            <input type="date" bind:value={formStartDate} />
+            <input type="text" readonly value={formStartDate ? formatDateLong(parseIsoDateOnly(formStartDate)) : ''} />
           </label>
 
           <label class="field">
             <span>Total OJT Hours</span>
-            <input type="number" min="1" step="1" bind:value={formTotalOjtHours} />
-          </label>
-
-          <label class="field">
-            <span>Estimated End Date</span>
-            <input type="text" readonly value={computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : ''} />
+            <input type="text" readonly value={formTotalOjtHours || ''} />
           </label>
 
           <label class="field">
@@ -400,16 +382,6 @@
             <input type="text" readonly value={readonlySchool} />
           </label>
         </div>
-
-        <div class="profile-actions">
-          <button class="primary" type="button" disabled={saving || loading} on:click={saveProfile}>
-            {saving || loading ? 'Saving…' : 'Save OJT Profile'}
-          </button>
-        </div>
-
-        {#if lastSaveDebug}
-          <p class="save-debug">{lastSaveDebug}</p>
-        {/if}
       </div>
 
       <div class="card">
@@ -504,6 +476,7 @@
     font-size: 0.9rem;
   }
 
+  /* Clock-in Status Styles */
   .mode-toggle button {
     border: 1px solid rgba(255, 255, 255, 0.22);
     background: rgba(255, 255, 255, 0.08);
@@ -603,7 +576,7 @@
 
   .profile-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
     gap: 0.9rem;
     margin-top: 1rem;
   }

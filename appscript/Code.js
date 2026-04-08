@@ -15,8 +15,6 @@ var TIME_LOGS_SHEET_ = 'time_logs';
 var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'status', 'notes', 'created_at'];
 var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
-var REQUESTS_SHEET_ = 'requests';
-var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'reason', 'status', 'created_at'];
 
 function doPost(e) {
   try {
@@ -157,7 +155,8 @@ function handleGetStudentDashboard_(payload) {
   }
 
   var profile = getStudentProfileByUserId_(userId);
-  var logsResult = handleListTimeLogsByUser_({ user_id: userId });
+  // Load only the most recent 10 time logs (reduced from 20 for faster loading)
+  var logsResult = handleListTimeLogsByUser_({ user_id: userId, limit: 10 });
   if (!logsResult || logsResult.ok !== true) {
     return { ok: false, error: logsResult && logsResult.error ? logsResult.error : 'Unable to load time logs.' };
   }
@@ -388,6 +387,18 @@ function handleLoginAccount_(payload) {
     };
   }
 
+  // Track first login: if first_login_date is not set, set it now
+  var firstLoginDate = String(found.first_login_date || '').trim();
+  if (!firstLoginDate) {
+    firstLoginDate = isoNow_().slice(0, 10); // Get just the date part (YYYY-MM-DD)
+    var userRecord = findUserRecordByUserId_(found.user_id);
+    if (userRecord) {
+      updateObjectRow_(userRecord.sheet, userRecord.rowIndex, {
+        first_login_date: firstLoginDate
+      });
+    }
+  }
+
   var profile = getStudentProfileByUserId_(String(found.user_id || ''));
 
   return {
@@ -404,6 +415,7 @@ function handleLoginAccount_(payload) {
       role: String(found.role || ''),
       status: String(found.status || ''),
       created_at: String(found.created_at || ''),
+      first_login_date: firstLoginDate,
       profile_photo_url: String(found.profile_photo_url || ''),
       ojt: profile
     }
@@ -437,6 +449,7 @@ function handleGetUserById_(payload) {
       role: String(record.user.role || ''),
       status: String(record.user.status || ''),
       created_at: String(record.user.created_at || ''),
+      first_login_date: String(record.user.first_login_date || ''),
       profile_photo_url: String(record.user.profile_photo_url || ''),
       ojt: profile
     }
@@ -834,6 +847,7 @@ function handleCreateTimeLog_(payload) {
   var notes = String(payload.notes || '').trim();
   var timelogId = String(payload.timelog_id || createId_('TL'));
   var createdAt = String(payload.created_at || isoNow_());
+  var updateStartDate = payload.updateStartDate === true; // Allow first time log to set start date
 
   if (!userId || !logDate || !timeIn || !timeOut || !hoursRendered) {
     return { ok: false, error: 'user_id, log_date, time_in, time_out, and hours_rendered are required.' };
@@ -863,6 +877,22 @@ function handleCreateTimeLog_(payload) {
 
   appendObjectRow_(sheet, rowObject);
 
+  // If this is the first time log and updateStartDate flag is set, update OJT profile start_date
+  if (updateStartDate) {
+    var profile = getStudentProfileByUserId_(userId);
+    if (profile) {
+      // Update the start date to the first time log date
+      saveStudentOjtProfile_({
+        user_id: userId,
+        total_ojt_hours: profile.total_ojt_hours,
+        start_date: logDate,
+        estimated_end_date: profile.estimated_end_date,
+        course: profile.course,
+        school: profile.school
+      });
+    }
+  }
+
   return {
     ok: true,
     message: 'Time log saved successfully.',
@@ -872,6 +902,8 @@ function handleCreateTimeLog_(payload) {
 
 function handleListTimeLogsByUser_(payload) {
   var userId = String(payload.user_id || '').trim();
+  var limit = Number(payload.limit || 0); // 0 means no limit
+  
   if (!userId) {
     return { ok: false, error: 'user_id is required.' };
   }
@@ -882,7 +914,17 @@ function handleListTimeLogsByUser_(payload) {
       return String(serializeCellValue_(row.user_id) || '').trim() === userId;
     }).map(function (row) {
       return sanitizeObjectForClient_(row);
+    }).sort(function (a, b) {
+      // Sort by created_at descending (most recent first)
+      var dateA = new Date(String(a.created_at || ''));
+      var dateB = new Date(String(b.created_at || ''));
+      return dateB.getTime() - dateA.getTime();
     });
+
+    // Apply limit if specified
+    if (limit > 0) {
+      rows = rows.slice(0, limit);
+    }
 
     return { ok: true, logs: rows };
   } catch (err) {
@@ -1517,7 +1559,7 @@ function isStudentAssignedToSupervisor_(supervisorUserId, studentUserId) {
 }
 
 function saveStudentOjtProfile_(rowObject) {
-  var sheet = getSheet_('student_ojt_profile');
+  var sheet = getStudentOjtProfileSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
   var userIdCol = findColumnIndex_(headers, 'user_id');
@@ -1546,7 +1588,7 @@ function getStudentProfileByUserId_(userId) {
     return null;
   }
 
-  var sheet = getSheet_('student_ojt_profile');
+  var sheet = getStudentOjtProfileSheet_();
   var rows = readSheetObjects_(sheet);
   var found = rows.find(function (row) {
     return String(row.user_id || '') === userId;
@@ -1556,10 +1598,19 @@ function getStudentProfileByUserId_(userId) {
     return null;
   }
 
+  // If start_date is missing, try to get first_login_date from users sheet as fallback
+  var startDate = String(found.start_date || '').trim();
+  if (!startDate) {
+    var userRecord = findUserRecordByUserId_(userId);
+    if (userRecord && userRecord.user) {
+      startDate = String(userRecord.user.first_login_date || '').slice(0, 10);
+    }
+  }
+
   return {
     user_id: String(found.user_id || ''),
     total_ojt_hours: Number(found.total_ojt_hours || 0),
-    start_date: String(found.start_date || ''),
+    start_date: startDate,
     estimated_end_date: String(found.estimated_end_date || ''),
     course: String(found.course || ''),
     school: String(found.school || '')
@@ -1740,10 +1791,6 @@ function getSupervisorAssignmentsSheet_() {
   return getOrCreateSheetWithHeaders_(SUPERVISOR_ASSIGNMENTS_SHEET_, SUPERVISOR_ASSIGNMENTS_HEADERS_);
 }
 
-function getRequestsSheet_() {
-  return getOrCreateSheetWithHeaders_(REQUESTS_SHEET_, REQUESTS_HEADERS_);
-}
-
 function ensureSheetColumns_(sheet, columnNames) {
   if (!sheet || !columnNames || !columnNames.length) {
     return;
@@ -1869,16 +1916,27 @@ function appendObjectRow_(sheet, obj) {
 
 function updateObjectRow_(sheet, rowIndex, obj) {
   var headers = getHeaders_(sheet);
-  var row = headers.map(function (header) {
+  var existingRow = getSheetValues_(sheet)[rowIndex - 1]; // Get the actual row (0-indexed)
+  
+  if (!existingRow) {
+    throw new Error('Row ' + rowIndex + ' does not exist.');
+  }
+  
+  var row = headers.map(function (header, colIndex) {
     var normalized = normalizeHeader_(header);
+    
+    // Check if the object has a value for this header
     if (Object.prototype.hasOwnProperty.call(obj, normalized)) {
       return obj[normalized];
     }
     if (Object.prototype.hasOwnProperty.call(obj, header)) {
       return obj[header];
     }
-    return '';
+    
+    // IMPORTANT: Keep existing data, don't overwrite with empty string
+    return existingRow[colIndex] || '';
   });
+  
   sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
 }
 

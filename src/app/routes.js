@@ -19,13 +19,13 @@ export const pageMeta = {
     title: 'Requests',
     description: 'Manage your absence and overtime requests',
   },
-  '/documents': {
+  '/activity': {
     title: 'Activity Log',
     description: 'Review your task updates, timeline, and work activity.',
   },
-  '/evaluation': {
-    title: 'Evaluation',
-    description: 'View your performance metrics and supervisor feedback.',
+  '/documents': {
+    title: 'Documents',
+    description: 'Upload and manage your important documents, records, and links.',
   },
   '/settings': {
     title: 'Settings',

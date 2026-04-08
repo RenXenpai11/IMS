@@ -370,6 +370,7 @@ export async function createTimeLog(logInput) {
     hours_rendered: Number(logInput?.hours_rendered || 0),
     status: String(logInput?.status || 'recorded').trim(),
     notes: String(logInput?.notes || '').trim(),
+    updateStartDate: logInput?.updateStartDate === true,
   });
 
   return result.timelog;

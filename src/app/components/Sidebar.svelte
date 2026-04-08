@@ -25,8 +25,8 @@
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/time-log', label: 'Time Log', icon: Clock },
     { path: '/requests', label: 'Requests', icon: FileCheck },
-    { path: '/documents', label: 'Activity Log', icon: FileText },
-    { path: '/evaluation', label: 'Evaluation', icon: Star },
+    { path: '/activity', label: 'Activity Log', icon: FileText },
+    { path: '/documents', label: 'Documents', icon: FileText },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
