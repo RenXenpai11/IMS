@@ -1,43 +1,86 @@
 <script>
-  import {
-    AlertCircle,
-    CheckCircle2,
-    ChevronDown,
-    Clock,
-    Clock3,
-    MoreHorizontal,
-    List,
-    Plus,
-    Search,
-    LayoutGrid,
-  } from 'lucide-svelte';
+import { onMount, onDestroy, tick } from 'svelte';
+// For real-time update of 'Updated X minutes ago'
+let now = new Date();
+let intervalId;
+let forceUpdate = 0; // dummy variable to trigger Svelte reactivity
 
-  const summaryCards = [
-    {
-      label: 'Pending',
-      value: 2,
-      icon: Clock,
-      tone: 'indigo',
-    },
-    {
-      label: 'Total Tasks',
-      value: 6,
-      icon: Clock3,
-      tone: 'green',
-    },
-    {
-      label: 'Completed',
-      value: 2,
-      icon: CheckCircle2,
-      tone: 'blue',
-    },
-    {
-      label: 'Overdue',
-      value: 1,
-      icon: AlertCircle,
-      tone: 'violet',
-    },
-  ];
+function updateNow() {
+  now = new Date();
+  forceUpdate += 1; // force Svelte to update
+}
+
+onMount(() => {
+  intervalId = setInterval(() => {
+    updateNow();
+  }, 60000); // update every minute
+});
+
+onDestroy(() => {
+  clearInterval(intervalId);
+});
+// For Today's Learnings textarea
+let todaysLearning = '';
+
+// Helper to compute minutes ago from a date string (using dueDate as a stand-in for last updated)
+function getUpdatedMinutesAgo(dateString) {
+  // Try to parse the date string (e.g., 'Apr 5, 2026')
+  const parsed = parseDueDate(dateString);
+  if (!parsed) return '';
+  // Use the reactive 'now' variable so Svelte updates the UI
+  const diffMs = now.getTime() - parsed.getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 0) return '';
+  if (diffMinutes < 60) {
+    return `Updated ${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+  }
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `Updated ${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  }
+  // If more than 24 hours, show the date
+  return `Updated ${dateString}`;
+}
+import { getCurrentUser } from '../lib/auth.js';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Clock3,
+  MoreHorizontal,
+  List,
+  Plus,
+  Search,
+  LayoutGrid,
+} from 'lucide-svelte';
+
+const summaryCards = [
+  {
+    label: 'Pending',
+    value: 2,
+    icon: Clock,
+    tone: 'indigo',
+  },
+  {
+    label: 'Total Tasks',
+    value: 6,
+    icon: Clock3,
+    tone: 'green',
+  },
+  {
+    label: 'Completed',
+    value: 2,
+    icon: CheckCircle2,
+    tone: 'blue',
+  },
+  {
+    label: 'Overdue',
+    value: 1,
+    icon: AlertCircle,
+    tone: 'violet',
+  },
+];
 
   let assignedTasks = [
     {
@@ -341,6 +384,7 @@
       description: '',
       dailyChecklist: [],
       attachments: [],
+      dateCreated: '',
     };
     addTaskError = '';
   }
@@ -348,7 +392,12 @@
   function toggleAddTaskForm() {
     isAddTaskOpen = !isAddTaskOpen;
 
-    if (!isAddTaskOpen) {
+    if (isAddTaskOpen) {
+      // Set dateCreated to today when opening the form
+      const nowDate = new Date();
+      const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      addTaskForm.dateCreated = `${MONTH_NAMES[nowDate.getMonth()]} ${nowDate.getDate()}, ${nowDate.getFullYear()}`;
+    } else {
       resetAddTaskForm();
     }
   }
@@ -383,6 +432,22 @@
     });
   }
 
+  function callUpdateActivityTask(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => {
+          reject(new Error(error?.message || String(error)));
+        })
+        .updateActivityTask(payload);
+    });
+  }
+
   function mapCreatedTaskToUi(task, fallback) {
     const source = task || {};
     const defaultValue = fallback || {};
@@ -391,7 +456,7 @@
       title: String(source.title || defaultValue.title || '').trim(),
       status: String(source.status || defaultValue.status || 'Pending'),
       dueDate: fromInputDate(String(source.due_date || defaultValue.dueDate || '')) || defaultValue.dueDate || '',
-      owner: String(source.owner || defaultValue.owner || 'You'),
+      owner: String(source.owner || defaultValue.owner || ''),
       priority: String(source.priority || defaultValue.priority || 'medium'),
       description: String(source.description || defaultValue.description || 'No description provided yet.'),
       attachments: getAttachmentNames(source.attachments || defaultValue.attachments),
@@ -406,7 +471,7 @@
 
   async function addNewTask() {
     const rawTitle = addTaskForm.title.trim();
-    const owner = addTaskForm.owner.trim() || 'You';
+    const assignedBy = addTaskForm.owner.trim();
     const cleanedChecklist = addTaskForm.dailyChecklist
       .filter((item) => item.label.trim())
       .map((item) => ({ label: item.label.trim(), done: !!item.done }));
@@ -416,17 +481,22 @@
       return;
     }
 
+    const user = getCurrentUser();
+    const nowDate = new Date();
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const formattedNow = `${MONTH_NAMES[nowDate.getMonth()]} ${nowDate.getDate()}, ${nowDate.getFullYear()}`;
     const nextTaskPayload = {
       title: rawTitle,
       status: addTaskForm.status,
       due_date: addTaskForm.dueDate,
-      owner,
+      assigned_by: assignedBy,
+      owner_email: user && user.email ? user.email : '',
       priority: 'medium',
       description: addTaskForm.description.trim() || 'No description provided yet.',
       attachments: cleanedAttachments,
       dailyChecklist: cleanedChecklist,
-      createdBy: owner,
-      updatedBy: owner,
+      dateCreated: formattedNow,
+      // createdBy and updatedBy will be set by backend
     };
 
     isSavingAddTask = true;
@@ -593,6 +663,40 @@
     };
   }
 
+  // Fix: Move updateTaskStatus to top-level scope
+  async function updateTaskStatus(taskId, newStatus) {
+    // Find the task by id (or fallback to viewedTask)
+    // If your tasks have an 'id' field, use it. Otherwise, use title as fallback.
+    let taskIndex = assignedTasks.findIndex((t) => t.id === taskId);
+    if (taskIndex === -1 && viewedTask) {
+      taskIndex = assignedTasks.findIndex((t) => t.title === viewedTask.title);
+    }
+    if (taskIndex === -1) return;
+
+    // Prepare payload for backend
+    const task = assignedTasks[taskIndex];
+    const payload = {
+      id: taskId,
+      status: newStatus,
+      // Optionally include other fields if needed
+    };
+    try {
+      await callUpdateActivityTask(payload);
+      // Update local state
+      assignedTasks = assignedTasks.map((t, i) =>
+        i === taskIndex ? { ...t, status: newStatus } : t
+      );
+      // Also update viewedTask if open
+      if (viewedTask && viewedTask.id === taskId) {
+        viewedTask.status = newStatus;
+        taskViewEditForm.status = newStatus;
+      }
+    } catch (err) {
+      // Optionally show error to user
+      alert('Failed to update status: ' + (err?.message || err));
+    }
+  }
+
   function handleTaskViewAttachmentUpload(event) {
     const files = Array.from(event.currentTarget.files || []);
 
@@ -609,6 +713,39 @@
   }
 
   function removeTaskViewAttachment(index) {
+      // Fix: Add updateTaskStatus for status dropdown
+      async function updateTaskStatus(taskId, newStatus) {
+        // Find the task by id (or fallback to viewedTask)
+        // If your tasks have an 'id' field, use it. Otherwise, use title as fallback.
+        let taskIndex = assignedTasks.findIndex((t) => t.id === taskId);
+        if (taskIndex === -1 && viewedTask) {
+          taskIndex = assignedTasks.findIndex((t) => t.title === viewedTask.title);
+        }
+        if (taskIndex === -1) return;
+
+        // Prepare payload for backend
+        const task = assignedTasks[taskIndex];
+        const payload = {
+          id: taskId,
+          status: newStatus,
+          // Optionally include other fields if needed
+        };
+        try {
+          await callUpdateActivityTask(payload);
+          // Update local state
+          assignedTasks = assignedTasks.map((t, i) =>
+            i === taskIndex ? { ...t, status: newStatus } : t
+          );
+          // Also update viewedTask if open
+          if (viewedTask && viewedTask.id === taskId) {
+            viewedTask.status = newStatus;
+            taskViewEditForm.status = newStatus;
+          }
+        } catch (err) {
+          // Optionally show error to user
+          alert('Failed to update status: ' + (err?.message || err));
+        }
+      }
     taskViewEditForm = {
       ...taskViewEditForm,
       attachments: taskViewEditForm.attachments.filter((_, itemIndex) => itemIndex !== index),
@@ -704,11 +841,15 @@
 
     const originalTitle = selectedOverviewTask.title;
     const nextTitle = trackerEditForm.title.trim() || originalTitle;
+    // Set dueDate to now in display format for 'last updated' effect
+    const nowDate = new Date();
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const formattedNow = `${MONTH_NAMES[nowDate.getMonth()]} ${nowDate.getDate()}, ${nowDate.getFullYear()}`;
     const nextTask = {
       ...selectedOverviewTask,
       title: nextTitle,
       status: trackerEditForm.status,
-      dueDate: fromInputDate(trackerEditForm.dueDate) || selectedOverviewTask.dueDate,
+      dueDate: formattedNow, // update dueDate to now for immediate update
       description: trackerEditForm.description.trim() || selectedOverviewTask.description,
       attachments: getAttachmentNames(trackerEditForm.attachments),
       dailyChecklist: trackerEditForm.dailyChecklist
@@ -977,6 +1118,7 @@
           {/if}
 
           <div class="task-view-grid">
+                        <!-- Date Created field removed -->
             <label>
               <span>Task Title</span>
               <input type="text" bind:value={addTaskForm.title} placeholder="Enter task title" required />
@@ -1091,8 +1233,11 @@
       {#if activeView === 'Overview'}
         <div class="overview-shell">
           <div class="overview-panels">
-            <section class="overview-panel">
-              <h4>Today's Task</h4>
+            <section class="overview-panel" style="background: #fff;">
+              <h4 style="display: flex; align-items: center; gap: 0.5rem;">
+                <LayoutGrid size={18} style="color: #6366f1; background: #eef2ff; border-radius: 0.4rem; padding: 0.18rem;" />
+                Today's Task
+              </h4>
               {#if todayTasks.length === 0}
                 <p class="overview-empty-copy">No tasks with today's deadline.</p>
               {:else}
@@ -1115,7 +1260,10 @@
             </section>
 
             <section class="overview-panel">
-              <h4>Due Soon</h4>
+              <h4 style="display: flex; align-items: center; gap: 0.5rem;">
+                <Clock size={18} style="color: #22c55e; background: #e0f7ef; border-radius: 0.4rem; padding: 0.18rem;" />
+                Due Soon
+              </h4>
               {#if dueSoonTasks.length === 0}
                 <p class="overview-empty-copy">No upcoming due dates.</p>
               {:else}
@@ -1137,21 +1285,28 @@
               {/if}
             </section>
 
-            <section class="overview-panel completion-panel">
-              <h4>Completion Rate</h4>
-              <p class="completion-value">{completionRate}%</p>
-              <button type="button" class="overview-link" on:click={() => openListWithFilter('All Status')}>
-                View all tasks
-              </button>
+            <section class="overview-panel notes-panel">
+              <div class="notes-header" style="display: flex; align-items: center; gap: 0.5rem;">
+                <List size={18} style="color: #a21caf; background: #f3e8ff; border-radius: 0.4rem; padding: 0.18rem;" />
+                <div class="notes-title">Today's Learnings</div>
+              </div>
+              <div class="notes-textarea-wrap">
+                <textarea
+                  class="notes-textarea"
+                  rows="5"
+                  placeholder="Share your insights and takeaways for today."
+                  bind:value={todaysLearning}
+                ></textarea>
+              </div>
             </section>
           </div>
 
           {#if selectedOverviewTask}
             <section class="overview-tracker tracker-card">
-              <div class="tracker-card-head">
-                <div class="tracker-card-heading">
-                  <h4>Task Focus</h4>
-                  <p class="tracker-purpose">Review the selected task, track progress, and update checklist items.</p>
+              <div class="tracker-card-head" style="display: flex; align-items: center; gap: 0.5rem;">
+                <div class="tracker-card-heading" style="display: flex; align-items: center; gap: 0.5rem;">
+                  <LayoutGrid size={18} style="color: #6366f1; background: #eef2ff; border-radius: 0.4rem; padding: 0.18rem;" />
+                  <h4 style="margin: 0;">Task Focus</h4>
                 </div>
                 <div class="tracker-head-actions">
                   <span class={`status-pill ${statusClassMap[selectedOverviewTask.status]}`}>
@@ -1268,30 +1423,12 @@
               {:else}
                 <div class="tracker-summary">
                   <p class="tracker-title">{selectedOverviewTask.title}</p>
-                  <p class="tracker-meta">
-                    Due {formatDueDate(selectedOverviewTask.dueDate)}
+                  <p class="tracker-description" style="color: #334155; margin-bottom: 0.25em; line-height: 1.4;">{selectedOverviewTask.description}</p>
+                  <p class="tracker-meta" style="font-style: italic; color: #64748b; font-size: 0.97em; margin-bottom: 0.1em; line-height: 1.3;">
+                    Due {selectedOverviewTask.dueDate}
                     <span aria-hidden="true">•</span>
                     {formatAttachmentMeta(selectedOverviewTask.attachments)}
                   </p>
-                  <p class="tracker-description">{selectedOverviewTask.description}</p>
-                </div>
-
-                <div class="tracker-section-shell">
-                  <div class="tracker-section-head">
-                    <span>Checklist</span>
-                  </div>
-                  <ul class="tracker-checklist">
-                    {#each selectedOverviewTask.dailyChecklist as item}
-                      <li>
-                        <input
-                          type="checkbox"
-                          checked={item.done}
-                          disabled
-                        />
-                        <span>{item.label}</span>
-                      </li>
-                    {/each}
-                  </ul>
                 </div>
               {/if}
             </section>
@@ -1328,6 +1465,11 @@
                     </div>
                     <div class="task-description-row">
                       <p class="task-description-modern">{task.description}</p>
+                      {#if task.dateCreated}
+                        <p class="task-meta-modern" style="font-style: italic; color: #64748b; font-size: 0.92em; margin-bottom: 0.2em;">
+                          Date Created: {task.dateCreated}
+                        </p>
+                      {/if}
                       <button type="button" class="task-view-form-btn" on:click={() => openTaskViewForm(task)}>
                         View Task
                       </button>
@@ -1391,7 +1533,14 @@
         <label>
           <span>Status</span>
           {#if isEditingViewedTask}
-            <select bind:value={taskViewEditForm.status}>
+            <select bind:value={taskViewEditForm.status} on:change={async (e) => {
+              let value = '';
+              if (e.target && typeof e.target === 'object' && 'value' in e.target) {
+                value = String(e.target.value);
+              }
+              await updateTaskStatus(viewedTask.id, value);
+              // Optionally update local state/UI here
+            }}>
               {#each editStatusOptions as option}
                 <option value={option}>{option}</option>
               {/each}
@@ -1510,9 +1659,94 @@
   </div>
 {/if}
 
-<style>
+  <style>
+  .notes-panel {
+    background: linear-gradient(135deg, #f8fafc 60%, #ede9fe 100%);
+    border-radius: 1.1rem;
+    box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07);
+    padding: 1.2rem 1.3rem 1.1rem 1.3rem;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-height: 210px;
+    border: 1px solid #e5e7eb;
+    gap: 0.7rem;
+  }
+  .notes-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+    margin-bottom: 0.2rem;
+  }
+  .notes-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ede9fe;
+    border-radius: 0.7rem;
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+  .notes-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 0.1rem;
+    letter-spacing: 0.01em;
+  }
+  .notes-subtitle {
+    font-size: 0.86rem;
+    color: #605f5f;
+    font-weight: 500;
+    margin-bottom: 0.1rem;
+  }
+  .notes-textarea-wrap {
+    background: #f3f4f6;
+    border-radius: 0.7rem;
+    padding: 0.7rem 0.7rem 0.5rem 0.7rem;
+    border: 1.5px solid #ede9fe;
+  }
+  .notes-textarea {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-size: 0.9rem;
+    color: #1f2937;
+    min-height: 90px;
+    resize: vertical;
+    outline: none;
+    font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
+    font-weight: 500;
+  }
+  .notes-textarea::placeholder {
+    color: #6b7280;
+    font-size: 0.9rem;
+    font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
+    font-weight: 500;
+    opacity: 1;
+  }
   :global(html) {
+    font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
+    background: var(--color-bg, #f8fafc);
+    color: var(--color-text, #1e293b);
     scrollbar-gutter: stable;
+  }
+  :global(html.dark) {
+    --color-bg: #181a20;
+    --color-surface: #23263a;
+    --color-card: #23263a;
+    --color-border: #23263a;
+    --color-heading: #f3f4f6;
+    --color-text: #e5e7eb;
+    --color-accent: #6366f1;
+    --color-accent-bg: #232263;
+    --color-muted: #a1a1aa;
+    --color-danger: #ef4444;
+    --color-success: #22c55e;
+    --color-warning: #f59e42;
+    background: #181a20;
+    color: #e5e7eb;
   }
 
   .documents-page {
@@ -1561,10 +1795,16 @@
 
   .stat-value {
     margin: 0;
-    color: var(--color-heading);
-    font-size: 1.6rem;
-    font-weight: 700;
+    color: #111827;
+    font-size: 1.7rem;
+    font-weight: 800;
     line-height: 1;
+    letter-spacing: -0.01em;
+    text-shadow: 0 1px 2px rgba(17,24,39,0.10);
+  }
+  :global(html.dark) .stat-value {
+    color: #a5b4fc;
+    text-shadow: 0 1px 2px rgba(165,180,252,0.18);
   }
 
   .stat-label {
@@ -1707,10 +1947,15 @@
 
   .panel-header h3 {
     margin: 0;
-    color: #1f2937;
+    color: #111827;
     font-size: 1rem;
-    font-weight: 650;
+    font-weight: 700;
     letter-spacing: -0.01em;
+    text-shadow: 0 1px 2px rgba(17,24,39,0.08);
+  }
+  :global(html.dark) .panel-header h3 {
+    color: #a5b4fc;
+    text-shadow: 0 1px 2px rgba(165,180,252,0.12);
   }
 
   .tasks-panel {
@@ -1824,10 +2069,11 @@
     position: relative;
     overflow: hidden;
     border: 1px solid #dbe2f0;
-    border-radius: 1rem;
-    background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
-    padding: 0.85rem 1rem 1rem;
-    box-shadow: 0 12px 26px -24px rgba(15, 23, 42, 0.34);
+    border-radius: 0.8rem;
+    background: #ffffff;
+    padding: 0.95rem;
+    min-height: 10.25rem;
+    box-shadow: 0 12px 24px -24px rgba(15, 23, 42, 0.3);
   }
 
   .tracker-card-head {
@@ -1952,7 +2198,7 @@
     padding: 0.5rem 0.75rem 0.65rem;
     border: 1px solid #e7ecf4;
     border-radius: 0.85rem;
-    background: #ffffff;
+    background: none;
   }
 
   .tracker-section-shell {
@@ -1960,7 +2206,7 @@
     padding: 0.65rem 0.75rem;
     border: 1px solid #e7ecf4;
     border-radius: 0.85rem;
-    background: #ffffff;
+    background: none;
   }
 
   .tracker-section-head {
@@ -1970,39 +2216,6 @@
     margin-bottom: 0.5rem;
   }
 
-  .tracker-section-head span {
-    color: #292828;
-    font-size: 0.87rem;
-    font-weight: 600;
-  }
-
-  .tracker-checklist {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 0.45rem;
-  }
-
-  .tracker-checklist li {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: #475569;
-    font-size: 0.87rem;
-    line-height: 1.45;
-    padding: 0.2rem 0.15rem;
-  }
-
-  .tracker-checklist input {
-    width: 0.9rem;
-    height: 0.9rem;
-  }
-
-  .tracker-checklist input:disabled {
-    cursor: not-allowed;
-    opacity: 0.8;
-  }
 
   .tracker-form {
     display: grid;
@@ -2066,8 +2279,7 @@
   }
 
   .tracker-checklist-editor {
-    display: grid;
-    gap: 0.45rem;
+    background: none;
   }
 
   .tracker-checklist-editor-head {
@@ -2358,13 +2570,17 @@
     width: min(38rem, 100%);
     max-height: calc(100vh - 2rem);
     overflow: auto;
-    background: #ffffff;
+    background: #fff;
     border: 1px solid #dbe2f0;
     border-radius: 0.9rem;
     box-shadow: 0 24px 40px -30px rgba(15, 23, 42, 0.45);
     padding: 1rem;
     display: grid;
     gap: 0.9rem;
+  }
+  :global(html.dark) .task-view-modal {
+    background: #23263a;
+    border: 1px solid #23263a;
   }
 
   .task-view-modal-head {

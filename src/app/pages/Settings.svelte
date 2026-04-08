@@ -163,11 +163,6 @@
     systemUpdates: true,
   };
 
-  let privacy = {
-    profileVisible: true,
-    activityVisible: false,
-    twoFactor: false,
-  };
 
   const profileFields = [
     { key: 'firstName', label: 'First Name', icon: User, type: 'text' },
@@ -186,11 +181,6 @@
     { key: 'systemUpdates', label: 'System Updates', desc: 'Announcements about maintenance or new features.' },
   ];
 
-  const privacyRows = [
-    { key: 'profileVisible', label: 'Public Profile', desc: 'Make your profile visible to other team members.' },
-    { key: 'activityVisible', label: 'Activity Status', desc: 'Show when you were last active.' },
-    { key: 'twoFactor', label: 'Two-Factor Authentication', desc: 'Add an extra layer of security to your account.' },
-  ];
 
   function updateProfileField(key, value) {
     profile = { ...profile, [key]: value };
@@ -202,9 +192,6 @@
     notifications = { ...notifications, [key]: value };
   }
 
-  function updatePrivacy(key, value) {
-    privacy = { ...privacy, [key]: value };
-  }
 
   async function handleSave() {
     saveError = '';
@@ -542,34 +529,6 @@
     </div>
   </section>
 
-  <section class="theme-section rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-    <header class="theme-divider border-b px-6 py-4">
-      <div class="flex items-center gap-2">
-        <Shield size={16} class="text-indigo-600" />
-        <h2 class="theme-heading text-[15px] font-semibold">Privacy & Security</h2>
-      </div>
-    </header>
-
-    <div class="px-6">
-      {#each privacyRows as row, i}
-        <div class={`flex items-center justify-between py-4 ${i < privacyRows.length - 1 ? 'theme-divider border-b' : ''}`}>
-          <div class="mr-4 flex-1">
-            <p class="theme-heading text-[14px] font-medium">{row.label}</p>
-            <p class="theme-text mt-0.5 text-[13px]">{row.desc}</p>
-          </div>
-          <button
-            type="button"
-            class="relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200"
-            style={`background-color: ${privacy[row.key] ? '#4F46E5' : '#E5E7EB'};`}
-            on:click={() => updatePrivacy(row.key, !privacy[row.key])}
-            aria-label={`Toggle ${row.label}`}
-          >
-            <span class={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${privacy[row.key] ? 'translate-x-5' : 'translate-x-0'}`}></span>
-          </button>
-        </div>
-      {/each}
-    </div>
-  </section>
 
   <div class="flex items-center justify-end gap-3">
     <button
