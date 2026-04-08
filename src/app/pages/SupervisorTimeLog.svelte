@@ -294,8 +294,8 @@
     This page is available for supervisor accounts only.
   </section>
 {:else}
-  <section class="flex flex-col gap-6">
-    <section class="supervisor-card rounded-xl border p-6 shadow-md">
+  <section class="supervisor-shell flex flex-col gap-6">
+    <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
       <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h3 class="supervisor-heading text-lg font-semibold">Student Time Logs</h3>
@@ -339,37 +339,37 @@
     {/if}
 
     {#if loadingStudents}
-      <section class="supervisor-card rounded-xl border p-6 shadow-md">
+      <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
         <p class="supervisor-sub text-sm">Loading student accounts...</p>
       </section>
     {:else if selectedStudent}
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <article class="supervisor-card rounded-xl border p-5 shadow-md">
+        <article class="supervisor-card supervisor-stat stat-primary rounded-2xl border p-5 shadow-md">
           <div class="supervisor-icon icon-blue"><UserCircle2 size={18} /></div>
           <p class="supervisor-value mt-4 text-lg">{selectedStudent.full_name}</p>
           <p class="supervisor-label mt-1 text-sm">Selected Student</p>
         </article>
 
-        <article class="supervisor-card rounded-xl border p-5 shadow-md">
+        <article class="supervisor-card supervisor-stat stat-info rounded-2xl border p-5 shadow-md">
           <div class="supervisor-icon icon-violet"><Users size={18} /></div>
           <p class="supervisor-value mt-4">{selectedProgress}%</p>
           <p class="supervisor-label mt-1 text-sm">Overall Progress</p>
         </article>
 
-        <article class="supervisor-card rounded-xl border p-5 shadow-md">
+        <article class="supervisor-card supervisor-stat stat-success rounded-2xl border p-5 shadow-md">
           <div class="supervisor-icon icon-green"><Clock3 size={18} /></div>
           <p class="supervisor-value mt-4">{selectedCompletedHours}h</p>
           <p class="supervisor-label mt-1 text-sm">Completed Hours</p>
         </article>
 
-        <article class="supervisor-card rounded-xl border p-5 shadow-md">
+        <article class="supervisor-card supervisor-stat stat-forecast rounded-2xl border p-5 shadow-md">
           <div class="supervisor-icon icon-cyan"><Clock3 size={18} /></div>
           <p class="supervisor-value mt-4">{selectedRemainingHours}h</p>
           <p class="supervisor-label mt-1 text-sm">Remaining Hours</p>
         </article>
       </div>
 
-      <section class="supervisor-card rounded-xl border p-6 shadow-md">
+      <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
         <h3 class="supervisor-heading text-base font-semibold">Time Log Entries</h3>
         <p class="supervisor-sub mt-1 text-sm">You can delete invalid entries from your assigned students.</p>
 
@@ -378,7 +378,7 @@
         {:else if logs.length === 0}
           <p class="supervisor-sub mt-4 text-sm">No time log entries found for this student.</p>
         {:else}
-          <div class="mt-4 overflow-auto rounded-lg border border-(--color-border)">
+          <div class="log-table-wrap mt-4 overflow-auto rounded-lg border">
             <table class="w-full text-left text-sm" style="min-width: 680px;">
               <thead class="table-head">
                 <tr>
@@ -417,7 +417,7 @@
         {/if}
       </section>
     {:else}
-      <section class="supervisor-card rounded-xl border p-6 shadow-md">
+      <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
         <p class="supervisor-sub text-sm">No assigned students yet. Add assignments first in dashboard.</p>
       </section>
     {/if}
@@ -425,20 +425,87 @@
 {/if}
 
 <style>
+  .supervisor-shell {
+    --sp-surface: #ffffff;
+    --sp-surface-soft: #f3f8ff;
+    --sp-border: #d7e3f1;
+    --sp-heading: #0f172a;
+    --sp-text: #1f2937;
+    position: relative;
+    border-radius: 1.25rem;
+    padding: 0.35rem;
+    isolation: isolate;
+  }
+
+  .supervisor-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: 1.25rem;
+    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
+  }
+
+  .supervisor-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 1.25rem;
+    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 30px, rgba(15, 108, 189, 0.04) 30px, rgba(15, 108, 189, 0.04) 31px);
+    pointer-events: none;
+  }
+
   .supervisor-card {
-    background: var(--color-surface);
-    border-color: var(--color-border);
+    background: var(--sp-surface);
+    border-color: var(--sp-border);
+    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
+  }
+
+  .supervisor-panel {
+    background: linear-gradient(145deg, #ffffff, #f5f9ff);
+  }
+
+  .supervisor-stat {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .supervisor-stat::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+  }
+
+  .stat-primary::before {
+    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
+  }
+
+  .stat-success::before {
+    background: linear-gradient(90deg, #0f766e, #10b981);
+  }
+
+  .stat-info::before {
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+  }
+
+  .stat-forecast::before {
+    background: linear-gradient(90deg, #0f766e, #06b6d4);
   }
 
   .supervisor-heading,
   .supervisor-value {
-    color: var(--color-heading);
+    color: var(--sp-heading);
   }
 
   .supervisor-label,
   .supervisor-sub,
   .table-row {
-    color: var(--color-sidebar-text);
+    color: var(--sp-text);
   }
 
   .supervisor-value {
@@ -448,9 +515,14 @@
   }
 
   .supervisor-input {
-    background: var(--color-soft);
-    border-color: var(--color-border);
-    color: var(--color-text);
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--sp-heading);
+  }
+
+  .supervisor-input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
   .btn-light,
@@ -462,23 +534,42 @@
   }
 
   .btn-light {
-    background: var(--color-soft);
-    border-color: var(--color-border);
-    color: var(--color-heading);
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--sp-heading);
+  }
+
+  .btn-light:hover:not(:disabled) {
+    background: #e2edf9;
   }
 
   .btn-delete {
-    background: #fef2f2;
-    color: #dc2626;
+    background: linear-gradient(90deg, #dc2626, #f97316);
+    color: #ffffff;
+    border-color: #dc2626;
+  }
+
+  .btn-delete:hover:not(:disabled) {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  .log-table-wrap {
+    border-color: var(--sp-border);
+    background: #f8fbff;
   }
 
   .table-head {
-    background: var(--color-soft);
-    color: var(--color-heading);
+    background: #edf4fb;
+    color: var(--sp-heading);
   }
 
   .table-row {
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--sp-border);
+  }
+
+  .table-row:hover {
+    background: #f1f7fd;
   }
 
   .supervisor-icon {
@@ -491,23 +582,83 @@
   }
 
   .icon-blue {
-    background: #dbeafe;
-    color: #2563eb;
+    background: #e0efff;
+    color: #0f6cbd;
+    border: 1px solid #bfdbfe;
   }
 
   .icon-violet {
-    background: #ede9fe;
-    color: #7c3aed;
+    background: #dbeafe;
+    color: #1d4ed8;
+    border: 1px solid #93c5fd;
   }
 
   .icon-green {
-    background: #d1fae5;
-    color: #059669;
+    background: #dcfce7;
+    color: #0f766e;
+    border: 1px solid #86efac;
   }
 
   .icon-cyan {
     background: #cffafe;
-    color: #0891b2;
+    color: #0f766e;
+    border: 1px solid #67e8f9;
+  }
+
+  :global(.dark) .supervisor-shell {
+    --sp-surface: #162338;
+    --sp-surface-soft: #1b2a42;
+    --sp-border: #2b3c57;
+    --sp-heading: #e5edf8;
+    --sp-text: #cfdceb;
+  }
+
+  :global(.dark) .supervisor-shell::before {
+    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  }
+
+  :global(.dark) .supervisor-shell::after {
+    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 32px, rgba(148, 163, 184, 0.07) 32px, rgba(148, 163, 184, 0.07) 33px);
+  }
+
+  :global(.dark) .supervisor-card {
+    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+  }
+
+  :global(.dark) .supervisor-panel {
+    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
+  }
+
+  :global(.dark) .supervisor-input,
+  :global(.dark) .btn-light,
+  :global(.dark) .log-table-wrap,
+  :global(.dark) .table-head,
+  :global(.dark) .table-row:hover {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #dbe7f5;
+  }
+
+  :global(.dark) .supervisor-input:focus {
+    border-color: #7cc3ff;
+    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .btn-light:hover:not(:disabled) {
+    background: #223653;
+  }
+
+  :global(.dark) .btn-delete {
+    background: linear-gradient(90deg, #b91c1c, #ea580c);
+    border-color: #b91c1c;
+  }
+
+  @media (max-width: 768px) {
+    .supervisor-shell {
+      border-radius: 1rem;
+      padding: 0;
+    }
   }
 
   :global(.dark) .icon-blue {

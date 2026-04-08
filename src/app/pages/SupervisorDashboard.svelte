@@ -268,27 +268,27 @@
     This page is available for supervisor accounts only.
   </section>
 {:else}
-  <section class="flex flex-col gap-6">
+  <section class="supervisor-shell flex flex-col gap-6">
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <article class="supervisor-card rounded-xl border p-5 shadow-md">
+      <article class="supervisor-card supervisor-stat stat-primary rounded-2xl border p-5 shadow-md">
         <div class="supervisor-icon icon-blue"><Users size={18} /></div>
         <p class="supervisor-value mt-4">{totalAssigned}</p>
         <p class="supervisor-label mt-1">Assigned Students</p>
       </article>
 
-      <article class="supervisor-card rounded-xl border p-5 shadow-md">
+      <article class="supervisor-card supervisor-stat stat-success rounded-2xl border p-5 shadow-md">
         <div class="supervisor-icon icon-green"><Clock3 size={18} /></div>
         <p class="supervisor-value mt-4">{totalCompletedHours}h</p>
         <p class="supervisor-label mt-1">Total Completed Hours</p>
       </article>
 
-      <article class="supervisor-card rounded-xl border p-5 shadow-md">
+      <article class="supervisor-card supervisor-stat stat-info rounded-2xl border p-5 shadow-md">
         <div class="supervisor-icon icon-violet"><TrendingUp size={18} /></div>
         <p class="supervisor-value mt-4">{averageProgress}%</p>
         <p class="supervisor-label mt-1">Average Progress</p>
       </article>
 
-      <article class="supervisor-card rounded-xl border p-5 shadow-md">
+      <article class="supervisor-card supervisor-stat stat-forecast rounded-2xl border p-5 shadow-md">
         <div class="supervisor-icon icon-cyan"><Layers3 size={18} /></div>
         <p class="supervisor-value mt-4">{totalRequiredHours}h</p>
         <p class="supervisor-label mt-1">Total Required Hours</p>
@@ -307,7 +307,7 @@
       </p>
     {/if}
 
-    <section class="supervisor-card rounded-xl border p-6 shadow-md">
+    <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
       <div class="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h3 class="supervisor-heading text-lg font-semibold">Assign Students</h3>
@@ -433,7 +433,7 @@
       {/if}
     </section>
 
-    <section class="supervisor-card rounded-xl border p-6 shadow-md">
+    <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
       <div class="mb-4 flex items-center gap-2">
         <UserPlus2 size={17} class="supervisor-sub" />
         <h3 class="supervisor-heading text-lg font-semibold">Assigned Student Progress</h3>
@@ -447,7 +447,7 @@
             {@const required = toNumber(student.required_hours)}
             {@const completed = toNumber(student.completed_hours)}
             {@const progress = toPercent(completed, required)}
-            <article class="rounded-lg border border-(--color-border) px-4 py-3">
+            <article class="student-progress-card rounded-lg border px-4 py-3">
               <div class="mb-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p class="supervisor-heading text-sm font-semibold">{student.full_name}</p>
@@ -455,7 +455,7 @@
                 </div>
                 <p class="supervisor-sub text-xs font-semibold">{completed}h / {required || '-'}h</p>
               </div>
-              <div class="h-2 overflow-hidden rounded-full bg-(--color-soft)">
+              <div class="progress-track h-2 overflow-hidden rounded-full">
                 <div class="h-full rounded-full bg-linear-to-r from-indigo-500 to-cyan-500" style={`width:${progress}%`}></div>
               </div>
               <p class="supervisor-sub mt-2 text-xs">{progress}% complete</p>
@@ -468,19 +468,86 @@
 {/if}
 
 <style>
+  .supervisor-shell {
+    --sp-surface: #ffffff;
+    --sp-surface-soft: #f3f8ff;
+    --sp-border: #d7e3f1;
+    --sp-heading: #0f172a;
+    --sp-text: #1f2937;
+    position: relative;
+    border-radius: 1.25rem;
+    padding: 0.35rem;
+    isolation: isolate;
+  }
+
+  .supervisor-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: 1.25rem;
+    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
+  }
+
+  .supervisor-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 1.25rem;
+    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 30px, rgba(15, 108, 189, 0.04) 30px, rgba(15, 108, 189, 0.04) 31px);
+    pointer-events: none;
+  }
+
   .supervisor-card {
-    background: var(--color-surface);
-    border-color: var(--color-border);
+    background: var(--sp-surface);
+    border-color: var(--sp-border);
+    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
+  }
+
+  .supervisor-panel {
+    background: linear-gradient(145deg, #ffffff, #f5f9ff);
+  }
+
+  .supervisor-stat {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .supervisor-stat::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+  }
+
+  .stat-primary::before {
+    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
+  }
+
+  .stat-success::before {
+    background: linear-gradient(90deg, #0f766e, #10b981);
+  }
+
+  .stat-info::before {
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+  }
+
+  .stat-forecast::before {
+    background: linear-gradient(90deg, #0f766e, #06b6d4);
   }
 
   .supervisor-heading,
   .supervisor-value {
-    color: var(--color-heading);
+    color: var(--sp-heading);
   }
 
   .supervisor-label,
   .supervisor-sub {
-    color: var(--color-sidebar-text);
+    color: var(--sp-text);
   }
 
   .supervisor-value {
@@ -499,23 +566,27 @@
   }
 
   .icon-blue {
-    background: #dbeafe;
-    color: #2563eb;
+    background: #e0efff;
+    color: #0f6cbd;
+    border: 1px solid #bfdbfe;
   }
 
   .icon-green {
-    background: #d1fae5;
-    color: #059669;
+    background: #dcfce7;
+    color: #0f766e;
+    border: 1px solid #86efac;
   }
 
   .icon-violet {
-    background: #ede9fe;
-    color: #7c3aed;
+    background: #dbeafe;
+    color: #1d4ed8;
+    border: 1px solid #93c5fd;
   }
 
   .icon-cyan {
     background: #cffafe;
-    color: #0891b2;
+    color: #0f766e;
+    border: 1px solid #67e8f9;
   }
 
   :global(.dark) .icon-blue {
@@ -547,22 +618,29 @@
   }
 
   .btn-primary {
-    background: #4f46e5;
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    border-color: #0f6cbd;
     color: #ffffff;
+    box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: #4338ca;
+    filter: brightness(1.06);
+    transform: translateY(-1px);
   }
 
   .btn-light {
-    background: var(--color-soft);
-    border-color: var(--color-border);
-    color: var(--color-heading);
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--sp-heading);
+  }
+
+  .btn-light:hover:not(:disabled) {
+    background: #e2edf9;
   }
 
   .assign-toolbar {
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--sp-border);
     padding-top: 0.85rem;
   }
 
@@ -575,24 +653,30 @@
     left: 0.75rem;
     top: 50%;
     transform: translateY(-50%);
-    color: var(--color-muted);
+    color: #67809e;
     pointer-events: none;
   }
 
   .search-input {
-    background: var(--color-soft);
-    border-color: var(--color-border);
-    color: var(--color-text);
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--sp-heading);
+  }
+
+  .search-input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
   .selected-chip {
-    background: var(--color-active-bg);
-    color: var(--color-active-text);
+    background: #e0efff;
+    color: #0f6cbd;
+    border: 1px solid #bfdbfe;
   }
 
   .student-pick-card {
-    background: var(--color-soft);
-    border-color: var(--color-border);
+    background: #edf4fb;
+    border-color: #bed2e8;
     transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
   }
 
@@ -601,13 +685,13 @@
   }
 
   .student-picked {
-    border-color: #4f46e5;
-    box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.3);
+    border-color: #0f6cbd;
+    box-shadow: 0 0 0 1px rgba(15, 108, 189, 0.3);
   }
 
   .pick-indicator {
-    background: var(--color-active-bg);
-    color: var(--color-active-text);
+    background: #e0efff;
+    color: #0f6cbd;
   }
 
   .student-avatar {
@@ -633,21 +717,89 @@
   }
 
   .selected-preview {
-    border-color: var(--color-border);
-    background: var(--color-soft);
+    border-color: #c9d9ec;
+    background: #f1f7fd;
   }
 
   .selected-pill {
-    background: color-mix(in srgb, var(--color-active-bg) 75%, transparent);
-    color: var(--color-active-text);
-    border: 1px solid color-mix(in srgb, var(--color-active-text) 25%, transparent);
+    background: #e0efff;
+    color: #0f6cbd;
+    border: 1px solid #bfdbfe;
+  }
+
+  .student-progress-card {
+    border-color: var(--sp-border);
+    background: #f8fbff;
+  }
+
+  .progress-track {
+    background: #e2edf9;
   }
 
   .debug-card {
-    border-color: var(--color-border);
-    background: var(--color-soft);
-    color: var(--color-sidebar-text);
+    border-color: var(--sp-border);
+    background: #f1f7fd;
+    color: #4d6684;
     line-height: 1.45;
+  }
+
+  :global(.dark) .supervisor-shell {
+    --sp-surface: #162338;
+    --sp-surface-soft: #1b2a42;
+    --sp-border: #2b3c57;
+    --sp-heading: #e5edf8;
+    --sp-text: #cfdceb;
+  }
+
+  :global(.dark) .supervisor-shell::before {
+    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  }
+
+  :global(.dark) .supervisor-shell::after {
+    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%),
+      repeating-linear-gradient(90deg, transparent 0, transparent 32px, rgba(148, 163, 184, 0.07) 32px, rgba(148, 163, 184, 0.07) 33px);
+  }
+
+  :global(.dark) .supervisor-card {
+    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+  }
+
+  :global(.dark) .supervisor-panel {
+    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
+  }
+
+  :global(.dark) .btn-light,
+  :global(.dark) .search-input,
+  :global(.dark) .student-pick-card,
+  :global(.dark) .selected-chip,
+  :global(.dark) .pick-indicator,
+  :global(.dark) .selected-preview,
+  :global(.dark) .selected-pill,
+  :global(.dark) .student-progress-card,
+  :global(.dark) .debug-card {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #dbe7f5;
+  }
+
+  :global(.dark) .progress-track {
+    background: #243a56;
+  }
+
+  :global(.dark) .btn-light:hover:not(:disabled) {
+    background: #223653;
+  }
+
+  :global(.dark) .search-input:focus {
+    border-color: #7cc3ff;
+    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  @media (max-width: 768px) {
+    .supervisor-shell {
+      border-radius: 1rem;
+      padding: 0;
+    }
   }
 
 </style>
