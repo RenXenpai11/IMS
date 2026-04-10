@@ -16,6 +16,8 @@ let workLogs = [
     date: 'Apr 9, 2026',
   },
 ];
+
+
 let expandedWorkLog = null;
 let hoveredWorkLog = null;
 import { onMount, onDestroy, tick } from 'svelte';
@@ -89,6 +91,7 @@ function getUpdatedMinutesAgo(dateString) {
   // If more than 24 hours, show the date
   return `Updated ${dateString}`;
 }
+
 import { getCurrentUser } from '../lib/auth.js';
 import {
   AlertCircle,
@@ -104,6 +107,72 @@ import {
   FileEdit,
   BookOpen,
 } from 'lucide-svelte';
+
+// --- Work Log Form State and Handlers ---
+
+let workLogTask = '';
+let workLogNotes = '';
+let workLogLearnings = '';
+let workLogAttachments = [];
+
+// --- Work Log Filters ---
+let workLogFilterKeyword = '';
+let workLogFilterDate = '';
+
+// Returns true if log matches keyword (in task, notes, learnings, or attachment)
+function matchesWorkLogKeyword(log, keyword) {
+  if (!keyword.trim()) return true;
+  const lower = keyword.trim().toLowerCase();
+  return (
+    log.task.toLowerCase().includes(lower) ||
+    log.notes.toLowerCase().includes(lower) ||
+    log.learnings.toLowerCase().includes(lower) ||
+    (log.attachments && log.attachments.some(f => f.toLowerCase().includes(lower)))
+  );
+}
+
+// Returns true if log matches the selected date (YYYY-MM-DD)
+function matchesWorkLogDate(log, dateStr) {
+  if (!dateStr) return true;
+  // log.date is like 'Apr 10, 2026', convert to YYYY-MM-DD
+  const parsed = parseDueDate(log.date);
+  if (!parsed) return false;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  const logDateStr = `${y}-${m}-${d}`;
+  return logDateStr === dateStr;
+}
+
+$: filteredWorkLogs = workLogs.filter(
+  log => matchesWorkLogKeyword(log, workLogFilterKeyword) && matchesWorkLogDate(log, workLogFilterDate)
+);
+
+function handleWorkLogFileUpload(event) {
+  const files = Array.from(event.target.files || []);
+  workLogAttachments = files.map(f => f.name);
+}
+
+function handleAddWorkLog() {
+  if (!workLogTask.trim() && !workLogNotes.trim() && !workLogLearnings.trim()) return;
+  const now = new Date();
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const date = `${MONTH_NAMES[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+  workLogs = [
+    {
+      task: workLogTask.trim(),
+      notes: workLogNotes.trim(),
+      learnings: workLogLearnings.trim(),
+      attachments: [...workLogAttachments],
+      date
+    },
+    ...workLogs
+  ];
+  workLogTask = '';
+  workLogNotes = '';
+  workLogLearnings = '';
+  workLogAttachments = [];
+}
 
 const summaryCards = [
   {
@@ -1572,45 +1641,58 @@ const summaryCards = [
       <header class="panel-header">
         <h3>Daily Work Logs</h3>
       </header>
-      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; background: var(--color-bg);">
+      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; background: var(--color-bg);">
         <!-- Add Work Log Card -->
-        <div style="flex: 1 1 340px; min-width: 320px; background: var(--color-surface); border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; border: 1px solid var(--color-border); max-width: 420px;">
-          <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); margin-bottom: 1rem; font-family: inherit; display: flex; align-items: center; gap: 0.5rem;">
+        <div style="flex: 1 1 340px; min-width: 320px; background: var(--color-surface); border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; border: 1px solid var(--color-border); max-width: 420px; display: flex; flex-direction: column;">
+          <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); margin-bottom: 1rem; font-family: inherit; display: flex; align-items: flex-start; gap: 0.5rem; min-height: 24px;">
             <FileEdit size={18} style="color: var(--color-accent);" />
             Add Work Log
           </h4>
-          <form>
-            <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-              <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Task</span>
-              <textarea placeholder="Task worked on" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
-            </label>
-            <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-              <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Notes</span>
-              <textarea placeholder="Notes" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
-            </label>
-            <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-              <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Learnings</span>
-              <textarea placeholder="What did you learn today?" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
-            </label>
-            <label style="display: block; margin-bottom: 1.1rem; width: 100%;">
-              <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Attachment</span>
-              <br />
-              <input type="file" style="margin-top: 0.2rem; font-size: 0.83rem;" multiple />
-            </label>
-            <button type="submit" style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #4f46e5; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer;">Submit</button>
-          </form>
+          <form on:submit|preventDefault={handleAddWorkLog}>
+              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
+                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Task</span>
+                <textarea bind:value={workLogTask} placeholder="Task worked on" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+              </label>
+              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
+                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Notes</span>
+                <textarea bind:value={workLogNotes} placeholder="Notes" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+              </label>
+              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
+                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Learnings</span>
+                <textarea bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+              </label>
+              <label style="display: block; margin-bottom: 1.1rem; width: 100%;">
+                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Attachment</span>
+                <br />
+                <input type="file" multiple on:change={handleWorkLogFileUpload} style="margin-top: 0.2rem; font-size: 0.83rem;" />
+                {#if workLogAttachments.length > 0}
+                  <div style="margin-top: 0.3rem; display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                    {#each workLogAttachments as file}
+                      <span class="worklog-attachment-chip">{file}</span>
+                    {/each}
+                  </div>
+                {/if}
+              </label>
+              <button type="submit" style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #4f46e5; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer;">Submit</button>
+            </form>
         </div>
         <!-- Work Logs Card -->
-        <div style="flex: 2 1 0%; min-width: 320px; background: var(--color-surface); border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; border: 1px solid var(--color-border); width: 100%; max-width: none;">
-          <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); margin-bottom: 1rem; font-family: inherit; display: flex; align-items: center; gap: 0.5rem;">
-            <BookOpen size={18} style="color: var(--color-accent);" />
-            Work Logs
-          </h4>
-          {#if workLogs.length === 0}
-            <p class="worklogs-empty">No work logs yet.</p>
+        <div style="flex: 2 1 0%; min-width: 320px; background: var(--color-surface); border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; border: 1px solid var(--color-border); width: 100%; max-width: none; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 1rem;">
+            <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); font-family: inherit; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0; min-height: 24px;">
+              <BookOpen size={18} style="color: var(--color-accent);" />
+              Work Logs
+            </h4>
+            <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+              <input type="text" placeholder="Search task, notes, learnings..." bind:value={workLogFilterKeyword} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); font-size: 0.87rem; min-width: 180px;" />
+              <input type="date" bind:value={workLogFilterDate} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); font-size: 0.87rem; min-width: 140px;" />
+            </div>
+          </div>
+          {#if filteredWorkLogs.length === 0}
+            <p class="worklogs-empty">No work logs found for current filter.</p>
           {:else}
             <div class="worklogs-accordion-list">
-              {#each workLogs as log, idx}
+              {#each filteredWorkLogs as log, idx}
                 <div class="worklog-accordion-item {expandedWorkLog === idx ? 'expanded' : ''}" role="group" on:mouseenter={() => hoveredWorkLog = idx} on:mouseleave={() => hoveredWorkLog = null}>
                   <button class="worklog-accordion-trigger" type="button" aria-expanded={expandedWorkLog === idx} on:click={() => expandedWorkLog = expandedWorkLog === idx ? null : idx}>
                     <span class="worklog-title-meta">
@@ -1646,27 +1728,7 @@ const summaryCards = [
             </div>
           {/if}
         </div>
-      <script>
-      // Demo/mock data for work logs (replace with real data source)
-      let workLogs = [
-        {
-          task: 'API Integration Testing',
-          notes: 'Tested all endpoints, found 2 bugs in /login route.',
-          learnings: 'Learned about JWT token refresh and error handling.',
-          attachments: ['api-test-cases.pdf', 'endpoint-results.xlsx'],
-          date: 'Apr 10, 2026',
-        },
-        {
-          task: 'Write Unit Tests',
-          notes: 'Wrote tests for login and logout. Need to cover refresh token.',
-          learnings: 'Better understanding of mocking in Jest.',
-          attachments: [],
-          date: 'Apr 9, 2026',
-        },
-      ];
-      let expandedWorkLog = null;
-      let hoveredWorkLog = null;
-      </script>
+
       <style>
         .worklogs-empty {
           color: var(--color-muted);
