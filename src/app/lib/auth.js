@@ -420,6 +420,14 @@ export async function listSupervisorAssignedStudents(supervisorUserId) {
   return Array.isArray(result.students) ? result.students : [];
 }
 
+export async function listAssignedStudentRequests(supervisorUserId) {
+  const result = await postAction('list_assigned_student_requests', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+  });
+
+  return Array.isArray(result.requests) ? result.requests : [];
+}
+
 export async function listSupervisorTimeLogs(supervisorUserId, studentUserId) {
   const result = await postAction('list_supervisor_time_logs', {
     supervisor_user_id: String(supervisorUserId || '').trim(),
