@@ -150,6 +150,8 @@ function dispatchAction_(payload) {
 
   if (action === 'create_folder') {
     return handleCreateFolder_(payload);
+  }
+
   if (action === 'create_request') {
     return handleCreateRequest_(payload);
   }
