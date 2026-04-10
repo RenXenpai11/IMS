@@ -20,8 +20,36 @@ onMount(() => {
 onDestroy(() => {
   clearInterval(intervalId);
 });
-// For Today's Learnings textarea
-let todaysLearning = '';
+// For Recent Activity (automatic, backend-driven)
+let recentActivities = [];
+
+// Fetch recent activities from backend
+async function fetchRecentActivities() {
+  try {
+    const run = globalThis?.google?.script?.run;
+    if (!run) return;
+    run.withSuccessHandler((data) => {
+      if (Array.isArray(data)) recentActivities = data;
+    }).getRecentActivities();
+  } catch (e) { /* ignore */ }
+}
+
+// Log a new activity to backend
+function logUserActivity(activity) {
+  try {
+    const run = globalThis?.google?.script?.run;
+    if (!run) return;
+    run.logUserActivity(activity);
+  } catch (e) { /* ignore */ }
+}
+
+onMount(() => {
+  fetchRecentActivities();
+  intervalId = setInterval(() => {
+    updateNow();
+    fetchRecentActivities(); // refresh activities every minute
+  }, 60000);
+});
 
 // Helper to compute minutes ago from a date string (using dueDate as a stand-in for last updated)
 function getUpdatedMinutesAgo(dateString) {
@@ -54,6 +82,8 @@ import {
   Plus,
   Search,
   LayoutGrid,
+  FileEdit,
+  BookOpen,
 } from 'lucide-svelte';
 
 const summaryCards = [
@@ -516,6 +546,13 @@ const summaryCards = [
       activeView = 'Overview';
       isAddTaskOpen = false;
       resetAddTaskForm();
+      // Log activity
+      logUserActivity({
+        message: `Added a new task: ${savedTask.title}`,
+        timestamp: new Date().toISOString(),
+        user: user && user.email ? user.email : 'Unknown'
+      });
+      fetchRecentActivities();
     } catch (error) {
       addTaskError = error?.message || 'Unable to save the task.';
     } finally {
@@ -1289,15 +1326,24 @@ const summaryCards = [
             <section class="overview-panel notes-panel">
               <div class="notes-header" style="display: flex; align-items: center; gap: 0.5rem;">
                 <List size={18} style="color: #a21caf; background: color-mix(in srgb, #a21caf 10%, var(--color-surface)); border-radius: 0.4rem; padding: 0.18rem;" />
-                <div class="notes-title">Today's Learnings</div>
+                <div class="notes-title">Recent Activity</div>
               </div>
-              <div class="notes-textarea-wrap">
-                <textarea
-                  class="notes-textarea"
-                  rows="5"
-                  placeholder="Share your insights and takeaways for today."
-                  bind:value={todaysLearning}
-                ></textarea>
+              <div class="recent-activity-list" style="margin-bottom: 0.5rem;">
+                {#if recentActivities.length === 0}
+                  <p class="overview-empty-copy">No recent activities yet.</p>
+                {:else}
+                  <ul style="list-style: none; padding: 0; margin: 0;">
+                    {#each recentActivities as activity (activity.id)}
+                      <li style="margin-bottom: 0.5rem; display: flex; align-items: flex-start; gap: 0.5rem;">
+                        <span style="font-size: 1.1rem; color: var(--color-primary, #a21caf);">•</span>
+                        <div>
+                          <div style="font-size: 1rem; color: var(--color-text); font-family: inherit;">{activity.message}</div>
+                          <div style="font-size: 0.85rem; color: #888;">{new Date(activity.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</div>
+                        </div>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
               </div>
             </section>
           </div>
@@ -1500,6 +1546,46 @@ const summaryCards = [
         </div>
       {/if}
     </section>
+
+    {#if activeView === 'Overview'}
+    <!-- Daily Work Logs Card -->
+    <section class="panel daily-logs-panel" style="margin-top: 1.2rem;">
+      <header class="panel-header">
+        <h3>Daily Work Logs</h3>
+      </header>
+      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; background: var(--color-bg);">
+        <!-- Add Work Log Card -->
+        <div style="flex: 1 1 340px; min-width: 320px; background: var(--color-surface); border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; border: 1px solid var(--color-border); max-width: 420px;">
+          <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); margin-bottom: 1rem; font-family: inherit; display: flex; align-items: center; gap: 0.5rem;">
+            <FileEdit size={18} style="color: var(--color-accent);" />
+            Add Work Log
+          </h4>
+          <form>
+            <label style="display: block; margin-bottom: 0.7rem;">
+              <span style="font-size: 0.97rem; font-weight: 400; color: var(--color-text); font-family: inherit;">Task</span>
+              <input type="text" placeholder="Task worked on" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;" />
+            </label>
+            <label style="display: block; margin-bottom: 0.7rem;">
+              <span style="font-size: 0.97rem; font-weight: 400; color: var(--color-text); font-family: inherit;">Notes</span>
+              <textarea placeholder="Notes" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+            </label>
+            <label style="display: block; margin-bottom: 1.1rem;">
+              <span style="font-size: 0.97rem; font-weight: 400; color: var(--color-text); font-family: inherit;">Learnings</span>
+              <textarea placeholder="What did you learn today?" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+            </label>
+            <button type="submit" style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #4f46e5; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer;">Submit</button>
+          </form>
+        </div>
+        <!-- Work Logs Card -->
+        <div style="flex: 2 1 0%; min-width: 320px; background: var(--color-surface); border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; border: 1px solid var(--color-border); width: 100%; max-width: none;">
+          <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); margin-bottom: 1rem; font-family: inherit; display: flex; align-items: center; gap: 0.5rem;">
+            <BookOpen size={18} style="color: var(--color-accent);" />
+            Work Logs
+          </h4>
+        </div>
+      </div>
+    </section>
+    {/if}
   </div>
 </section>
 
@@ -1781,8 +1867,15 @@ const summaryCards = [
   .panel {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 1rem;
+    border-radius: 1.1rem;
     box-shadow: 0 12px 24px -24px rgba(15, 23, 42, 0.3);
+    /* Ensure all corners are equally rounded */
+    -webkit-border-radius: 1.1rem;
+    -moz-border-radius: 1.1rem;
+    border-bottom-left-radius: 1.1rem;
+    border-bottom-right-radius: 1.1rem;
+    border-top-left-radius: 1.1rem;
+    border-top-right-radius: 1.1rem;
   }
 
   .stat-card {
