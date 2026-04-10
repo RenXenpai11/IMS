@@ -484,3 +484,27 @@ export async function listTasksByUser(userId, options = {}) {
 
   return Array.isArray(result.tasks) ? result.tasks : [];
 }
+
+export async function listNotifications(userId) {
+  const result = await postAction('list_notifications', {
+    user_id: String(userId || '').trim(),
+  });
+
+  return Array.isArray(result.notifications) ? result.notifications : [];
+}
+
+export async function markNotificationRead(notificationId) {
+  const result = await postAction('mark_notification_read', {
+    notification_id: String(notificationId || '').trim(),
+  });
+
+  return result;
+}
+
+export async function markAllNotificationsRead(userId) {
+  const result = await postAction('mark_all_notifications_read', {
+    user_id: String(userId || '').trim(),
+  });
+
+  return result;
+}

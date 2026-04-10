@@ -19,6 +19,8 @@ var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
 var REQUESTS_SHEET_ = 'requests';
 var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'reason', 'status', 'created_at'];
+var NOTIFICATIONS_SHEET_ = 'notifications';
+var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
 
 function doPost(e) {
   try {
@@ -166,6 +168,18 @@ function dispatchAction_(payload) {
 
   if (action === 'update_request_status') {
     return handleUpdateRequestStatus_(payload);
+  }
+
+  if (action === 'list_notifications') {
+    return handleListNotifications_(payload);
+  }
+
+  if (action === 'mark_notification_read') {
+    return handleMarkNotificationRead_(payload);
+  }
+
+  if (action === 'mark_all_notifications_read') {
+    return handleMarkAllNotificationsRead_(payload);
   }
 
   return { ok: false, error: 'Unknown action: ' + action };
@@ -1427,6 +1441,18 @@ function handleCreateRequest_(payload) {
 
   sheet.appendRow(row);
 
+  // Notify the student's assigned supervisor
+  var supervisorUserId = findSupervisorForStudent_(userId);
+  if (supervisorUserId) {
+    createNotification_(
+      supervisorUserId,
+      'New ' + requestType + ' Request',
+      (requesterName || 'A student') + ' submitted a new ' + requestType.toLowerCase() + ' request for ' + requestDate + '.',
+      'request',
+      requestId
+    );
+  }
+
   return {
     ok: true,
     request: {
@@ -1522,17 +1548,183 @@ function handleUpdateRequestStatus_(payload) {
   var sheet = getRequestsSheet_();
   var rows = getSheetValues_(sheet);
   var headers = getHeaders_(sheet);
-  var statusColIndex = findColumnIndex_(headers, 'request_id');
+  var requestIdColIndex = findColumnIndex_(headers, 'request_id');
   var updateColIndex = findColumnIndex_(headers, 'status');
+  var userIdColIndex = findColumnIndex_(headers, 'user_id');
+  var requestTypeColIndex = findColumnIndex_(headers, 'request_type');
+  var requesterNameColIndex = findColumnIndex_(headers, 'requester_name');
 
   for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][statusColIndex - 1] || '').trim() === requestId) {
+    if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
       sheet.getRange(i + 1, updateColIndex, 1, 1).setValue(newStatus);
+
+      // Notify the student who created the request
+      var studentUserId = String(rows[i][userIdColIndex - 1] || '').trim();
+      var requestType = String(rows[i][requestTypeColIndex - 1] || '').trim();
+      if (studentUserId) {
+        var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
+        createNotification_(
+          studentUserId,
+          requestType + ' Request ' + newStatus,
+          'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.',
+          notifType,
+          requestId
+        );
+      }
+
       return { ok: true, message: 'Request status updated.' };
     }
   }
 
   return { ok: false, error: 'Request not found.' };
+}
+
+// --- Notification handlers ---
+function handleListNotifications_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  try {
+    var sheet = getNotificationsSheet_();
+    var rows = readSheetObjects_(sheet)
+      .filter(function (row) {
+        return String(serializeCellValue_(row.user_id) || '').trim() === userId;
+      })
+      .sort(function (a, b) {
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      })
+      .slice(0, 50)
+      .map(function (row) {
+        return {
+          id: String(serializeCellValue_(row.notification_id) || ''),
+          title: String(serializeCellValue_(row.title) || ''),
+          description: String(serializeCellValue_(row.description) || ''),
+          type: String(serializeCellValue_(row.type) || 'system'),
+          related_id: String(serializeCellValue_(row.related_id) || ''),
+          unread: String(serializeCellValue_(row.is_read) || '').toLowerCase() !== 'true',
+          time: formatRelativeTime_(serializeCellValue_(row.created_at)),
+          created_at: String(serializeCellValue_(row.created_at) || '')
+        };
+      });
+
+    return { ok: true, notifications: rows };
+  } catch (err) {
+    var message = err && err.message ? err.message : String(err);
+    if (String(message).indexOf('Sheet not found') === 0) {
+      return { ok: true, notifications: [] };
+    }
+    return { ok: false, error: 'Unable to load notifications. ' + message };
+  }
+}
+
+function handleMarkNotificationRead_(payload) {
+  var notificationId = String(payload.notification_id || '').trim();
+  if (!notificationId) {
+    return { ok: false, error: 'notification_id is required.' };
+  }
+
+  var sheet = getNotificationsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var notifIdCol = findColumnIndex_(headers, 'notification_id');
+  var isReadCol = findColumnIndex_(headers, 'is_read');
+
+  if (notifIdCol === 0 || isReadCol === 0) {
+    return { ok: false, error: 'Notifications sheet is missing required columns.' };
+  }
+
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][notifIdCol - 1] || '').trim() === notificationId) {
+      sheet.getRange(i + 1, isReadCol, 1, 1).setValue('true');
+      return { ok: true, message: 'Notification marked as read.' };
+    }
+  }
+
+  return { ok: false, error: 'Notification not found.' };
+}
+
+function handleMarkAllNotificationsRead_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  var sheet = getNotificationsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+  var isReadCol = findColumnIndex_(headers, 'is_read');
+
+  if (userIdCol === 0 || isReadCol === 0) {
+    return { ok: false, error: 'Notifications sheet is missing required columns.' };
+  }
+
+  var updated = 0;
+  for (var i = 1; i < values.length; i++) {
+    var rowUserId = String(values[i][userIdCol - 1] || '').trim();
+    var isRead = String(values[i][isReadCol - 1] || '').trim().toLowerCase();
+    if (rowUserId === userId && isRead !== 'true') {
+      sheet.getRange(i + 1, isReadCol, 1, 1).setValue('true');
+      updated++;
+    }
+  }
+
+  return { ok: true, message: updated + ' notifications marked as read.' };
+}
+
+function createNotification_(userId, title, description, type, relatedId) {
+  var sheet = getNotificationsSheet_();
+  appendObjectRow_(sheet, {
+    notification_id: createId_('NOTIF'),
+    user_id: userId,
+    title: title,
+    description: description,
+    type: type || 'system',
+    related_id: relatedId || '',
+    is_read: 'false',
+    created_at: isoNow_()
+  });
+}
+
+function findSupervisorForStudent_(studentUserId) {
+  var targetStudentId = String(studentUserId || '').trim();
+  if (!targetStudentId) {
+    return null;
+  }
+
+  var rows = readSheetObjects_(getSupervisorAssignmentsSheet_());
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].student_user_id || '').trim() === targetStudentId &&
+        String(rows[i].status || 'active').trim().toLowerCase() !== 'inactive') {
+      return String(rows[i].supervisor_user_id || '').trim();
+    }
+  }
+  return null;
+}
+
+function formatRelativeTime_(dateValue) {
+  var raw = serializeCellValue_(dateValue);
+  var dateStr = String(raw || '').trim();
+  if (!dateStr) return '';
+
+  var past = new Date(dateStr.replace(' ', 'T'));
+  if (isNaN(past.getTime())) return dateStr;
+
+  var now = new Date();
+  var diffMs = now.getTime() - past.getTime();
+  var diffSec = Math.floor(diffMs / 1000);
+  var diffMin = Math.floor(diffSec / 60);
+  var diffHr = Math.floor(diffMin / 60);
+  var diffDay = Math.floor(diffHr / 24);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return diffMin + ' min ago';
+  if (diffHr < 24) return diffHr + ' hour' + (diffHr !== 1 ? 's' : '') + ' ago';
+  if (diffDay < 7) return diffDay + ' day' + (diffDay !== 1 ? 's' : '') + ' ago';
+
+  return Utilities.formatDate(past, Session.getScriptTimeZone(), 'MMM d, yyyy');
 }
 
 function getCompletedHoursLookupByUserIds_(userIds) {
@@ -1873,6 +2065,10 @@ function getStudentOjtProfileSheet_() {
 
 function getRequestsSheet_() {
   return getOrCreateSheetWithHeaders_(REQUESTS_SHEET_, REQUESTS_HEADERS_);
+}
+
+function getNotificationsSheet_() {
+  return getOrCreateSheetWithHeaders_(NOTIFICATIONS_SHEET_, NOTIFICATIONS_HEADERS_);
 }
 
 function ensureSheetColumns_(sheet, columnNames) {

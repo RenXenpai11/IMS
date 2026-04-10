@@ -1,69 +1,38 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Bell, Check, RefreshCw, Search } from 'lucide-svelte';
-  import { subscribeToCurrentUser } from '../lib/auth.js';
+  import { Bell, Check, Moon, RefreshCw, Search, Sun } from 'lucide-svelte';
+  import {
+    subscribeToCurrentUser,
+    listNotifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+  } from '../lib/auth.js';
   import { subscribeToSyncState, triggerSync } from '../lib/sync.js';
+  import { theme, toggleTheme } from '../context/ThemeContext.js';
 
   export let pageTitle = 'Internship Management System';
   export let pageDescription = '';
 
-  const initialNotifications = [
-    {
-      id: 1,
-      title: 'Performance Review Scheduled',
-      description: 'Your mid-term evaluation is scheduled for April 10, 2026.',
-      time: '2 hours ago',
-      unread: true,
-      type: 'evaluation',
-    },
-    {
-      id: 2,
-      title: 'Document Submission Reminder',
-      description: 'Please submit your weekly report by Friday, April 5.',
-      time: '5 hours ago',
-      unread: true,
-      type: 'document',
-    },
-    {
-      id: 3,
-      title: 'Overtime Request Approved',
-      description: 'Your overtime request for March 28 has been approved.',
-      time: '1 day ago',
-      unread: true,
-      type: 'approval',
-    },
-    {
-      id: 4,
-      title: 'New Task Assigned',
-      description: 'You have been assigned a new task: API Integration Testing.',
-      time: '2 days ago',
-      unread: false,
-      type: 'task',
-    },
-    {
-      id: 5,
-      title: 'System Maintenance Notice',
-      description: 'The system will be under maintenance on April 6 from 12-2 AM.',
-      time: '3 days ago',
-      unread: false,
-      type: 'system',
-    },
-  ];
+  const POLL_INTERVAL_MS = 30000;
 
   const typeColors = {
     evaluation: 'notif-badge notif-badge-evaluation',
     document: 'notif-badge notif-badge-document',
     approval: 'notif-badge notif-badge-approval',
+    rejection: 'notif-badge notif-badge-evaluation',
+    request: 'notif-badge notif-badge-task',
     task: 'notif-badge notif-badge-task',
     system: 'notif-badge notif-badge-system',
   };
 
   let notifOpen = false;
-  let notifications = initialNotifications;
+  let notifications = [];
   let currentUser = null;
   let unsubscribeAuth;
   let unsubscribeSyncState;
   let syncing = false;
+  let pollTimer;
+  let isLoadingNotifs = false;
 
   function buildInitials(fullName) {
     const value = String(fullName || '').trim();
@@ -81,6 +50,34 @@
     return initials || 'U';
   }
 
+  async function loadNotifications() {
+    if (!currentUser?.user_id || isLoadingNotifs) {
+      return;
+    }
+
+    try {
+      isLoadingNotifs = true;
+      const items = await listNotifications(currentUser.user_id);
+      notifications = items;
+    } catch (err) {
+      console.error('Failed to load notifications:', err);
+    } finally {
+      isLoadingNotifs = false;
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(loadNotifications, POLL_INTERVAL_MS);
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
   $: unreadCount = notifications.filter((item) => item.unread).length;
   $: userName = String(currentUser?.full_name || '').trim() || 'User';
   $: userPhotoUrl = String(currentUser?.profile_photo_url || '').trim();
@@ -94,14 +91,33 @@
     notifOpen = false;
   }
 
-  function markAllRead() {
+  async function markAllRead() {
+    if (!currentUser?.user_id) return;
+
+    // Optimistic update
     notifications = notifications.map((item) => ({ ...item, unread: false }));
+
+    try {
+      await markAllNotificationsRead(currentUser.user_id);
+    } catch (err) {
+      console.error('Failed to mark all notifications read:', err);
+      // Reload to get accurate state
+      await loadNotifications();
+    }
   }
 
-  function markRead(id) {
+  async function markRead(id) {
+    // Optimistic update
     notifications = notifications.map((item) =>
       item.id === id ? { ...item, unread: false } : item
     );
+
+    try {
+      await markNotificationRead(id);
+    } catch (err) {
+      console.error('Failed to mark notification read:', err);
+      await loadNotifications();
+    }
   }
 
   function handleSyncNow() {
@@ -111,6 +127,13 @@
   onMount(() => {
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
+      if (user?.user_id) {
+        loadNotifications();
+        startPolling();
+      } else {
+        notifications = [];
+        stopPolling();
+      }
     });
 
     unsubscribeSyncState = subscribeToSyncState((state) => {
@@ -119,6 +142,8 @@
   });
 
   onDestroy(() => {
+    stopPolling();
+
     if (typeof unsubscribeAuth === 'function') {
       unsubscribeAuth();
     }
@@ -148,6 +173,14 @@
       <span>{syncing ? 'Syncing...' : 'Sync'}</span>
     </button>
 
+    <button class="icon-button theme-toggle-btn" type="button" on:click={toggleTheme} aria-label="Toggle theme">
+      {#if $theme === 'dark'}
+        <Sun size={17} />
+      {:else}
+        <Moon size={17} />
+      {/if}
+    </button>
+
     <div class="menu-shell">
       <button class="icon-button" type="button" on:click={toggleNotifications} aria-label="Notifications">
         <Bell size={17} />
@@ -175,6 +208,11 @@
           </div>
 
           <div class="notification-list">
+            {#if notifications.length === 0}
+              <div class="notification-empty">
+                <p>No notifications yet</p>
+              </div>
+            {:else}
             {#each notifications as item (item.id)}
               <button
                 class:notification-unread={item.unread}
@@ -197,6 +235,7 @@
                 </div>
               </button>
             {/each}
+            {/if}
           </div>
 
           <div class="menu-footer">

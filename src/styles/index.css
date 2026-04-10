@@ -571,6 +571,19 @@ button {
   color: var(--color-heading);
 }
 
+.theme-toggle-btn {
+  transition: background-color 150ms ease, color 150ms ease, transform 300ms ease;
+}
+
+.theme-toggle-btn:hover {
+  color: #f59e0b;
+  transform: rotate(15deg);
+}
+
+:root.dark .theme-toggle-btn:hover {
+  color: #fbbf24;
+}
+
 .dot,
 .notification-dot {
   border-radius: 999px;
@@ -669,6 +682,17 @@ button {
 .notification-list {
   max-height: 20rem;
   overflow-y: auto;
+}
+
+.notification-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+}
+
+.notification-empty p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.8125rem;
 }
 
 .notification-item {

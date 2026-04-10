@@ -6,14 +6,11 @@
     Camera,
     Mail,
     MapPin,
-    Moon,
     Phone,
     Save,
-    Sun,
     User,
   } from 'lucide-svelte';
   import { subscribeToCurrentUser, updateProfilePhoto, updateUserProfile } from '../lib/auth.js';
-  import { setTheme, theme, toggleTheme } from '../context/ThemeContext.js';
 
   let saved = false;
   let saveTimer;
@@ -366,83 +363,6 @@
     </div>
   </section>
 
-  <section class="theme-section settings-panel settings-panel-appearance rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-    <header class="theme-divider border-b px-6 py-4">
-      <div class="flex items-center gap-2">
-        {#if $theme === 'dark'}
-          <Moon size={16} class="text-indigo-600" />
-        {:else}
-          <Sun size={16} class="text-indigo-600" />
-        {/if}
-        <h2 class="theme-heading text-[15px] font-semibold">Appearance</h2>
-      </div>
-      <p class="theme-text mt-1 text-[13px]">Customize how the application looks on your device.</p>
-    </header>
-
-    <div class="px-6">
-      <div class="theme-divider flex items-center justify-between border-b py-4">
-        <div class="mr-4">
-          <p class="theme-heading text-[14px] font-medium">Dark Mode</p>
-          <p class="theme-text mt-0.5 text-[13px]">Switch between light and dark interface theme.</p>
-        </div>
-        <div class="flex items-center gap-3">
-          <Sun size={15} class="text-slate-400" />
-          <button
-            type="button"
-            class="relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200"
-            style={`background-color: ${$theme === 'dark' ? '#4F46E5' : '#E5E7EB'};`}
-            on:click={toggleTheme}
-            aria-label="Toggle dark mode"
-          >
-            <span class={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${$theme === 'dark' ? 'translate-x-5' : 'translate-x-0'}`}></span>
-          </button>
-          <Moon size={15} class="text-slate-400" />
-        </div>
-      </div>
-
-      <div class="py-4">
-        <p class="theme-text mb-3 text-[13px]">Theme preview</p>
-        <div class="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            on:click={() => setTheme('light')}
-            class={`relative rounded-xl border-2 p-3 text-left transition-all ${$theme === 'light' ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'theme-border'}`}
-          >
-            {#if $theme === 'light'}
-              <span class="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-indigo-500"></span>
-            {/if}
-            <div class="mb-2 flex h-12 w-full items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2">
-              <div class="h-6 w-1.5 rounded bg-slate-200"></div>
-              <div class="flex-1 space-y-1">
-                <div class="h-1.5 w-3/4 rounded bg-slate-200"></div>
-                <div class="h-1.5 w-1/2 rounded bg-slate-100"></div>
-              </div>
-            </div>
-            <p class="theme-text text-[12px] font-medium">Light Mode</p>
-          </button>
-
-          <button
-            type="button"
-            on:click={() => setTheme('dark')}
-            class={`relative rounded-xl border-2 p-3 text-left transition-all ${$theme === 'dark' ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'theme-border'}`}
-          >
-            {#if $theme === 'dark'}
-              <span class="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-indigo-500"></span>
-            {/if}
-            <div class="mb-2 flex h-12 w-full items-center gap-1.5 rounded-lg bg-[#1F2937] px-2">
-              <div class="h-6 w-1.5 rounded bg-slate-700"></div>
-              <div class="flex-1 space-y-1">
-                <div class="h-1.5 w-3/4 rounded bg-slate-600"></div>
-                <div class="h-1.5 w-1/2 rounded bg-slate-700"></div>
-              </div>
-            </div>
-            <p class="theme-text text-[12px] font-medium">Dark Mode</p>
-          </button>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <section class="theme-section settings-panel settings-panel-notify rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <header class="theme-divider border-b px-6 py-4">
       <div class="flex items-center gap-2">
@@ -588,10 +508,6 @@
 
   .settings-panel-profile::before {
     background: linear-gradient(90deg, #0f6cbd, #38bdf8);
-  }
-
-  .settings-panel-appearance::before {
-    background: linear-gradient(90deg, #0f766e, #14b8a6);
   }
 
   .settings-panel-notify::before {
