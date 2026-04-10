@@ -2709,5 +2709,7 @@ function authorizeImsScopes_() {
 }
 
 function authorizeImsScopes() {
-  return authorizeImsScopes_();
+  return authorizeImsScopes_()
 }
+
+
