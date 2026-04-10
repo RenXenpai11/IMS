@@ -1842,18 +1842,18 @@ function getStudentProfileByUserId_(userId) {
   }
 
   // If start_date is missing, try to get first_login_date from users sheet as fallback
-  var startDate = String(found.start_date || '').trim();
+  var startDate = formatDateValue_(found.start_date);
   if (!startDate) {
     var userRecord = findUserRecordByUserId_(userId);
     if (userRecord && userRecord.user) {
-      startDate = String(userRecord.user.first_login_date || '').slice(0, 10);
+      startDate = formatDateValue_(userRecord.user.first_login_date);
     }
   }
 
   return {
     user_id: String(found.user_id || ''),
     total_ojt_hours: Number(found.total_ojt_hours || 0),
-    start_date: startDate,
+    start_date: formatDateValue_(startDate),
     estimated_end_date: String(found.estimated_end_date || ''),
     course: String(found.course || ''),
     school: String(found.school || '')
@@ -2710,5 +2710,4 @@ function authorizeImsScopes_() {
 
 function authorizeImsScopes() {
   return authorizeImsScopes_();
-}
 }

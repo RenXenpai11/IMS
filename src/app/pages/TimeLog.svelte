@@ -18,9 +18,9 @@
   const DEFAULT_REQUIRED_HOURS = 500;
   const AVERAGE_DAILY_HOURS = 8;
   const INITIAL_COMPLETED_HOURS = 0;
-  const TODAY = new Date(2026, 3, 2);
 
   let requiredHours = DEFAULT_REQUIRED_HOURS;
+  let ojtStartDate = '';
 
   const statusMeta = {
     recorded: {
@@ -100,6 +100,15 @@
 
   function formatTableDate(value) {
     return formatDate(value, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function parseIsoDateOnly(value) {
+    const normalized = normalizeDateOnly(value);
+    if (!normalized) return null;
+    const [y, m, d] = normalized.split('-').map((n) => Number(n));
+    const dt = new Date(y, m - 1, d);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt;
   }
 
   function adjustAbsenceDays(delta) {
@@ -235,6 +244,8 @@
   function syncRequiredHoursFromAccount() {
     const user = authApi.getCurrentUser();
     const studentHours = Number(user?.ojt?.total_ojt_hours || 0);
+    const rawStartDate = user?.ojt?.start_date || user?.first_login_date || '';
+    ojtStartDate = normalizeDateOnly(rawStartDate);
 
     if (user?.role === 'Student' && Number.isFinite(studentHours) && studentHours > 0) {
       requiredHours = studentHours;
@@ -318,9 +329,13 @@
     localStorage.setItem('ojt_completed_hours', String(completedHours));
   }
   $: effectiveRemaining = Math.max(0, remainingHours - overtimeHours);
-  $: baseDaysNeeded = Math.ceil(effectiveRemaining / AVERAGE_DAILY_HOURS);
-  $: totalDaysNeeded = baseDaysNeeded + absenceDays;
-  $: estimatedDate = addWorkingDays(TODAY, totalDaysNeeded);
+  $: totalAbsenceHours = Math.max(0, absenceDays) * AVERAGE_DAILY_HOURS;
+  $: adjustedRequiredHours = Math.max(0, requiredHours + totalAbsenceHours - Math.max(0, overtimeHours));
+  $: projectedWorkingDays = Math.ceil(adjustedRequiredHours / AVERAGE_DAILY_HOURS);
+  $: estimatedDate = (() => {
+    const start = parseIsoDateOnly(ojtStartDate) || new Date();
+    return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1));
+  })();
   $: overtimeDaysAhead = Math.round((overtimeHours / AVERAGE_DAILY_HOURS) * 10) / 10;
   // Calculate days and remaining hours (e.g., "54 days 4 hours")
   $: daysAndHours = (() => {
@@ -558,7 +573,7 @@
           <div>
             <p class="predictor-estimate-label text-xs font-semibold uppercase tracking-[0.08em]">Estimated Completion Date</p>
             <p class="theme-heading mt-1 text-2xl font-bold tracking-tight">{formatLongDate(estimatedDate)}</p>
-            <p class="predictor-estimate-sub mt-1 text-sm">{totalDaysNeeded} working days from today</p>
+            <p class="predictor-estimate-sub mt-1 text-sm">{projectedWorkingDays} total working days from start date</p>
           </div>
 
           <div class="predictor-estimate-pill inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold shadow-sm">
@@ -865,10 +880,6 @@
     background: rgba(194, 65, 12, 0.18);
     color: #fdba74;
     border-color: rgba(253, 186, 116, 0.4);
-  }
-
-  :global(.dark) .lunch-toggle-switch {
-    /* dark override for OFF state */
   }
 
   .theme-button-soft {

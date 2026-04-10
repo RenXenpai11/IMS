@@ -1,8 +1,9 @@
 import { get, writable } from 'svelte/store';
 
 const THEME_STORAGE_KEY = 'ims-theme';
+const DEFAULT_THEME = 'dark';
 
-export const theme = writable('light');
+export const theme = writable(DEFAULT_THEME);
 
 function applyThemeClass(nextTheme) {
   if (typeof document === 'undefined') {
@@ -35,7 +36,7 @@ export function initializeTheme() {
     return;
   }
 
-  setTheme('light');
+  setTheme(DEFAULT_THEME);
 }
 
 export function toggleTheme() {

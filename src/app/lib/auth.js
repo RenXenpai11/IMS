@@ -456,6 +456,7 @@ export async function getStudentDashboard(userId, options = {}) {
   return {
     user: result.user || null,
     profile: result.profile || null,
+    total_completed_hours: Number(result.total_completed_hours || 0),
     time_logs: Array.isArray(result.time_logs) ? result.time_logs : [],
     activity_logs: Array.isArray(result.activity_logs) ? result.activity_logs : [],
     tasks: Array.isArray(result.tasks) ? result.tasks : [],

@@ -1,6 +1,7 @@
 <script>
 	import {
 		CalendarDays,
+		Building,
 		CheckCircle2,
 		Clock3,
 		Eye,
@@ -29,9 +30,10 @@
 
 	let totalHours = '';
 	let startDate = '';
-	let estimatedEndDate = '';
+	let department = '';
 	let course = '';
 	let school = '';
+	let showDepartmentSuggestions = false;
 	let showCourseSuggestions = false;
 	let showSchoolSuggestions = false;
 	let otpCode = '';
@@ -97,6 +99,8 @@
 		'University of the Philippines'
 	];
 
+	const departmentCatalog = ['International NOC', 'Regional Surveillance Center', 'CNFM'];
+
 	function isValidEmail(value) {
 		return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 	}
@@ -160,7 +164,7 @@
 		error = '';
 		info = '';
 
-		if (!totalHours || !startDate || !estimatedEndDate || !course || !school) {
+		if (!totalHours || !startDate || !department || !course || !school) {
 			error = 'Please complete all OJT setup details.';
 			return;
 		}
@@ -170,16 +174,26 @@
 			return;
 		}
 
+		const totalWorkingDays = Math.ceil(Number(totalHours) / 8);
+		const computedEstimatedEndDateObj = addWorkingDays(startDate, Math.max(0, totalWorkingDays - 1));
+		const computedEstimatedEndDate = toIsoDateOnly(computedEstimatedEndDateObj);
+
+		if (!computedEstimatedEndDate) {
+			error = 'Invalid start date. Please select a valid date.';
+			return;
+		}
+
 		try {
 			const registration = await registerAccount({
 				name,
 				email,
 				password,
 				role,
+				department,
 				ojtProfile: {
 					total_ojt_hours: Number(totalHours),
 					start_date: startDate,
-					estimated_end_date: estimatedEndDate,
+					estimated_end_date: computedEstimatedEndDate,
 					course,
 					school,
 				},
@@ -251,9 +265,61 @@
 		return options.filter((option) => option.toLowerCase().includes(term)).slice(0, 8);
 	}
 
+	function parseIsoDateOnly(value) {
+		const raw = String(value || '').trim();
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+			return null;
+		}
+
+		const [y, m, d] = raw.split('-').map((n) => Number(n));
+		const dt = new Date(y, m - 1, d);
+		if (Number.isNaN(dt.getTime())) {
+			return null;
+		}
+
+		return dt;
+	}
+
+	function addWorkingDays(startDateValue, workingDays) {
+		const start = startDateValue instanceof Date ? new Date(startDateValue) : parseIsoDateOnly(startDateValue);
+		if (!start || Number.isNaN(start.getTime())) return null;
+
+		let remaining = Math.max(0, Math.trunc(Number(workingDays || 0)));
+		const cursor = new Date(start);
+
+		while (cursor.getDay() === 0 || cursor.getDay() === 6) {
+			cursor.setDate(cursor.getDate() + 1);
+		}
+
+		while (remaining > 0) {
+			cursor.setDate(cursor.getDate() + 1);
+			if (cursor.getDay() !== 0 && cursor.getDay() !== 6) {
+				remaining -= 1;
+			}
+		}
+
+		return cursor;
+	}
+
+	function toIsoDateOnly(dateInput) {
+		if (!(dateInput instanceof Date) || Number.isNaN(dateInput.getTime())) {
+			return '';
+		}
+
+		const year = dateInput.getFullYear();
+		const month = String(dateInput.getMonth() + 1).padStart(2, '0');
+		const day = String(dateInput.getDate()).padStart(2, '0');
+		return `${year}-${month}-${day}`;
+	}
+
 	function selectCourse(value) {
 		course = value;
 		showCourseSuggestions = false;
+	}
+
+	function selectDepartment(value) {
+		department = value;
+		showDepartmentSuggestions = false;
 	}
 
 	function selectSchool(value) {
@@ -267,6 +333,12 @@
 		}, 100);
 	}
 
+	function hideDepartmentSuggestions() {
+		setTimeout(() => {
+			showDepartmentSuggestions = false;
+		}, 100);
+	}
+
 	function hideSchoolSuggestions() {
 		setTimeout(() => {
 			showSchoolSuggestions = false;
@@ -274,6 +346,7 @@
 	}
 
 	$: filteredCourses = filterSuggestions(courseCatalog, course);
+	$: filteredDepartments = filterSuggestions(departmentCatalog, department);
 	$: filteredSchools = filterSuggestions(schoolCatalog, school);
 </script>
 
@@ -412,23 +485,42 @@
 						</div>
 					</label>
 
-					<div class="date-grid">
-						<label class="field">
-							<span>Start Date</span>
-							<div class="input-wrap">
-								<span class="input-icon"><CalendarDays size={16} strokeWidth={2.2} /></span>
-								<input bind:value={startDate} type="date" />
-							</div>
-						</label>
+					<label class="field">
+						<span>Start Date</span>
+						<div class="input-wrap">
+							<span class="input-icon"><CalendarDays size={16} strokeWidth={2.2} /></span>
+							<input bind:value={startDate} type="date" />
+						</div>
+					</label>
 
-						<label class="field">
-							<span>Estimated End Date</span>
+					<label class="field">
+						<span>Department</span>
+						<div class="typeahead-wrap">
 							<div class="input-wrap">
-								<span class="input-icon"><CalendarDays size={16} strokeWidth={2.2} /></span>
-								<input bind:value={estimatedEndDate} type="date" />
+								<span class="input-icon"><Building size={16} strokeWidth={2.2} /></span>
+								<input
+									bind:value={department}
+									type="text"
+									autocomplete="off"
+									on:focus={() => (showDepartmentSuggestions = true)}
+									on:blur={hideDepartmentSuggestions}
+									placeholder="Search your department"
+								/>
 							</div>
-						</label>
-					</div>
+
+							{#if showDepartmentSuggestions && department.trim().length > 0 && filteredDepartments.length > 0}
+								<ul class="suggestions" role="listbox" aria-label="Department suggestions">
+									{#each filteredDepartments as item}
+										<li>
+											<button type="button" class="suggestion-item" on:mousedown={() => selectDepartment(item)}>
+												{item}
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+					</label>
 
 					<label class="field">
 						<span>Course</span>
@@ -793,12 +885,6 @@
 		color: #f8fafc;
 	}
 
-	.date-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0.75rem;
-	}
-
 	.actions {
 		margin-top: 0.12rem;
 		display: flex;
@@ -938,10 +1024,6 @@
 	}
 
 	@media (max-width: 720px) {
-		.date-grid {
-			grid-template-columns: 1fr;
-		}
-
 		.actions {
 			flex-direction: column;
 			align-items: stretch;
