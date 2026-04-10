@@ -669,8 +669,7 @@
     inset: 0;
     z-index: -1;
     border-radius: 1.25rem;
-    background-image: linear-gradient(110deg, rgba(15, 108, 189, 0.07), transparent 52%),
-      repeating-linear-gradient(90deg, transparent 0, transparent 28px, rgba(15, 108, 189, 0.04) 28px, rgba(15, 108, 189, 0.04) 29px);
+    background-image: linear-gradient(110deg, rgba(15, 108, 189, 0.07), transparent 52%);
     pointer-events: none;
   }
 
@@ -1000,8 +999,7 @@
   }
 
   :global(.dark) .timelog-shell::after {
-    background-image: linear-gradient(110deg, rgba(91, 177, 255, 0.12), transparent 55%),
-      repeating-linear-gradient(90deg, transparent 0, transparent 32px, rgba(148, 163, 184, 0.07) 32px, rgba(148, 163, 184, 0.07) 33px);
+    background-image: linear-gradient(110deg, rgba(91, 177, 255, 0.12), transparent 55%);
   }
 
   :global(.dark) .theme-panel,

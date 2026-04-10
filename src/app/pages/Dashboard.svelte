@@ -573,6 +573,9 @@
     border-radius: 1.25rem;
     padding: 0.35rem;
     isolation: isolate;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
 
   .dashboard-shell::before {
@@ -590,8 +593,7 @@
     inset: 0;
     z-index: -1;
     border-radius: 1.25rem;
-    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%),
-      repeating-linear-gradient(90deg, transparent 0, transparent 30px, rgba(15, 108, 189, 0.04) 30px, rgba(15, 108, 189, 0.04) 31px);
+    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%);
     pointer-events: none;
   }
 
@@ -599,6 +601,7 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+    min-width: 0;
   }
 
   .welcome-banner {
@@ -687,7 +690,7 @@
 
   .wide-card {
     display: grid;
-    grid-template-columns: 1.1fr 0.9fr;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
     gap: 1.25rem;
     padding: 1.25rem;
     border-radius: 12px;
@@ -703,6 +706,11 @@
     color: var(--db-heading);
   }
 
+  .wide-left,
+  .wide-right {
+    min-width: 0;
+  }
+
   .wide-value {
     margin-top: 0.5rem;
     font-size: 1.5rem;
@@ -714,6 +722,7 @@
     margin-top: 0.35rem;
     color: var(--db-muted);
     font-size: 0.9rem;
+    overflow-wrap: anywhere;
   }
 
   .progress-top {
@@ -783,9 +792,10 @@
 
   .summary-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
     gap: 1.5rem;
     margin-bottom: 0.25rem;
+    min-width: 0;
   }
 
   .summary-card {
@@ -798,6 +808,7 @@
     color: var(--db-heading);
     box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
+    min-width: 0;
   }
 
   .summary-card::before {
@@ -911,8 +922,9 @@
 
   .content-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
     gap: 1.5rem;
+    min-width: 0;
   }
 
   .card {
@@ -922,6 +934,7 @@
     box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
     border: 1px solid var(--db-border);
     transition: box-shadow 0.3s ease;
+    min-width: 0;
   }
 
   .card:hover {
@@ -967,6 +980,7 @@
     gap: 1rem;
     padding-bottom: 1rem;
     border-bottom: 1px solid #e3eef9;
+    min-width: 0;
   }
 
   .activity-item:last-child {
@@ -999,6 +1013,7 @@
 
   .activity-content {
     flex: 1;
+    min-width: 0;
   }
 
   .activity-title {
@@ -1029,6 +1044,8 @@
     border: 1px solid #bed2e8;
     border-radius: 8px;
     transition: background 0.3s ease, border-color 0.3s ease;
+    min-width: 0;
+    gap: 0.75rem;
   }
 
   .task-item:hover {
@@ -1038,6 +1055,7 @@
 
   .task-info {
     flex: 1;
+    min-width: 0;
   }
 
   .task-name {
@@ -1045,6 +1063,7 @@
     color: var(--db-heading);
     margin: 0 0 0.25rem 0;
     font-size: 0.95rem;
+    overflow-wrap: anywhere;
   }
 
   .task-deadline {
@@ -1094,8 +1113,7 @@
   }
 
   :global(.dark) .dashboard-shell::after {
-    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%),
-      repeating-linear-gradient(90deg, transparent 0, transparent 32px, rgba(148, 163, 184, 0.07) 32px, rgba(148, 163, 184, 0.07) 33px);
+    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
   }
 
   :global(.dark) .summary-card,
@@ -1199,6 +1217,16 @@
 
     .stat-value {
       font-size: 2rem;
+    }
+  }
+
+  @media (max-width: 1100px) {
+    .wide-card {
+      grid-template-columns: 1fr;
+    }
+
+    .content-grid {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
     }
   }
 </style>

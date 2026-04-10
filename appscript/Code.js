@@ -2451,6 +2451,18 @@ function jsonResponse_(obj) {
 // Document Management Functions
 var DOCUMENTS_SHEET_ = 'documents';
 var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'category', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
+var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
+var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'link', 'uploaded_at', 'uploaded_by'];
+var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
+
+function getOrCreateDocumentUploadsFolder_() {
+  var folders = DriveApp.getFoldersByName(DOCUMENT_UPLOADS_FOLDER_);
+  if (folders.hasNext()) {
+    return folders.next();
+  }
+
+  return DriveApp.createFolder(DOCUMENT_UPLOADS_FOLDER_);
+}
 
 function handleGetAllDocuments_(payload) {
   try {
@@ -2459,32 +2471,35 @@ function handleGetAllDocuments_(payload) {
       return { ok: false, error: 'Missing user_id.' };
     }
 
-    var sheet = getSheet_(DOCUMENTS_SHEET_);
-    if (!sheet) {
-      return { ok: false, error: 'Documents sheet not found.' };
-    }
+    var sheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
 
     var data = sheet.getDataRange().getValues();
-    var headers = data[0] || [];
     var documents = [];
 
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
       var doc = {
-        id: row[0],
-        user_id: row[1],
-        name: row[2],
-        folder: row[3],
-        category: row[4],
-        type: row[5],
-        size: row[6],
-        url: row[7],
-        is_link: row[8],
-        uploaded_date: row[9],
-        access_level: row[10],
-        shared_with: row[11] ? JSON.parse(String(row[11])) : [],
-        created_by: row[12],
-        created_date: row[13]
+        id: String(row[0] || '').trim(),
+        user_id: String(row[1] || '').trim(),
+        name: String(row[2] || '').trim(),
+        folder: String(row[3] || '/').trim() || '/',
+        category: String(row[4] || 'Other').trim() || 'Other',
+        type: String(row[5] || 'file').trim() || 'file',
+        size: String(row[6] || '').trim(),
+        url: String(row[7] || '').trim(),
+        is_link: String(row[8] || '').trim(),
+        uploaded_date: String(row[9] || '').trim(),
+        access_level: String(row[10] || 'private').trim() || 'private',
+        shared_with: (function() {
+          if (!row[11]) return [];
+          try {
+            return JSON.parse(String(row[11]));
+          } catch (e) {
+            return [];
+          }
+        })(),
+        created_by: String(row[12] || '').trim(),
+        created_date: String(row[13] || '').trim()
       };
 
       if (doc.user_id === userId) {
@@ -2504,21 +2519,52 @@ function handleUploadDocument_(payload) {
     var name = String(payload.name || '').trim();
     var folder = String(payload.folder || '/').trim();
     var category = String(payload.category || 'Other').trim();
-    var type = String(payload.type || 'file').trim();
-    var size = String(payload.size || '0').trim();
+    var type = String(payload.type || 'file').trim().toLowerCase();
+    var size = String(payload.size || '').trim();
     var url = String(payload.url || '#').trim();
-    var isLink = Boolean(payload.is_link || false);
+    var isLink = payload.is_link === true || String(payload.is_link || '').toLowerCase() === 'true';
+    var fileDataBase64 = String(payload.file_data_base64 || '').trim();
+    var mimeType = String(payload.mime_type || 'application/octet-stream').trim();
+    var fileName = String(payload.file_name || name || 'upload').trim();
     var uploadedDate = String(payload.uploaded_date || new Date().toISOString().split('T')[0]).trim();
 
     if (!userId || !name) {
       return { ok: false, error: 'Missing user_id or name.' };
     }
 
-    var docId = 'doc' + Date.now();
-    var sheet = getSheet_(DOCUMENTS_SHEET_);
-    if (!sheet) {
-      sheet = createSheet_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
+    if (isLink) {
+      type = 'link';
+      if (!url || url === '#') {
+        return { ok: false, error: 'Missing link URL.' };
+      }
+    } else {
+      if (fileDataBase64) {
+        try {
+          var bytes = Utilities.base64Decode(fileDataBase64);
+          var blob = Utilities.newBlob(bytes, mimeType, fileName || name);
+          var uploadFolder = getOrCreateDocumentUploadsFolder_();
+          var createdFile = uploadFolder.createFile(blob);
+
+          url = createdFile.getUrl();
+          if (!size) {
+            size = (createdFile.getSize() / 1024 / 1024).toFixed(1) + ' MB';
+          }
+        } catch (uploadErr) {
+          return { ok: false, error: 'Unable to save uploaded file: ' + (uploadErr.message || String(uploadErr)) };
+        }
+      }
+
+      if (!url || url === '#') {
+        return { ok: false, error: 'Missing uploaded file data.' };
+      }
+
+      if (!size) {
+        size = '0 MB';
+      }
     }
+
+    var docId = 'doc' + Date.now();
+    var sheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
 
     var newRow = [
       docId,
@@ -2538,6 +2584,17 @@ function handleUploadDocument_(payload) {
     ];
 
     sheet.appendRow(newRow);
+
+    if (isLink) {
+      var attachmentsSheet = getOrCreateSheetWithHeaders_(ACT_ATTACHMENTS_SHEET_, ACT_ATTACHMENTS_HEADERS_);
+      attachmentsSheet.appendRow([
+        docId,
+        userId,
+        url,
+        new Date().toISOString(),
+        userId
+      ]);
+    }
 
     return {
       ok: true,
@@ -2580,7 +2637,9 @@ function handleDeleteDocument_(payload) {
     var data = sheet.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
-      if (row[0] === docId && row[1] === userId) {
+      var rowDocId = String(row[0] || '').trim();
+      var rowUserId = String(row[1] || '').trim();
+      if (rowDocId === docId && rowUserId === userId) {
         sheet.deleteRow(i + 1);
         return { ok: true, message: 'Document deleted.' };
       }
@@ -2611,8 +2670,17 @@ function handleShareDocument_(payload) {
     var data = sheet.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
-      if (row[0] === docId && row[1] === userId) {
-        var sharedWith = row[11] ? JSON.parse(String(row[11])) : [];
+      var rowDocId = String(row[0] || '').trim();
+      var rowUserId = String(row[1] || '').trim();
+      if (rowDocId === docId && rowUserId === userId) {
+        var sharedWith = [];
+        if (row[11]) {
+          try {
+            sharedWith = JSON.parse(String(row[11]));
+          } catch (e) {
+            sharedWith = [];
+          }
+        }
         
         // Check if already shared
         var alreadyShared = sharedWith.some(function(s) { return s.email === email; });
@@ -2655,8 +2723,17 @@ function handleRemoveShare_(payload) {
     var data = sheet.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
-      if (row[0] === docId && row[1] === userId) {
-        var sharedWith = row[11] ? JSON.parse(String(row[11])) : [];
+      var rowDocId = String(row[0] || '').trim();
+      var rowUserId = String(row[1] || '').trim();
+      if (rowDocId === docId && rowUserId === userId) {
+        var sharedWith = [];
+        if (row[11]) {
+          try {
+            sharedWith = JSON.parse(String(row[11]));
+          } catch (e) {
+            sharedWith = [];
+          }
+        }
         sharedWith = sharedWith.filter(function(s) { return s.email !== email; });
 
         sheet.getRange(i + 1, 12).setValue(JSON.stringify(sharedWith));

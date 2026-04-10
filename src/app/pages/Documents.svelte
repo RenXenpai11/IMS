@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { Upload, Link2, Folder, FolderOpen, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Home } from 'lucide-svelte';
+  import * as authApi from '../lib/auth.js';
 
   // Folder structure
   const folderStructure = {
@@ -38,6 +39,11 @@
   let showUploadPreview = false;
   let pendingFile = null;
   let pendingFilePreview = null;
+  let actionMessage = '';
+  let actionMessageType = 'success';
+  let actionMessageTimer = null;
+
+  const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
   const categories = ['All', 'Legal', 'Reference', 'Meetings', 'Work', 'Other'];
 
@@ -51,10 +57,114 @@
   $: folderDocuments = documents.filter(doc => doc.folder === currentFolder);
   $: documentsInFolder = folderDocuments.length;
 
+  function parseStoredAuthUserId_() {
+    if (typeof window === 'undefined') {
+      return '';
+    }
+
+    try {
+      const raw = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+      if (!raw) return '';
+      const parsed = JSON.parse(raw);
+      return String(parsed?.user_id || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  function resolveCurrentUserId_() {
+    const authUser = authApi.getCurrentUser();
+    const fromAuthModule = String(authUser?.user_id || '').trim();
+    if (fromAuthModule) return fromAuthModule;
+
+    const fromStoredSession = parseStoredAuthUserId_();
+    if (fromStoredSession) return fromStoredSession;
+
+    if (typeof window !== 'undefined') {
+      const legacyCurrentUser = String(window.localStorage.getItem('current_user_id') || '').trim();
+      if (legacyCurrentUser) return legacyCurrentUser;
+
+      return String(window['__ims_user_id'] || '').trim();
+    }
+
+    return '';
+  }
+
+  function mapDocumentFromApi_(rawDoc) {
+    const doc = rawDoc && typeof rawDoc === 'object' ? rawDoc : {};
+    const isLink = doc.isLink === true || String(doc.is_link || '').toLowerCase() === 'true' || String(doc.type || '').toLowerCase() === 'link';
+    const accessLevel = String(doc.accessLevel || doc.access_level || 'private').trim().toLowerCase() || 'private';
+    const sharedWith = Array.isArray(doc.sharedWith)
+      ? doc.sharedWith
+      : Array.isArray(doc.shared_with)
+        ? doc.shared_with
+        : [];
+
+    return {
+      ...doc,
+      id: String(doc.id || ''),
+      user_id: String(doc.user_id || doc.userId || ''),
+      name: String(doc.name || ''),
+      folder: String(doc.folder || '/'),
+      category: String(doc.category || 'Other'),
+      type: String(doc.type || (isLink ? 'link' : 'file')),
+      size: String(doc.size || ''),
+      url: String(doc.url || ''),
+      isLink,
+      is_link: isLink,
+      uploadedDate: String(doc.uploadedDate || doc.uploaded_date || ''),
+      uploaded_date: String(doc.uploadedDate || doc.uploaded_date || ''),
+      accessLevel,
+      access_level: accessLevel,
+      sharedWith,
+      shared_with: sharedWith,
+      created_by: String(doc.created_by || ''),
+      created_date: String(doc.created_date || ''),
+    };
+  }
+
+  function fileToBase64_(file) {
+    return new Promise((resolve, reject) => {
+      if (!file) {
+        reject(new Error('No file selected.'));
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        const commaIndex = dataUrl.indexOf(',');
+        resolve(commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : '');
+      };
+      reader.onerror = () => reject(new Error('Unable to read selected file.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function showActionMessage_(message, type = 'success') {
+    actionMessage = String(message || '').trim();
+    actionMessageType = type === 'error' ? 'error' : 'success';
+
+    if (actionMessageTimer) {
+      clearTimeout(actionMessageTimer);
+    }
+
+    actionMessageTimer = setTimeout(() => {
+      actionMessage = '';
+      actionMessageTimer = null;
+    }, 3200);
+  }
+
   // API Call helper
   function callBackend_(action, payload) {
     return new Promise((resolve, reject) => {
-      google.script.run
+      const scriptRunner = window?.['google']?.script?.run;
+      if (!scriptRunner) {
+        reject(new Error('Apps Script bridge is not ready.'));
+        return;
+      }
+
+      scriptRunner
         .withSuccessHandler((response) => {
           resolve(response);
         })
@@ -71,7 +181,9 @@
       isLoading = true;
       const response = await callBackend_('get_all_documents', { user_id: userId });
       if (response.ok) {
-        documents = response.documents || [];
+        documents = Array.isArray(response.documents)
+          ? response.documents.map(mapDocumentFromApi_)
+          : [];
       } else {
         console.error('Failed to load documents:', response.error);
       }
@@ -86,6 +198,11 @@
     const files = event.target.files;
     if (files && files.length > 0) {
       const file = files[0];
+      if (file.size > 50 * 1024 * 1024) {
+        alert('File is too large. Maximum file size is 50MB.');
+        return;
+      }
+
       // Create preview without saving to database yet
       pendingFile = {
         name: file.name,
@@ -93,6 +210,8 @@
         type: file.type.includes('pdf') ? 'pdf' : 'file',
         size: (file.size / 1024 / 1024).toFixed(1) + ' MB',
         folder: uploadToFolder,
+        rawFile: file,
+        mimeType: String(file.type || 'application/octet-stream'),
       };
       
       pendingFilePreview = {
@@ -108,6 +227,8 @@
     if (!pendingFile) return;
     
     try {
+      const fileDataBase64 = await fileToBase64_(pendingFile.rawFile);
+
       const response = await callBackend_('upload_document', {
         user_id: userId,
         name: pendingFile.name,
@@ -116,22 +237,27 @@
         size: pendingFile.size,
         folder: pendingFile.folder,
         uploaded_date: new Date().toISOString().slice(0, 10),
-        url: '#',
-        is_link: false
+        is_link: false,
+        file_name: pendingFile.name,
+        mime_type: pendingFile.mimeType,
+        file_data_base64: fileDataBase64,
       });
 
       if (response.ok) {
-        documents = [response.document, ...documents];
+        await loadDocuments_();
         showUploadModal = false;
         showUploadPreview = false;
         uploadToFolder = '/';
         pendingFile = null;
         pendingFilePreview = null;
+        showActionMessage_('Document uploaded and saved to database.');
       } else {
+        showActionMessage_('Upload failed: ' + (response.error || 'Unknown error.'), 'error');
         alert('Error uploading document: ' + response.error);
       }
     } catch (err) {
       console.error('Upload error:', err);
+      showActionMessage_('Upload failed. Please try again.', 'error');
       alert('Error uploading document');
     }
   }
@@ -144,29 +270,40 @@
 
   async function addLink() {
     if (newLinkName.trim() && newLinkUrl.trim()) {
+      let normalizedUrl = '';
+      try {
+        normalizedUrl = new URL(newLinkUrl.trim()).toString();
+      } catch {
+        alert('Please enter a valid URL.');
+        return;
+      }
+
       try {
         const response = await callBackend_('upload_document', {
           user_id: userId,
-          name: newLinkName,
+          name: newLinkName.trim(),
           category: 'Meetings',
           type: 'link',
-          url: newLinkUrl,
+          url: normalizedUrl,
           folder: uploadToFolder,
           uploaded_date: new Date().toISOString().slice(0, 10),
           is_link: true
         });
 
         if (response.ok) {
-          documents = [response.document, ...documents];
+          await loadDocuments_();
           newLinkName = '';
           newLinkUrl = '';
           showLinkModal = false;
           uploadToFolder = '/';
+          showActionMessage_('Link uploaded and saved to database.');
         } else {
+          showActionMessage_('Add link failed: ' + (response.error || 'Unknown error.'), 'error');
           alert('Error adding link: ' + response.error);
         }
       } catch (err) {
         console.error('Link error:', err);
+        showActionMessage_('Add link failed. Please try again.', 'error');
         alert('Error adding link');
       }
     }
@@ -199,14 +336,30 @@
         // Update local document
         const docIndex = documents.findIndex(d => d.id === selectedDocForShare.id);
         if (docIndex !== -1) {
-          documents[docIndex].sharedWith.push({
+          const currentDoc = mapDocumentFromApi_(documents[docIndex]);
+          const nextSharedWith = [
+            ...(Array.isArray(currentDoc.sharedWith) ? currentDoc.sharedWith : []),
+            {
             email: shareEmail,
             role: shareRole,
             sharedDate: new Date().toISOString().slice(0, 10),
-          });
-          documents[docIndex].access_level = 'shared';
-          documents = documents;
-          selectedDocForShare = documents[docIndex];
+            },
+          ];
+
+          const updatedDoc = {
+            ...currentDoc,
+            sharedWith: nextSharedWith,
+            shared_with: nextSharedWith,
+            accessLevel: 'shared',
+            access_level: 'shared',
+          };
+
+          documents = [
+            ...documents.slice(0, docIndex),
+            updatedDoc,
+            ...documents.slice(docIndex + 1),
+          ];
+          selectedDocForShare = updatedDoc;
         }
         shareEmail = '';
         shareRole = 'Viewer';
@@ -230,13 +383,25 @@
       if (response.ok) {
         const docIndex = documents.findIndex(d => d.id === docId);
         if (docIndex !== -1) {
-          documents[docIndex].sharedWith = documents[docIndex].sharedWith.filter(s => s.email !== email);
-          if (documents[docIndex].sharedWith.length === 0) {
-            documents[docIndex].access_level = 'private';
-          }
-          documents = documents;
+          const currentDoc = mapDocumentFromApi_(documents[docIndex]);
+          const nextSharedWith = (Array.isArray(currentDoc.sharedWith) ? currentDoc.sharedWith : []).filter((s) => s.email !== email);
+          const nextAccessLevel = nextSharedWith.length === 0 ? 'private' : 'shared';
+
+          const updatedDoc = {
+            ...currentDoc,
+            sharedWith: nextSharedWith,
+            shared_with: nextSharedWith,
+            accessLevel: nextAccessLevel,
+            access_level: nextAccessLevel,
+          };
+
+          documents = [
+            ...documents.slice(0, docIndex),
+            updatedDoc,
+            ...documents.slice(docIndex + 1),
+          ];
           if (selectedDocForShare && selectedDocForShare.id === docId) {
-            selectedDocForShare = documents[docIndex];
+            selectedDocForShare = updatedDoc;
           }
         }
       } else {
@@ -335,7 +500,9 @@
   }
 
   function formatDate(dateStr) {
+    if (!dateStr) return '—';
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '—';
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
@@ -349,16 +516,20 @@
   }
 
   onMount(async () => {
-    // Get user ID from local storage or window object
+    // Resolve authenticated user id first to keep document records consistent.
     try {
-      userId = localStorage.getItem('current_user_id') || window.__ims_user_id || 'user-' + Date.now();
-      if (!localStorage.getItem('current_user_id')) {
-        localStorage.setItem('current_user_id', userId);
+      userId = resolveCurrentUserId_();
+      if (!userId) {
+        console.error('Unable to resolve authenticated user id for documents.');
+        isLoading = false;
+        return;
       }
+
       // Load documents from backend
       await loadDocuments_();
     } catch (err) {
       console.error('Error initializing documents:', err);
+      showActionMessage_('Unable to load documents. Please refresh.', 'error');
     }
   });
 </script>
@@ -386,6 +557,12 @@
         </button>
       </div>
     </div>
+
+    {#if actionMessage}
+      <div class={`action-message ${actionMessageType === 'error' ? 'action-message-error' : 'action-message-success'}`}>
+        <span>{actionMessage}</span>
+      </div>
+    {/if}
 
     <!-- Folder Navigation -->
     <div class="folder-nav">
@@ -670,7 +847,7 @@
 
               <div class="preview-section">
                 <label for="preview-category">Category</label>
-                <select id="preview-category" bind:value={pendingFile.category} style="width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #e5e7eb;">
+                <select id="preview-category" bind:value={pendingFile.category} style="width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid var(--doc-border); background: #eef5fc; color: var(--doc-text);">
                   <option value="Other">Other</option>
                   <option value="Legal">Legal</option>
                   <option value="Reference">Reference</option>
@@ -955,7 +1132,36 @@
 
 <style>
   .page-shell {
-    padding: 0;
+    --doc-surface: #ffffff;
+    --doc-surface-soft: #f4f8fc;
+    --doc-border: #d8e2ef;
+    --doc-text: #0f172a;
+    --doc-muted: #5f7188;
+    --doc-accent: #0f6cbd;
+    --doc-accent-soft: #d8ebff;
+    position: relative;
+    border-radius: 1.25rem;
+    padding: 0.35rem;
+    isolation: isolate;
+  }
+
+  .page-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    border-radius: 1.25rem;
+    background: radial-gradient(120% 120% at 0% 0%, #e4f1ff 0%, #f6fafe 55%, #ecf3fb 100%);
+  }
+
+  .page-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 1.25rem;
+    background-image: linear-gradient(110deg, rgba(15, 108, 189, 0.07), transparent 52%);
+    pointer-events: none;
   }
 
   .documents-container {
@@ -972,16 +1178,39 @@
     gap: 2rem;
   }
 
+  .action-message {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  .action-message-success {
+    background: #dcfce7;
+    color: #0f766e;
+    border-color: #86efac;
+  }
+
+  .action-message-error {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+  }
+
   .page-title {
     margin: 0;
     font-size: 2rem;
     font-weight: 800;
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .page-subtitle {
     margin: 0.5rem 0 0;
-    color: #6b7280;
+    color: var(--doc-muted);
     font-size: 0.95rem;
   }
 
@@ -1004,23 +1233,23 @@
   }
 
   .btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
     color: white;
   }
 
   .btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 15px rgba(102, 126, 234, 0.3);
+    box-shadow: 0 8px 15px rgba(15, 108, 189, 0.35);
   }
 
   .btn-secondary {
-    background: #f3f4f6;
-    color: #111827;
-    border: 1px solid #e5e7eb;
+    background: #eef5fc;
+    color: #11406d;
+    border: 1px solid #d8e2ef;
   }
 
   .btn-secondary:hover {
-    background: #e5e7eb;
+    background: #e2edf9;
   }
 
   .btn-danger {
@@ -1045,9 +1274,9 @@
     flex-direction: column;
     gap: 1rem;
     padding: 1.5rem;
-    background: white;
+    background: var(--doc-surface);
     border-radius: 12px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--doc-border);
   }
 
   .search-box {
@@ -1055,10 +1284,10 @@
     align-items: center;
     gap: 0.75rem;
     padding: 0.75rem 1rem;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
+    background: #eef5fc;
+    border: 1px solid var(--doc-border);
     border-radius: 10px;
-    color: #6b7280;
+    color: var(--doc-muted);
   }
 
   .search-box input {
@@ -1067,11 +1296,11 @@
     background: none;
     outline: none;
     font-size: 0.95rem;
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .search-box input::placeholder {
-    color: #9ca3af;
+    color: #7c8fa8;
   }
 
   .category-tabs {
@@ -1082,24 +1311,24 @@
 
   .category-tab {
     padding: 0.5rem 1rem;
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
+    background: #eef5fc;
+    border: 1px solid var(--doc-border);
     border-radius: 20px;
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 500;
-    color: #6b7280;
+    color: #4f657f;
     transition: all 0.2s ease;
   }
 
   .category-tab:hover {
-    border-color: #667eea;
-    color: #667eea;
-    background: #f0f4ff;
+    border-color: #0f6cbd;
+    color: #0f6cbd;
+    background: #e0efff;
   }
 
   .category-tab.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
     color: white;
     border-color: transparent;
   }
@@ -1116,33 +1345,33 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 1rem;
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
+    background: #eef5fc;
+    border: 1px solid var(--doc-border);
     border-radius: 8px;
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 500;
-    color: #6b7280;
+    color: #4f657f;
     transition: all 0.2s ease;
   }
 
   .folder-tab:hover {
-    border-color: #667eea;
-    color: #667eea;
-    background: #f0f4ff;
+    border-color: #0f6cbd;
+    color: #0f6cbd;
+    background: #e0efff;
   }
 
   .folder-tab.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
     color: white;
     border-color: transparent;
   }
 
   /* Table Styles */
   .documents-table-container {
-    background: white;
+    background: var(--doc-surface);
     border-radius: 12px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--doc-border);
     overflow: hidden;
   }
 
@@ -1151,18 +1380,18 @@
     justify-content: space-between;
     align-items: center;
     padding: 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--doc-border);
   }
 
   .table-header h2 {
     margin: 0;
     font-size: 1.25rem;
     font-weight: 700;
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .doc-count {
-    color: #6b7280;
+    color: var(--doc-muted);
     font-size: 0.9rem;
   }
 
@@ -1177,32 +1406,32 @@
   }
 
   .documents-table thead {
-    background: #f9fafb;
-    border-bottom: 2px solid #e5e7eb;
+    background: #f3f8ff;
+    border-bottom: 2px solid var(--doc-border);
   }
 
   .documents-table thead th {
     padding: 1rem;
     text-align: left;
     font-weight: 600;
-    color: #374151;
+    color: #1f3857;
     text-transform: uppercase;
     font-size: 0.85rem;
     letter-spacing: 0.5px;
   }
 
   .documents-table tbody tr {
-    border-bottom: 1px solid #f3f4f6;
+    border-bottom: 1px solid #edf3fb;
     transition: background 0.2s ease;
   }
 
   .documents-table tbody tr:hover {
-    background: #f9fafb;
+    background: #f3f8ff;
   }
 
   .documents-table td {
     padding: 1rem;
-    color: #111827;
+    color: var(--doc-text);
     vertical-align: middle;
   }
 
@@ -1227,7 +1456,7 @@
     justify-content: center;
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
     border-radius: 8px;
     color: white;
     flex-shrink: 0;
@@ -1247,8 +1476,8 @@
   .type-badge {
     display: inline-block;
     padding: 0.35rem 0.65rem;
-    background: #dbeafe;
-    color: #1e40af;
+    background: #dcfce7;
+    color: #0f766e;
     border-radius: 6px;
     font-size: 0.8rem;
     font-weight: 600;
@@ -1261,8 +1490,8 @@
   .category-badge {
     display: inline-block;
     padding: 0.35rem 0.65rem;
-    background: #f0f4ff;
-    color: #667eea;
+    background: #dbeafe;
+    color: #1d4ed8;
     border-radius: 6px;
     font-size: 0.8rem;
     font-weight: 600;
@@ -1270,13 +1499,13 @@
 
   .col-size {
     width: 100px;
-    color: #6b7280;
+    color: var(--doc-muted);
     font-size: 0.9rem;
   }
 
   .col-date {
     width: 120px;
-    color: #6b7280;
+    color: var(--doc-muted);
     font-size: 0.9rem;
   }
 
@@ -1308,22 +1537,22 @@
     justify-content: center;
     width: 36px;
     height: 36px;
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
+    background: #eef5fc;
+    border: 1px solid var(--doc-border);
     border-radius: 8px;
     cursor: pointer;
-    color: #667eea;
+    color: #0f6cbd;
     transition: all 0.2s ease;
   }
 
   .icon-btn:hover {
-    background: #e5e7eb;
-    color: #764ba2;
-    border-color: #667eea;
+    background: #dbeafe;
+    color: #0f3868;
+    border-color: #93c5fd;
   }
 
   .icon-btn.share-btn {
-    color: #667eea;
+    color: #0f6cbd;
   }
 
   .icon-btn.delete-btn {
@@ -1342,8 +1571,8 @@
     flex-direction: column;
     gap: 1rem;
     padding: 1.5rem;
-    background: white;
-    border: 1px solid #e5e7eb;
+    background: var(--doc-surface);
+    border: 1px solid var(--doc-border);
     border-radius: 12px;
   }
 
@@ -1351,7 +1580,7 @@
     margin: 0 0 0.5rem 0;
     font-size: 0.95rem;
     font-weight: 700;
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .folders-grid {
@@ -1365,8 +1594,8 @@
     align-items: center;
     gap: 1rem;
     padding: 1rem;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
+    background: #f8fbff;
+    border: 1px solid var(--doc-border);
     border-radius: 10px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -1374,13 +1603,13 @@
   }
 
   .folder-item:hover {
-    background: #f3f4f6;
-    border-color: #d1d5db;
+    background: #f0f7ff;
+    border-color: #bfd5ec;
   }
 
   .folder-item.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-color: #667eea;
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+    border-color: #0f6cbd;
     color: white;
   }
 
@@ -1390,9 +1619,9 @@
     justify-content: center;
     width: 40px;
     height: 40px;
-    background: rgba(102, 126, 234, 0.1);
+    background: rgba(15, 108, 189, 0.12);
     border-radius: 8px;
-    color: #667eea;
+    color: #0f6cbd;
     flex-shrink: 0;
   }
 
@@ -1407,7 +1636,7 @@
 
   .folder-name {
     font-weight: 600;
-    color: #111827;
+    color: var(--doc-text);
     margin: 0;
     font-size: 0.95rem;
   }
@@ -1418,7 +1647,7 @@
 
   .folder-count {
     font-size: 0.85rem;
-    color: #6b7280;
+    color: var(--doc-muted);
     margin: 0.25rem 0 0 0;
   }
 
@@ -1454,8 +1683,8 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
+    background: #eef5fc;
+    border: 1px solid var(--doc-border);
     border-radius: 6px;
     cursor: pointer;
     font-size: 1rem;
@@ -1465,17 +1694,17 @@
   }
 
   .folder-action-btn:hover {
-    background: #e5e7eb;
-    border-color: #d1d5db;
+    background: #dbeafe;
+    border-color: #93c5fd;
   }
 
   .folder-action-btn.rename-btn {
-    color: #667eea;
+    color: #0f6cbd;
   }
 
   .folder-action-btn.rename-btn:hover {
-    color: #764ba2;
-    background: #f0f4ff;
+    color: #0f3868;
+    background: #dbeafe;
   }
 
   .folder-action-btn.delete-btn {
@@ -1495,7 +1724,7 @@
     justify-content: center;
     padding: 3rem 2rem;
     text-align: center;
-    color: #6b7280;
+    color: var(--doc-muted);
   }
 
   .empty-state > :nth-child(1) {
@@ -1507,7 +1736,7 @@
     margin: 0 0 0.5rem;
     font-size: 1.1rem;
     font-weight: 600;
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .empty-state p {
@@ -1525,20 +1754,20 @@
   .share-link-box input {
     flex: 1;
     padding: 0.75rem;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--doc-border);
     border-radius: 10px;
     font-size: 0.9rem;
     outline: none;
-    background: #f9fafb;
+    background: #eef5fc;
   }
 
   .copy-btn {
     padding: 0.75rem 1rem;
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
+    background: #eef5fc;
+    border: 1px solid var(--doc-border);
     border-radius: 10px;
     cursor: pointer;
-    color: #667eea;
+    color: #0f6cbd;
     transition: all 0.2s ease;
     display: flex;
     align-items: center;
@@ -1546,8 +1775,8 @@
   }
 
   .copy-btn:hover {
-    background: #e5e7eb;
-    color: #764ba2;
+    background: #dbeafe;
+    color: #0f3868;
   }
 
   .share-form {
@@ -1555,11 +1784,11 @@
     flex-direction: column;
     gap: 1.25rem;
     padding: 1.5rem 0;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--doc-border);
     border-radius: 10px;
     padding: 1.5rem;
     margin-top: 1.5rem;
-    background: #f9fafb;
+    background: #f3f8ff;
   }
 
   .share-form .form-group {
@@ -1568,7 +1797,7 @@
 
   .form-group select {
     padding: 0.75rem;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--doc-border);
     border-radius: 10px;
     font-size: 0.95rem;
     outline: none;
@@ -1576,20 +1805,20 @@
   }
 
   .form-group select:focus {
-    border-color: #667eea;
+    border-color: #0f6cbd;
   }
 
   .shares-list {
     margin-top: 1.5rem;
     padding-top: 1.5rem;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--doc-border);
   }
 
   .shares-list h3 {
     margin: 0 0 1rem 0;
     font-size: 0.95rem;
     font-weight: 600;
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .share-item {
@@ -1597,8 +1826,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.75rem;
-    background: white;
-    border: 1px solid #e5e7eb;
+    background: #f8fbff;
+    border: 1px solid var(--doc-border);
     border-radius: 8px;
     margin-bottom: 0.75rem;
   }
@@ -1609,13 +1838,13 @@
 
   .share-email {
     font-weight: 500;
-    color: #111827;
+    color: var(--doc-text);
     font-size: 0.95rem;
   }
 
   .share-role {
     font-size: 0.85rem;
-    color: #6b7280;
+    color: var(--doc-muted);
     margin-top: 0.25rem;
   }
 
@@ -1635,10 +1864,10 @@
   .empty-shares {
     padding: 1.5rem;
     text-align: center;
-    color: #6b7280;
+    color: var(--doc-muted);
     font-size: 0.9rem;
-    background: white;
-    border: 1px dashed #e5e7eb;
+    background: #f8fbff;
+    border: 1px dashed #bfd5ec;
     border-radius: 8px;
   }
 
@@ -1657,9 +1886,9 @@
   }
 
   .modal {
-    background: white;
+    background: var(--doc-surface);
     border-radius: 12px;
-    box-shadow: 0 20px 25px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 20px 25px rgba(15, 23, 42, 0.18);
     max-width: 500px;
     width: 90%;
     max-height: 90vh;
@@ -1671,14 +1900,14 @@
     justify-content: space-between;
     align-items: center;
     padding: 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--doc-border);
   }
 
   .modal-header h2 {
     margin: 0;
     font-size: 1.25rem;
     font-weight: 700;
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .close-btn {
@@ -1686,7 +1915,7 @@
     border: none;
     font-size: 2rem;
     cursor: pointer;
-    color: #6b7280;
+    color: var(--doc-muted);
     padding: 0;
     width: 2rem;
     height: 2rem;
@@ -1696,7 +1925,7 @@
   }
 
   .close-btn:hover {
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .modal-body {
@@ -1704,7 +1933,7 @@
   }
 
   .upload-area {
-    border: 2px dashed #e5e7eb;
+    border: 2px dashed #bfd5ec;
     border-radius: 12px;
     padding: 2rem;
     text-align: center;
@@ -1712,8 +1941,8 @@
   }
 
   .upload-area:hover {
-    border-color: #667eea;
-    background: #f0f4ff;
+    border-color: #0f6cbd;
+    background: #e0efff;
   }
 
   .upload-label {
@@ -1722,23 +1951,23 @@
     align-items: center;
     gap: 0.75rem;
     cursor: pointer;
-    color: #667eea;
+    color: #0f6cbd;
   }
 
   .upload-label p {
     margin: 0;
     font-weight: 600;
-    color: #111827;
+    color: var(--doc-text);
   }
 
   .upload-label span {
     font-size: 0.9rem;
-    color: #6b7280;
+    color: var(--doc-muted);
   }
 
   .file-hint {
     font-size: 0.8rem;
-    color: #9ca3af;
+    color: #7c8fa8;
     margin-top: 0.5rem !important;
   }
 
@@ -1751,13 +1980,13 @@
 
   .form-group label {
     font-weight: 600;
-    color: #111827;
+    color: var(--doc-text);
     font-size: 0.95rem;
   }
 
   .form-group input {
     padding: 0.75rem;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--doc-border);
     border-radius: 10px;
     font-size: 0.95rem;
     outline: none;
@@ -1765,7 +1994,8 @@
   }
 
   .form-group input:focus {
-    border-color: #667eea;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
   .modal-footer {
@@ -1773,7 +2003,7 @@
     gap: 0.75rem;
     justify-content: flex-end;
     padding: 1.5rem;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--doc-border);
   }
 
   .confirmation-content {
@@ -1784,7 +2014,7 @@
 
   .confirmation-content p {
     margin: 0;
-    color: #111827;
+    color: var(--doc-text);
     font-size: 0.95rem;
     line-height: 1.5;
   }
@@ -1792,6 +2022,127 @@
   .warning-text {
     color: #ef4444 !important;
     font-weight: 500;
+  }
+
+  :global(.dark) .page-shell {
+    --doc-surface: #162338;
+    --doc-surface-soft: #1b2a42;
+    --doc-border: #2b3c57;
+    --doc-text: #e5edf8;
+    --doc-muted: #9ab0cb;
+    --doc-accent: #5bb1ff;
+    --doc-accent-soft: rgba(91, 177, 255, 0.18);
+  }
+
+  :global(.dark) .page-shell::before {
+    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  }
+
+  :global(.dark) .page-shell::after {
+    background-image: linear-gradient(110deg, rgba(91, 177, 255, 0.12), transparent 55%);
+  }
+
+  :global(.dark) .search-box,
+  :global(.dark) .folder-tab,
+  :global(.dark) .category-tab,
+  :global(.dark) .icon-btn,
+  :global(.dark) .folder-action-btn,
+  :global(.dark) .copy-btn,
+  :global(.dark) .share-link-box input,
+  :global(.dark) .form-group input,
+  :global(.dark) .form-group select {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #e2e8f0;
+  }
+
+  :global(.dark) .form-group input:focus,
+  :global(.dark) .form-group select:focus {
+    border-color: #7cc3ff;
+    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .btn-primary {
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
+  }
+
+  :global(.dark) .btn-secondary {
+    background: #2a3f5d;
+    border-color: #426389;
+    color: #cfe6ff;
+  }
+
+  :global(.dark) .btn-secondary:hover,
+  :global(.dark) .icon-btn:hover,
+  :global(.dark) .folder-action-btn:hover,
+  :global(.dark) .copy-btn:hover {
+    background: #365276;
+    border-color: #5a83b0;
+    color: #e0f2fe;
+  }
+
+  :global(.dark) .folder-item,
+  :global(.dark) .share-item,
+  :global(.dark) .empty-shares,
+  :global(.dark) .share-form,
+  :global(.dark) .documents-table thead,
+  :global(.dark) .modal {
+    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .documents-table tbody tr {
+    border-bottom-color: #2b3c57;
+  }
+
+  :global(.dark) .documents-table tbody tr:hover {
+    background: rgba(43, 60, 87, 0.45);
+  }
+
+  :global(.dark) .folder-item:hover {
+    background: rgba(43, 60, 87, 0.45);
+    border-color: #426389;
+  }
+
+  :global(.dark) .folder-icon {
+    background: rgba(91, 177, 255, 0.18);
+    color: #93c5fd;
+    border: 1px solid rgba(125, 211, 252, 0.38);
+  }
+
+  :global(.dark) .type-badge {
+    background: rgba(16, 185, 129, 0.2);
+    color: #86efac;
+    border: 1px solid rgba(16, 185, 129, 0.45);
+  }
+
+  :global(.dark) .category-badge {
+    background: rgba(59, 130, 246, 0.18);
+    color: #93c5fd;
+    border: 1px solid rgba(147, 197, 253, 0.4);
+  }
+
+  :global(.dark) .upload-area {
+    border-color: #426389;
+    background: rgba(15, 23, 42, 0.35);
+  }
+
+  :global(.dark) .upload-area:hover {
+    border-color: #7cc3ff;
+    background: rgba(91, 177, 255, 0.12);
+  }
+
+  :global(.dark) .action-message-success {
+    background: rgba(16, 185, 129, 0.2);
+    color: #86efac;
+    border-color: rgba(16, 185, 129, 0.45);
+  }
+
+  :global(.dark) .action-message-error {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.45);
   }
 
   @media (max-width: 768px) {

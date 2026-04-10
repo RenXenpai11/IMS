@@ -481,8 +481,7 @@
     inset: 0;
     z-index: -1;
     border-radius: 1.25rem;
-    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%),
-      repeating-linear-gradient(90deg, transparent 0, transparent 30px, rgba(15, 108, 189, 0.04) 30px, rgba(15, 108, 189, 0.04) 31px);
+    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%);
     pointer-events: none;
   }
 
@@ -612,8 +611,7 @@
   }
 
   :global(.dark) .settings-shell::after {
-    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%),
-      repeating-linear-gradient(90deg, transparent 0, transparent 32px, rgba(148, 163, 184, 0.07) 32px, rgba(148, 163, 184, 0.07) 33px);
+    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
   }
 
   :global(.dark) .theme-section {
