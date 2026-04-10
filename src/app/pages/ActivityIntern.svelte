@@ -1,4 +1,23 @@
 <script>
+// Demo/mock data for work logs (replace with real data source)
+let workLogs = [
+  {
+    task: 'API Integration Testing',
+    notes: 'Tested all endpoints, found 2 bugs in /login route.',
+    learnings: 'Learned about JWT token refresh and error handling.',
+    attachments: ['api-test-cases.pdf', 'endpoint-results.xlsx'],
+    date: 'Apr 10, 2026',
+  },
+  {
+    task: 'Write Unit Tests',
+    notes: 'Wrote tests for login and logout. Need to cover refresh token.',
+    learnings: 'Better understanding of mocking in Jest.',
+    attachments: [],
+    date: 'Apr 9, 2026',
+  },
+];
+let expandedWorkLog = null;
+let hoveredWorkLog = null;
 import { onMount, onDestroy, tick } from 'svelte';
 import { theme } from '../context/ThemeContext.js';
 // For real-time update of 'Updated X minutes ago'
@@ -1471,10 +1490,10 @@ const summaryCards = [
                 <div class="tracker-summary">
                   <p class="tracker-title">{selectedOverviewTask.title}</p>
                   <p class="tracker-description" style="color: var(--color-text); margin-bottom: 0.25em; line-height: 1.4;">{selectedOverviewTask.description}</p>
-                  <p class="tracker-meta" style="font-style: italic; color: var(--color-muted); font-size: 0.97em; margin-bottom: 0.1em; line-height: 1.3;">
-                    Due {selectedOverviewTask.dueDate}
+                  <p class="tracker-meta due-attachment-meta">
+                    <span class="due-label">Due {selectedOverviewTask.dueDate}</span>
                     <span aria-hidden="true">•</span>
-                    {formatAttachmentMeta(selectedOverviewTask.attachments)}
+                    <span class="attachment-label">{formatAttachmentMeta(selectedOverviewTask.attachments)}</span>
                   </p>
                 </div>
               {/if}
@@ -1561,17 +1580,22 @@ const summaryCards = [
             Add Work Log
           </h4>
           <form>
-            <label style="display: block; margin-bottom: 0.7rem;">
-              <span style="font-size: 0.97rem; font-weight: 400; color: var(--color-text); font-family: inherit;">Task</span>
-              <input type="text" placeholder="Task worked on" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;" />
+            <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
+              <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Task</span>
+              <textarea placeholder="Task worked on" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
             </label>
-            <label style="display: block; margin-bottom: 0.7rem;">
-              <span style="font-size: 0.97rem; font-weight: 400; color: var(--color-text); font-family: inherit;">Notes</span>
+            <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
+              <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Notes</span>
               <textarea placeholder="Notes" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
             </label>
-            <label style="display: block; margin-bottom: 1.1rem;">
-              <span style="font-size: 0.97rem; font-weight: 400; color: var(--color-text); font-family: inherit;">Learnings</span>
+            <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
+              <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Learnings</span>
               <textarea placeholder="What did you learn today?" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+            </label>
+            <label style="display: block; margin-bottom: 1.1rem; width: 100%;">
+              <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Attachment</span>
+              <br />
+              <input type="file" style="margin-top: 0.2rem; font-size: 0.83rem;" multiple />
             </label>
             <button type="submit" style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #4f46e5; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer;">Submit</button>
           </form>
@@ -1582,7 +1606,205 @@ const summaryCards = [
             <BookOpen size={18} style="color: var(--color-accent);" />
             Work Logs
           </h4>
+          {#if workLogs.length === 0}
+            <p class="worklogs-empty">No work logs yet.</p>
+          {:else}
+            <div class="worklogs-accordion-list">
+              {#each workLogs as log, idx}
+                <div class="worklog-accordion-item {expandedWorkLog === idx ? 'expanded' : ''}" role="group" on:mouseenter={() => hoveredWorkLog = idx} on:mouseleave={() => hoveredWorkLog = null}>
+                  <button class="worklog-accordion-trigger" type="button" aria-expanded={expandedWorkLog === idx} on:click={() => expandedWorkLog = expandedWorkLog === idx ? null : idx}>
+                    <span class="worklog-title-meta">
+                      <span class="worklog-task-title">{log.task}</span>
+                      <span class="worklog-date">{log.date}</span>
+                    </span>
+                    <svelte:component this={ChevronDown} size={15} class={expandedWorkLog === idx ? 'chevron-open' : ''} />
+                  </button>
+                  {#if expandedWorkLog === idx}
+                    <div class="worklog-accordion-body">
+                      <div class="worklog-section">
+                        <span class="worklog-label">Notes</span>
+                        <div class="worklog-notes">{log.notes}</div>
+                      </div>
+                      <div class="worklog-section">
+                        <span class="worklog-label">Learnings</span>
+                        <div class="worklog-learnings">{log.learnings}</div>
+                      </div>
+                      {#if log.attachments && log.attachments.length > 0}
+                        <div class="worklog-section">
+                          <span class="worklog-label">Attachments</span>
+                          <div class="worklog-attachments">
+                            {#each log.attachments as file}
+                              <span class="worklog-attachment-chip">{file}</span>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
+      <script>
+      // Demo/mock data for work logs (replace with real data source)
+      let workLogs = [
+        {
+          task: 'API Integration Testing',
+          notes: 'Tested all endpoints, found 2 bugs in /login route.',
+          learnings: 'Learned about JWT token refresh and error handling.',
+          attachments: ['api-test-cases.pdf', 'endpoint-results.xlsx'],
+          date: 'Apr 10, 2026',
+        },
+        {
+          task: 'Write Unit Tests',
+          notes: 'Wrote tests for login and logout. Need to cover refresh token.',
+          learnings: 'Better understanding of mocking in Jest.',
+          attachments: [],
+          date: 'Apr 9, 2026',
+        },
+      ];
+      let expandedWorkLog = null;
+      let hoveredWorkLog = null;
+      </script>
+      <style>
+        .worklogs-empty {
+          color: var(--color-muted);
+          font-size: 0.92rem;
+          margin: 1.2rem 0 0 0.2rem;
+        }
+        .worklogs-accordion-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.7rem;
+        }
+        .worklog-accordion-item {
+          border: 1px solid var(--color-border);
+          border-radius: 0.7rem;
+          background: var(--color-soft);
+          transition: box-shadow 0.15s, border-color 0.15s, background 0.15s;
+          box-shadow: 0 2px 8px -6px rgba(60,72,100,0.08);
+          overflow: hidden;
+        }
+        .worklog-accordion-item.expanded,
+        .worklog-accordion-item:hover {
+          border-color: #6366f1;
+          background: #eef2ff;
+          box-shadow: 0 4px 16px -8px #6366f1, 0 2px 8px -6px rgba(60,72,100,0.10);
+        }
+        .worklog-accordion-trigger {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.7rem;
+          text-align: left;
+          background: none;
+          border: none;
+          outline: none;
+          padding: 0.9rem 1rem;
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 1rem;
+          font-weight: 600;
+          color: var(--color-heading);
+          transition: background 0.12s;
+        }
+        .worklog-title-meta {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.13rem;
+        }
+        .worklog-task-title {
+          font-size: 1rem;
+          font-weight: 700;
+          color: var(--color-heading);
+          margin-bottom: 0.1rem;
+        }
+        .worklog-date {
+          font-size: 0.85rem;
+          color: var(--color-muted);
+          font-weight: 500;
+        }
+        .worklog-accordion-body {
+          padding: 0.7rem 1.2rem 1.1rem 2.1rem;
+          background: var(--color-surface);
+          border-top: 1px solid var(--color-border);
+          display: flex;
+          flex-direction: column;
+          gap: 0.7rem;
+          animation: fadeIn 0.18s;
+        }
+        .worklog-section {
+          margin-bottom: 0.1rem;
+        }
+        .worklog-label {
+          display: inline-block;
+          font-size: 0.89rem;
+          font-weight: 700;
+          color: #18181b;
+          margin-bottom: 0.18rem;
+        }
+        .worklog-notes, .worklog-learnings {
+          font-size: 0.97rem;
+          color: #18181b;
+          margin-left: 0.1rem;
+          margin-bottom: 0.1rem;
+          line-height: 1.5;
+          font-style: normal;
+        }
+        .worklog-learnings {
+          font-style: normal;
+          color: #18181b;
+        }
+        .worklog-attachment-chip {
+          background: #f3f4f6;
+          color: #18181b;
+          border: 1px solid #c7d2fe;
+          border-radius: 0.5rem;
+          padding: 0.18rem 0.7rem;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.13s, border-color 0.13s;
+        }
+        .worklog-attachment-chip:focus,
+        .worklog-attachment-chip:hover {
+          background: #e0e7ff;
+          border-color: #6366f1;
+          outline: none;
+          color: #18181b;
+        }
+        .worklog-attachments {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+          margin-top: 0.1rem;
+        }
+        .worklog-attachment-chip {
+          display: inline-block;
+          background: #f3f4f6;
+          color: #4f46e5;
+          border: 1px solid #c7d2fe;
+          border-radius: 0.5rem;
+          padding: 0.18rem 0.7rem;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.13s, border-color 0.13s;
+        }
+        .worklog-attachment-chip:focus,
+        .worklog-attachment-chip:hover {
+          background: #e0e7ff;
+          border-color: #6366f1;
+          outline: none;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: none; }
+        }
+      </style>
       </div>
     </section>
     {/if}
