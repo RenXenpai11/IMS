@@ -1,6 +1,6 @@
 <script>
   import { CheckCircle, AlertCircle, FileText } from 'lucide-svelte';
-  import { subscribeToCurrentUser } from '../../lib/auth.js';
+  import { subscribeToCurrentUser } from '../lib/auth.js';
 
   export let currentUser = null;
 
