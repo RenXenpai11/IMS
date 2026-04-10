@@ -1,3 +1,33 @@
+// Log a generic user activity (for Recent Activity panel)
+function logUserActivity(activity) {
+	var sheet = getSheet_('recent_activities');
+	var now = new Date();
+	var id = 'ACT-' + now.getTime();
+	var row = [
+		id,
+		activity.user || '',
+		activity.message || '',
+		activity.timestamp || now.toISOString()
+	];
+	sheet.appendRow(row);
+	return { ok: true, id: id };
+}
+
+// Get recent activities (latest 20)
+function getRecentActivities() {
+	var sheet = getSheet_('recent_activities');
+	var data = sheet.getDataRange().getValues();
+	var activities = [];
+	for (var i = data.length - 1; i > 0 && activities.length < 20; i--) {
+		activities.push({
+			id: data[i][0],
+			user: data[i][1],
+			message: data[i][2],
+			timestamp: data[i][3]
+		});
+	}
+	return activities;
+}
 // Update a task by id
 function updateActivityTask(payload) {
 	var sheet = getSheet_('activity_logs');
