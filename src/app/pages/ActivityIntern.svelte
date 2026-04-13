@@ -5,11 +5,13 @@ let workLogs = [];
 
 let expandedWorkLog = null;
 let hoveredWorkLog = null;
-import { onMount, onDestroy, tick } from 'svelte';
+import { onMount, onDestroy } from 'svelte';
 import { theme } from '../context/ThemeContext.js';
 // For real-time update of 'Updated X minutes ago'
 let now = new Date();
-let intervalId;
+let nowIntervalId;
+let recentActivitiesIntervalId;
+let stopUserSubscription = () => {};
 let forceUpdate = 0; // dummy variable to trigger Svelte reactivity
 
 function updateNow() {
@@ -18,13 +20,15 @@ function updateNow() {
 }
 
 onMount(() => {
-  intervalId = setInterval(() => {
+  nowIntervalId = setInterval(() => {
     updateNow();
   }, 60000); // update every minute
 });
 
 onDestroy(() => {
-  clearInterval(intervalId);
+  clearInterval(nowIntervalId);
+  clearInterval(recentActivitiesIntervalId);
+  stopUserSubscription();
 });
 // For Recent Activity (automatic, backend-driven)
 let recentActivities = [];
@@ -51,10 +55,17 @@ function logUserActivity(activity) {
 
 onMount(() => {
   fetchRecentActivities();
-  intervalId = setInterval(() => {
+  recentActivitiesIntervalId = setInterval(() => {
     updateNow();
     fetchRecentActivities(); // refresh activities every minute
   }, 60000);
+});
+
+onMount(() => {
+  fetchAssignedTasks();
+  stopUserSubscription = subscribeToCurrentUser(() => {
+    fetchAssignedTasks();
+  });
 });
 
 // Helper to compute minutes ago from a date string (using dueDate as a stand-in for last updated)
@@ -77,7 +88,7 @@ function getUpdatedMinutesAgo(dateString) {
   return `Updated ${dateString}`;
 }
 
-import { getCurrentUser } from '../lib/auth.js';
+import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
 import {
   AlertCircle,
   CheckCircle2,
@@ -193,116 +204,9 @@ async function handleAddWorkLog() {
   } catch (e) {}
 }
 
-const summaryCards = [
-  {
-    label: 'Pending',
-    value: 2,
-    icon: Clock,
-    tone: 'indigo',
-  },
-  {
-    label: 'Total Tasks',
-    value: 6,
-    icon: Clock3,
-    tone: 'green',
-  },
-  {
-    label: 'Completed',
-    value: 2,
-    icon: CheckCircle2,
-    tone: 'blue',
-  },
-  {
-    label: 'Overdue',
-    value: 1,
-    icon: AlertCircle,
-    tone: 'violet',
-  },
-];
-
-  let assignedTasks = [
-    {
-      title: 'API Integration Testing',
-      status: 'In Progress',
-      dueDate: 'Apr 5, 2026',
-      owner: 'John Rivera',
-      priority: 'high',
-      description: 'Test all RESTful endpoints for the new customer portal API and document findings.',
-      attachments: ['api-test-cases.pdf', 'endpoint-results.xlsx'],
-      dailyChecklist: [
-        { label: 'Validate auth and token refresh flow', done: true },
-        { label: 'Run negative tests for payload validation', done: false },
-        { label: 'Update API test report notes', done: false },
-      ],
-    },
-    {
-      title: 'Write Unit Tests for Auth Module',
-      status: 'Pending',
-      dueDate: 'Apr 8, 2026',
-      owner: 'Sarah Chen',
-      priority: 'medium',
-      description: 'Add core unit tests for login, refresh token, and logout handlers.',
-      attachments: ['auth-unit-test-plan.docx'],
-      dailyChecklist: [
-        { label: 'Cover successful login path', done: false },
-        { label: 'Cover invalid credential path', done: false },
-        { label: 'Add tests for refresh token expiry', done: false },
-      ],
-    },
-    {
-      title: 'Code Review - PR #47',
-      status: 'Completed',
-      dueDate: 'Apr 1, 2026',
-      owner: 'John Rivera',
-      priority: 'high',
-      description: 'Review pull request quality, edge cases, and performance implications.',
-      attachments: [],
-      dailyChecklist: [
-        { label: 'Reviewed logic and comments', done: true },
-        { label: 'Requested final changes', done: true },
-      ],
-    },
-    {
-      title: 'Update Technical Documentation',
-      status: 'Pending',
-      dueDate: 'Apr 12, 2026',
-      owner: 'Maria Santos',
-      priority: 'low',
-      description: 'Refresh setup guide and endpoint references for the current sprint.',
-      attachments: ['api-guide-v2.md'],
-      dailyChecklist: [
-        { label: 'Update API endpoint table', done: false },
-        { label: 'Revise onboarding quickstart', done: false },
-      ],
-    },
-    {
-      title: 'Security Audit Report',
-      status: 'Overdue',
-      dueDate: 'Mar 30, 2026',
-      owner: 'John Rivera',
-      priority: 'high',
-      description: 'Summarize vulnerability checks and mitigation recommendations.',
-      attachments: ['vuln-scan.csv', 'risk-summary.pdf', 'mitigation-plan.docx'],
-      dailyChecklist: [
-        { label: 'Confirm open issues and risk level', done: true },
-        { label: 'Finalize mitigation plan section', done: false },
-        { label: 'Share report draft to team lead', done: false },
-      ],
-    },
-    {
-      title: 'UI Component Library Setup',
-      status: 'Completed',
-      dueDate: 'Mar 28, 2026',
-      owner: 'Sarah Chen',
-      priority: 'medium',
-      description: 'Set up shared UI components and documentation examples.',
-      attachments: ['ui-library-spec.pdf', 'storybook-notes.txt'],
-      dailyChecklist: [
-        { label: 'Published initial component package', done: true },
-        { label: 'Added usage examples', done: true },
-      ],
-    },
-  ];
+let assignedTasks = [];
+let isLoadingAssignedTasks = false;
+let assignedTasksError = '';
 
   let archivedTasks = [];
 
@@ -391,17 +295,18 @@ const summaryCards = [
   }
 
   function formatDueDate(dateText) {
-    const parts = dateText.replace(',', '').split(' ');
+    const normalizedDate = normalizeDisplayDueDate(dateText);
+    const parts = normalizedDate.replace(',', '').split(' ');
 
     if (parts.length !== 3) {
-      return dateText;
+      return normalizedDate;
     }
 
     const [monthText, dayText, yearText] = parts;
     const month = MONTH_MAP[monthText];
 
     if (!month) {
-      return dateText;
+      return normalizedDate;
     }
 
     const day = dayText.padStart(2, '0');
@@ -409,7 +314,28 @@ const summaryCards = [
   }
 
   function parseDueDate(dateText) {
-    const parts = dateText.replace(',', '').split(' ');
+    if (dateText instanceof Date) {
+      return Number.isNaN(dateText.getTime()) ? null : new Date(dateText);
+    }
+
+    const raw = String(dateText || '').trim();
+    if (!raw) {
+      return null;
+    }
+
+    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const [, year, month, day] = isoMatch;
+      return new Date(`${year}-${month}-${day}T00:00:00`);
+    }
+
+    const nativeParsed = new Date(raw);
+    if (!Number.isNaN(nativeParsed.getTime()) && /\bGMT|^\d{4}-\d{2}-\d{2}|^[A-Z][a-z]{2}\s[A-Z][a-z]{2}\s\d{1,2}/.test(raw)) {
+      nativeParsed.setHours(0, 0, 0, 0);
+      return nativeParsed;
+    }
+
+    const parts = raw.replace(',', '').split(' ');
 
     if (parts.length !== 3) {
       return null;
@@ -423,6 +349,16 @@ const summaryCards = [
     }
 
     return new Date(`${yearText}-${month}-${dayText.padStart(2, '0')}T00:00:00`);
+  }
+
+  function normalizeDisplayDueDate(dateValue) {
+    const parsed = parseDueDate(dateValue);
+
+    if (!parsed) {
+      return String(dateValue || '').trim();
+    }
+
+    return `${MONTH_NAMES[parsed.getMonth()]} ${parsed.getDate()}, ${parsed.getFullYear()}`;
   }
 
   function toInputDate(dateText) {
@@ -570,6 +506,24 @@ const summaryCards = [
     });
   }
 
+  function callGetActivityTasks(payload = {}) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => {
+          reject(new Error(error?.message || String(error)));
+        })
+        .getActivityTasks(payload);
+    });
+  }
+
   function callUpdateActivityTask(payload) {
     return new Promise((resolve, reject) => {
       const run = globalThis?.google?.script?.run;
@@ -586,25 +540,115 @@ const summaryCards = [
     });
   }
 
+  function parseTaskItems(value) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+
+      if (!trimmed) {
+        return [];
+      }
+
+      try {
+        const parsed = JSON.parse(trimmed);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    return [];
+  }
+
+  function normalizeTaskChecklist(value, fallback = []) {
+    const items = parseTaskItems(value);
+
+    if (items.length > 0) {
+      return items
+        .map((item) => ({
+          label: String(item?.label || item || '').trim(),
+          done: !!item?.done,
+        }))
+        .filter((item) => item.label);
+    }
+
+    return Array.isArray(fallback)
+      ? fallback.map((item) => ({
+          label: String(item?.label || '').trim(),
+          done: !!item?.done,
+        })).filter((item) => item.label)
+      : [];
+  }
+
   function mapCreatedTaskToUi(task, fallback) {
     const source = task || {};
     const defaultValue = fallback || {};
+    const dueDateValue = normalizeDisplayDueDate(
+      source.due_date || source.dueDate || defaultValue.due_date || defaultValue.dueDate || ''
+    );
 
     return {
-      title: String(source.title || defaultValue.title || '').trim(),
+      id: String(source.id || defaultValue.id || '').trim(),
+      userId: String(source.user_id || source.userId || defaultValue.user_id || defaultValue.userId || '').trim(),
+      title: String(source.task_name || source.title || defaultValue.task_name || defaultValue.title || '').trim(),
       status: String(source.status || defaultValue.status || 'Pending'),
-      dueDate: fromInputDate(String(source.due_date || defaultValue.dueDate || '')) || defaultValue.dueDate || '',
-      owner: String(source.owner || defaultValue.owner || ''),
+      dueDate: dueDateValue,
+      owner: String(source.assigned_by || source.owner || defaultValue.assigned_by || defaultValue.owner || ''),
       priority: String(source.priority || defaultValue.priority || 'medium'),
       description: String(source.description || defaultValue.description || 'No description provided yet.'),
       attachments: getAttachmentNames(source.attachments || defaultValue.attachments),
-      dailyChecklist: Array.isArray(source.daily_checklist)
-        ? source.daily_checklist.map((item) => ({
-            label: String(item?.label || '').trim(),
-            done: !!item?.done,
-          }))
-        : defaultValue.dailyChecklist || [],
+      dailyChecklist: normalizeTaskChecklist(
+        source.daily_checklist || source.checklist,
+        defaultValue.dailyChecklist || defaultValue.checklist
+      ),
     };
+  }
+
+  async function fetchAssignedTasks() {
+    const user = getCurrentUser();
+
+    if (!user?.user_id) {
+      assignedTasks = [];
+      assignedTasksError = '';
+      return;
+    }
+
+    isLoadingAssignedTasks = true;
+    assignedTasksError = '';
+
+    try {
+      const result = await callGetActivityTasks({
+        user_id: user.user_id,
+        email: user.email || '',
+      });
+
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Unable to load tasks.');
+      }
+
+      assignedTasks = Array.isArray(result.tasks)
+        ? result.tasks.map((task) => mapCreatedTaskToUi(task))
+        : [];
+
+      if (
+        selectedOverviewTaskTitle &&
+        !assignedTasks.some((task) => task.title === selectedOverviewTaskTitle)
+      ) {
+        selectedOverviewTaskTitle = '';
+      }
+
+      if (viewedTaskTitle && !assignedTasks.some((task) => task.title === viewedTaskTitle)) {
+        closeTaskViewForm();
+      }
+    } catch (error) {
+      assignedTasks = [];
+      assignedTasksError = error?.message || 'Unable to load tasks.';
+    } finally {
+      isLoadingAssignedTasks = false;
+    }
   }
 
   async function addNewTask() {
@@ -648,7 +692,7 @@ const summaryCards = [
       }
 
       const savedTask = mapCreatedTaskToUi(result.task, nextTaskPayload);
-      assignedTasks = [savedTask, ...assignedTasks];
+      await fetchAssignedTasks();
       selectedOverviewTaskTitle = savedTask.title;
       activeView = 'Overview';
       isAddTaskOpen = false;
@@ -810,34 +854,38 @@ const summaryCards = [
 
   // Fix: Move updateTaskStatus to top-level scope
   async function updateTaskStatus(taskId, newStatus) {
-    // Find the task by id (or fallback to viewedTask)
-    // If your tasks have an 'id' field, use it. Otherwise, use title as fallback.
     let taskIndex = assignedTasks.findIndex((t) => t.id === taskId);
     if (taskIndex === -1 && viewedTask) {
       taskIndex = assignedTasks.findIndex((t) => t.title === viewedTask.title);
     }
     if (taskIndex === -1) return;
 
-    // Prepare payload for backend
     const task = assignedTasks[taskIndex];
+    const user = getCurrentUser();
     const payload = {
-      id: taskId,
+      id: taskId || task.id,
+      title: task.title,
       status: newStatus,
-      // Optionally include other fields if needed
+      due_date: toInputDate(task.dueDate),
+      description: task.description,
+      assigned_by: task.owner,
+      checklist: task.dailyChecklist,
+      attachments: task.attachments,
+      priority: task.priority,
+      user_id: task.userId || user?.user_id || '',
+      owner_email: user?.email || '',
+      updated_by: user?.user_id || '',
     };
     try {
-      await callUpdateActivityTask(payload);
-      // Update local state
+      const result = await callUpdateActivityTask(payload);
+      const nextTask = result?.task ? mapCreatedTaskToUi(result.task, payload) : { ...task, status: newStatus };
       assignedTasks = assignedTasks.map((t, i) =>
-        i === taskIndex ? { ...t, status: newStatus } : t
+        i === taskIndex ? nextTask : t
       );
-      // Also update viewedTask if open
-      if (viewedTask && viewedTask.id === taskId) {
-        viewedTask.status = newStatus;
+      if (viewedTask && viewedTask.id === (taskId || task.id)) {
         taskViewEditForm.status = newStatus;
       }
     } catch (err) {
-      // Optionally show error to user
       alert('Failed to update status: ' + (err?.message || err));
     }
   }
@@ -858,76 +906,71 @@ const summaryCards = [
   }
 
   function removeTaskViewAttachment(index) {
-      // Fix: Add updateTaskStatus for status dropdown
-      async function updateTaskStatus(taskId, newStatus) {
-        // Find the task by id (or fallback to viewedTask)
-        // If your tasks have an 'id' field, use it. Otherwise, use title as fallback.
-        let taskIndex = assignedTasks.findIndex((t) => t.id === taskId);
-        if (taskIndex === -1 && viewedTask) {
-          taskIndex = assignedTasks.findIndex((t) => t.title === viewedTask.title);
-        }
-        if (taskIndex === -1) return;
-
-        // Prepare payload for backend
-        const task = assignedTasks[taskIndex];
-        const payload = {
-          id: taskId,
-          status: newStatus,
-          // Optionally include other fields if needed
-        };
-        try {
-          await callUpdateActivityTask(payload);
-          // Update local state
-          assignedTasks = assignedTasks.map((t, i) =>
-            i === taskIndex ? { ...t, status: newStatus } : t
-          );
-          // Also update viewedTask if open
-          if (viewedTask && viewedTask.id === taskId) {
-            viewedTask.status = newStatus;
-            taskViewEditForm.status = newStatus;
-          }
-        } catch (err) {
-          // Optionally show error to user
-          alert('Failed to update status: ' + (err?.message || err));
-        }
-      }
     taskViewEditForm = {
       ...taskViewEditForm,
       attachments: taskViewEditForm.attachments.filter((_, itemIndex) => itemIndex !== index),
     };
   }
 
-  function saveTaskEditFromView() {
+  function buildTaskUpdatePayload(task, formState) {
+    const user = getCurrentUser();
+    const cleanedChecklist = formState.dailyChecklist
+      .filter((item) => item.label.trim())
+      .map((item) => ({ label: item.label.trim(), done: !!item.done }));
+    const cleanedAttachments = getAttachmentNames(formState.attachments);
+
+    return {
+      id: task.id,
+      user_id: task.userId || user?.user_id || '',
+      title: formState.title.trim() || task.title,
+      status: formState.status || task.status,
+      due_date: formState.dueDate || toInputDate(task.dueDate),
+      description: formState.description.trim() || task.description,
+      assigned_by: task.owner,
+      checklist: cleanedChecklist,
+      attachments: cleanedAttachments,
+      priority: task.priority || 'medium',
+      owner_email: user?.email || '',
+      updated_by: user?.user_id || '',
+    };
+  }
+
+  function applyTaskUpdateToUi(originalTitle, nextTask) {
+    assignedTasks = assignedTasks.map((task) => (task.title === originalTitle ? nextTask : task));
+
+    if (selectedOverviewTaskTitle === originalTitle) {
+      selectedOverviewTaskTitle = nextTask.title;
+    }
+
+    if (expandedListTaskTitle === originalTitle) {
+      expandedListTaskTitle = nextTask.title;
+    }
+
+    if (viewedTaskTitle === originalTitle) {
+      viewedTaskTitle = nextTask.title;
+    }
+  }
+
+  async function saveTaskEditFromView() {
     if (!viewedTask) {
       return;
     }
 
     const originalTitle = viewedTask.title;
-    const nextTitle = taskViewEditForm.title.trim() || originalTitle;
-    const nextTask = {
-      ...viewedTask,
-      title: nextTitle,
-      status: taskViewEditForm.status,
-      dueDate: fromInputDate(taskViewEditForm.dueDate) || viewedTask.dueDate,
-      description: taskViewEditForm.description.trim() || viewedTask.description,
-      attachments: getAttachmentNames(taskViewEditForm.attachments),
-      dailyChecklist: taskViewEditForm.dailyChecklist
-        .filter((item) => item.label.trim())
-        .map((item) => ({ label: item.label.trim(), done: !!item.done })),
-    };
+    const payload = buildTaskUpdatePayload(viewedTask, taskViewEditForm);
 
-    assignedTasks = assignedTasks.map((task) => (task.title === originalTitle ? nextTask : task));
+    try {
+      const result = await callUpdateActivityTask(payload);
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Unable to save task changes.');
+      }
 
-    if (selectedOverviewTaskTitle === originalTitle) {
-      selectedOverviewTaskTitle = nextTitle;
+      const nextTask = mapCreatedTaskToUi(result.task, payload);
+      applyTaskUpdateToUi(originalTitle, nextTask);
+      isEditingViewedTask = false;
+    } catch (error) {
+      alert('Failed to save task: ' + (error?.message || error));
     }
-
-    if (expandedListTaskTitle === originalTitle) {
-      expandedListTaskTitle = nextTitle;
-    }
-
-    viewedTaskTitle = nextTitle;
-    isEditingViewedTask = false;
   }
 
   function archiveTaskFromView() {
@@ -979,32 +1022,27 @@ const summaryCards = [
     isEditingTrackerTask = false;
   }
 
-  function saveTrackerEdit() {
+  async function saveTrackerEdit() {
     if (!selectedOverviewTask) {
       return;
     }
 
     const originalTitle = selectedOverviewTask.title;
-    const nextTitle = trackerEditForm.title.trim() || originalTitle;
-    // Set dueDate to now in display format for 'last updated' effect
-    const nowDate = new Date();
-    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const formattedNow = `${MONTH_NAMES[nowDate.getMonth()]} ${nowDate.getDate()}, ${nowDate.getFullYear()}`;
-    const nextTask = {
-      ...selectedOverviewTask,
-      title: nextTitle,
-      status: trackerEditForm.status,
-      dueDate: formattedNow, // update dueDate to now for immediate update
-      description: trackerEditForm.description.trim() || selectedOverviewTask.description,
-      attachments: getAttachmentNames(trackerEditForm.attachments),
-      dailyChecklist: trackerEditForm.dailyChecklist
-        .filter((item) => item.label.trim())
-        .map((item) => ({ label: item.label.trim(), done: !!item.done })),
-    };
+    const payload = buildTaskUpdatePayload(selectedOverviewTask, trackerEditForm);
 
-    assignedTasks = assignedTasks.map((task) => (task.title === originalTitle ? nextTask : task));
-    selectedOverviewTaskTitle = nextTitle;
-    isEditingTrackerTask = false;
+    try {
+      const result = await callUpdateActivityTask(payload);
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Unable to save task changes.');
+      }
+
+      const nextTask = mapCreatedTaskToUi(result.task, payload);
+      applyTaskUpdateToUi(originalTitle, nextTask);
+      selectedOverviewTaskTitle = nextTask.title;
+      isEditingTrackerTask = false;
+    } catch (error) {
+      alert('Failed to save task: ' + (error?.message || error));
+    }
   }
 
   function archiveTask(targetTitle) {
@@ -1134,8 +1172,37 @@ const summaryCards = [
     (task) => matchesStatus(task, statusFilter) && matchesSearch(task, searchQuery)
   );
 
+  $: pendingCount = assignedTasks.filter((task) => task.status === 'Pending').length;
   $: completedCount = assignedTasks.filter((task) => task.status === 'Completed').length;
-  $: completionRate = Math.round((completedCount / assignedTasks.length) * 100);
+  $: totalTaskCount = assignedTasks.length;
+  $: overdueCount = assignedTasks.filter((task) => task.status === 'Overdue').length;
+  $: completionRate = totalTaskCount > 0 ? Math.round((completedCount / totalTaskCount) * 100) : 0;
+  $: summaryCards = [
+    {
+      label: 'Pending',
+      value: pendingCount,
+      icon: Clock,
+      tone: 'indigo',
+    },
+    {
+      label: 'Total Tasks',
+      value: totalTaskCount,
+      icon: Clock3,
+      tone: 'green',
+    },
+    {
+      label: 'Completed',
+      value: completedCount,
+      icon: CheckCircle2,
+      tone: 'blue',
+    },
+    {
+      label: 'Overdue',
+      value: overdueCount,
+      icon: AlertCircle,
+      tone: 'violet',
+    },
+  ];
   $: todayDate = normalizeDate(new Date());
   $: todayTasks = assignedTasks
     .filter((task) => task.status !== 'Completed')
@@ -1238,6 +1305,12 @@ const summaryCards = [
       </button>
     </div>
   </div>
+
+  {#if isLoadingAssignedTasks}
+    <p class="empty-state">Loading saved tasks...</p>
+  {:else if assignedTasksError}
+    <p class="task-form-error">{assignedTasksError}</p>
+  {/if}
 
   {#if isAddTaskOpen}
     <div class="task-view-modal-overlay" role="presentation" on:click={handleAddTaskOverlayClick}>
