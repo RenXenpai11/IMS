@@ -1,3 +1,42 @@
+// Save a worklog to the 'activity_worklogs' sheet
+function addActivityWorklog(payload) {
+	var sheet = getSheet_('activity_worklogs');
+	var now = new Date();
+	// Generate unique key for task_id if not provided, format WL_0001, WL_0002, ...
+	var uniqueKey = payload.task_id;
+	if (!uniqueKey) {
+		var data = sheet.getDataRange().getValues();
+		var lastId = 0;
+		for (var i = 1; i < data.length; i++) {
+			var val = String(data[i][0] || '');
+			if (/^WL_\d+$/.test(val)) {
+				var num = parseInt(val.replace('WL_', ''), 10);
+				if (!isNaN(num) && num > lastId) lastId = num;
+			}
+		}
+		uniqueKey = 'WL_' + String(lastId + 1).padStart(4, '0');
+	}
+	var row = [
+		uniqueKey,
+		payload.user_id || '',
+		payload.task || '',
+		payload.notes || '',
+		payload.learnings || '',
+		payload.date || '',
+		payload.created_at || now.toISOString(),
+		payload.created_by || '',
+		payload.updated_by || '',
+		payload.attachment_id || '',
+		payload.user_id || '', // user_id again for attachment
+		payload.file_type || '',
+		payload.file_size || '',
+		payload.link || '',
+		payload.uploaded_at || '',
+		payload.uploaded_by || ''
+	];
+	sheet.appendRow(row);
+	return { ok: true, task_id: uniqueKey };
+}
 // Log a generic user activity (for Recent Activity panel)
 function logUserActivity(activity) {
 	var sheet = getSheet_('recent_activities');

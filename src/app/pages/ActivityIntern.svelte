@@ -1,21 +1,6 @@
 <script>
-// Demo/mock data for work logs (replace with real data source)
-let workLogs = [
-  {
-    task: 'API Integration Testing',
-    notes: 'Tested all endpoints, found 2 bugs in /login route.',
-    learnings: 'Learned about JWT token refresh and error handling.',
-    attachments: ['api-test-cases.pdf', 'endpoint-results.xlsx'],
-    date: 'Apr 10, 2026',
-  },
-  {
-    task: 'Write Unit Tests',
-    notes: 'Wrote tests for login and logout. Need to cover refresh token.',
-    learnings: 'Better understanding of mocking in Jest.',
-    attachments: [],
-    date: 'Apr 9, 2026',
-  },
-];
+
+let workLogs = [];
 
 
 let expandedWorkLog = null;
@@ -153,25 +138,59 @@ function handleWorkLogFileUpload(event) {
   workLogAttachments = files.map(f => f.name);
 }
 
-function handleAddWorkLog() {
+async function handleAddWorkLog() {
   if (!workLogTask.trim() && !workLogNotes.trim() && !workLogLearnings.trim()) return;
   const now = new Date();
   const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const date = `${MONTH_NAMES[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
-  workLogs = [
-    {
-      task: workLogTask.trim(),
-      notes: workLogNotes.trim(),
-      learnings: workLogLearnings.trim(),
-      attachments: [...workLogAttachments],
-      date
-    },
-    ...workLogs
-  ];
-  workLogTask = '';
-  workLogNotes = '';
-  workLogLearnings = '';
-  workLogAttachments = [];
+
+  // Get current user info
+  let user = null;
+  try {
+    user = await getCurrentUser();
+  } catch (e) {}
+
+  // Prepare payload for backend
+  const payload = {
+    task_id: '', // You may generate or leave blank for backend
+    user_id: user?.user_id || '',
+    task: workLogTask.trim(),
+    notes: workLogNotes.trim(),
+    learnings: workLogLearnings.trim(),
+    date,
+    created_at: now.toISOString(),
+    created_by: user?.user_id || '',
+    updated_by: user?.user_id || '',
+    attachment_id: '', // If you have attachment logic, fill here
+    file_type: '', // If you have attachment logic, fill here
+    file_size: '', // If you have attachment logic, fill here
+    link: '', // If you have attachment logic, fill here
+    uploaded_at: '', // If you have attachment logic, fill here
+    uploaded_by: user?.user_id || ''
+  };
+
+  // Save to backend
+  try {
+    const run = globalThis?.google?.script?.run;
+    if (!run) return;
+    run.withSuccessHandler(() => {
+      // Optionally, fetch worklogs again or add to UI
+      workLogs = [
+        {
+          task: payload.task,
+          notes: payload.notes,
+          learnings: payload.learnings,
+          attachments: [...workLogAttachments],
+          date: payload.date
+        },
+        ...workLogs
+      ];
+      workLogTask = '';
+      workLogNotes = '';
+      workLogLearnings = '';
+      workLogAttachments = [];
+    }).addActivityWorklog(payload);
+  } catch (e) {}
 }
 
 const summaryCards = [
