@@ -18,9 +18,14 @@ var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 's
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
 var REQUESTS_SHEET_ = 'requests';
-var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'reason', 'status', 'created_at'];
+var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'created_at'];
 var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
+
+// Default intern work schedule (Monday-Friday, 9am-5pm)
+var DEFAULT_WORK_DAYS_ = [1, 2, 3, 4, 5]; // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
+var DEFAULT_WORK_START_TIME_ = '09:00'; // 24-hour format
+var DEFAULT_WORK_END_TIME_ = '17:00';   // 24-hour format
 
 function doPost(e) {
   try {
@@ -1401,10 +1406,34 @@ function handleCreateRequest_(payload) {
   var requestType = String(payload.request_type || '').trim();
   var requestDate = String(payload.request_date || '').trim();
   var requestTime = String(payload.request_time || '').trim();
+  var startTime = String(payload.start_time || '').trim();
+  var endTime = String(payload.end_time || '').trim();
+  var totalHours = Number(payload.total_hours || 0);
   var reason = String(payload.reason || '').trim();
 
   if (!userId || !requestType || !requestDate || !reason) {
     return { ok: false, error: 'Missing required fields: user_id, request_type, request_date, reason' };
+  }
+
+  // Overtime-specific validation
+  if (requestType === 'Overtime') {
+    if (!startTime || !endTime) {
+      return { ok: false, error: 'Start time and end time are required for overtime requests.' };
+    }
+
+    // Check if overtime overlaps with default work schedule
+    var overlapError = checkOvertimeScheduleOverlap_(requestDate, startTime, endTime);
+    if (overlapError) {
+      return { ok: false, error: overlapError };
+    }
+  }
+
+  // Absence-specific validation
+  if (requestType === 'Absence') {
+    var absenceError = checkAbsenceOnWeekend_(requestDate);
+    if (absenceError) {
+      return { ok: false, error: absenceError };
+    }
   }
 
   var requestId = 'REQ-' + Date.now();
@@ -1428,6 +1457,12 @@ function handleCreateRequest_(payload) {
       row.push(requestDate);
     } else if (header === 'request_time') {
       row.push(requestTime);
+    } else if (header === 'start_time') {
+      row.push(startTime);
+    } else if (header === 'end_time') {
+      row.push(endTime);
+    } else if (header === 'total_hours') {
+      row.push(totalHours);
     } else if (header === 'reason') {
       row.push(reason);
     } else if (header === 'status') {
@@ -1460,6 +1495,9 @@ function handleCreateRequest_(payload) {
       requestType: requestType,
       date: requestDate,
       time: requestTime,
+      start_time: startTime,
+      end_time: endTime,
+      total_hours: totalHours,
       reason: reason,
       status: 'Pending',
       requester_name: requesterName,
@@ -1486,6 +1524,9 @@ function handleListRequestsByUser_(payload) {
         requestType: String(row.request_type || ''),
         date: formatDateValue_(row.request_date),
         time: String(row.request_time || ''),
+        start_time: String(row.start_time || ''),
+        end_time: String(row.end_time || ''),
+        total_hours: Number(row.total_hours || 0),
         reason: String(row.reason || ''),
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
@@ -1527,6 +1568,9 @@ function handleListAssignedStudentRequests_(payload) {
         requestType: String(row.request_type || ''),
         date: formatDateValue_(row.request_date),
         time: String(row.request_time || ''),
+        start_time: String(row.start_time || ''),
+        end_time: String(row.end_time || ''),
+        total_hours: Number(row.total_hours || 0),
         reason: String(row.reason || ''),
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
@@ -1686,6 +1730,55 @@ function createNotification_(userId, title, description, type, relatedId) {
     is_read: 'false',
     created_at: isoNow_()
   });
+}
+
+// Validates that overtime doesn't overlap with default work schedule (Mon-Fri, 9am-5pm)
+function checkOvertimeScheduleOverlap_(requestDate, startTime, endTime) {
+  // Parse the date to check what day of week it is
+  var dateObj = new Date(requestDate + 'T00:00:00');
+  var dayOfWeek = dateObj.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
+
+  // Check if the requested date is a work day (Monday-Friday)
+  if (DEFAULT_WORK_DAYS_.indexOf(dayOfWeek) === -1) {
+    // It's a weekend, no conflict with default work schedule
+    return '';
+  }
+
+  // It's a work day, check if overtime overlaps with 9am-5pm
+  var overtimeStart = timeToMinutes_(startTime);
+  var overtimeEnd = timeToMinutes_(endTime);
+  var workStart = timeToMinutes_(DEFAULT_WORK_START_TIME_);
+  var workEnd = timeToMinutes_(DEFAULT_WORK_END_TIME_);
+
+  // Check for overlap: if overtime is completely outside work hours, it's OK
+  // Overlap occurs if: overtimeStart < workEnd AND overtimeEnd > workStart
+  if (overtimeStart < workEnd && overtimeEnd > workStart) {
+    return 'Overtime cannot be scheduled during default work hours (9:00 AM - 5:00 PM on weekdays). Please schedule overtime outside these hours.';
+  }
+
+  return '';
+}
+
+// Helper function to convert HH:MM time string to minutes since midnight
+function timeToMinutes_(timeStr) {
+  var parts = String(timeStr || '').split(':');
+  var hours = Number(parts[0] || 0);
+  var minutes = Number(parts[1] || 0);
+  return hours * 60 + minutes;
+}
+
+// Validates that absence is not requested on a weekend (Saturday or Sunday)
+function checkAbsenceOnWeekend_(requestDate) {
+  var dateObj = new Date(requestDate + 'T00:00:00');
+  var dayOfWeek = dateObj.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
+  var dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    // It's a weekend
+    return dayNames[dayOfWeek] + 's are your days off. Please select a weekday (Monday-Friday) for your absence request.';
+  }
+
+  return '';
 }
 
 function findSupervisorForStudent_(studentUserId) {
