@@ -215,6 +215,15 @@ function handleGetStudentDashboard_(payload) {
   var activityResult = handleListActivityLogsByUser_({ user_id: userId, limit: payload.limit || 10 });
   var tasksResult = handleListTasksByUser_({ user_id: userId, limit: payload.limit || 10 });
 
+  // Get pending requests (Absence and Overtime) for "All" mode calculations
+  var requestsResult = handleListRequestsByUser_({ user_id: userId });
+  var pendingRequests = [];
+  if (requestsResult && requestsResult.ok === true && Array.isArray(requestsResult.requests)) {
+    pendingRequests = requestsResult.requests.filter(function(req) {
+      return String(req.status || '').toLowerCase() === 'pending';
+    });
+  }
+
   return {
     ok: true,
     user: {
@@ -229,7 +238,8 @@ function handleGetStudentDashboard_(payload) {
     total_completed_hours: totalCompletedHours,
     time_logs: Array.isArray(logsResult.logs) ? logsResult.logs : [],
     activity_logs: activityResult && activityResult.ok === true ? activityResult.logs : [],
-    tasks: tasksResult && tasksResult.ok === true ? tasksResult.tasks : []
+    tasks: tasksResult && tasksResult.ok === true ? tasksResult.tasks : [],
+    pending_requests: pendingRequests
   };
 }
 
