@@ -253,8 +253,9 @@
   })();
 
   $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / 8);
+  $: remainingWorkingDays = Math.ceil(Math.max(0, hoursRemaining) / 8);
   $: computedEstimatedEndDateObj = formStartDate
-    ? addWorkingDays(parseIsoDateOnly(formStartDate), Math.max(0, totalWorkingDays - 1))
+    ? addWorkingDays(parseIsoDateOnly(formStartDate), Math.max(0, remainingWorkingDays - 1))
     : null;
   $: computedEstimatedEndDate = computedEstimatedEndDateObj ? toIsoDateOnly(computedEstimatedEndDateObj) : '';
 

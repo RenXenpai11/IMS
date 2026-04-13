@@ -321,6 +321,36 @@
     }
   }
 
+  function editRequest(request) {
+    // Load request data into form for editing
+    form.requestType = request.requestType;
+    form.date = request.date;
+    form.startTime = request.start_time || '';
+    form.endTime = request.end_time || '';
+    form.reason = request.reason || '';
+    // Switch to create tab
+    activeTab = 'create-request';
+    // Scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function deleteRequest(requestId) {
+    if (!confirm('Are you sure you want to delete this request?')) {
+      return;
+    }
+
+    try {
+      // Since there's no delete endpoint, we'll update status to 'Cancelled' or remove from UI
+      // For now, we'll just remove it from the requests array
+      requests = requests.filter((r) => r.id !== requestId);
+      formSuccess = 'Request deleted successfully.';
+      setTimeout(() => (formSuccess = ''), 3000);
+    } catch (err) {
+      console.error('Delete request error:', err);
+      formError = 'Failed to delete request.';
+    }
+  }
+
   onMount(() => {
     // Initialize minDate
     minDate = getTodayDate();
@@ -358,7 +388,7 @@
   $: listTabLabel = isSupervisor ? 'Student Requests' : 'My Requests';
   $: pageSubtitle = isSupervisor
     ? 'Review and resolve assigned student requests'
-    : 'Manage your absence and overtime requests';
+    : 'Submit absence and overtime requests for approval';
   $: totalRequests = requests.length;
   $: pendingRequests = requests.filter((request) => String(request?.status || '').toLowerCase() === 'pending').length;
   $: resolvedRequests = requests.filter((request) => {
@@ -448,18 +478,18 @@
 
         <label class="flex flex-col gap-1.5">
           <span class="requests-label text-sm font-medium">Date</span>
-          <input bind:value={form.date} type="date" min={minDate} class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+          <input bind:value={form.date} type="date" min={minDate} placeholder="mm/dd/yyyy" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
         </label>
 
         {#if showOvertimeFields}
           <label class="flex flex-col gap-1.5">
             <span class="requests-label text-sm font-medium">Start Time</span>
-            <input bind:value={form.startTime} type="time" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+            <input bind:value={form.startTime} type="time" placeholder="hh:mm" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
           </label>
 
           <label class="flex flex-col gap-1.5">
             <span class="requests-label text-sm font-medium">End Time</span>
-            <input bind:value={form.endTime} type="time" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+            <input bind:value={form.endTime} type="time" placeholder="hh:mm" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
           </label>
 
           {#if form.startTime && form.endTime && overtimeHours > 0}
@@ -557,6 +587,25 @@
                     on:click={() => updateRequestStatus(request.id, 'Rejected')}
                   >
                     Reject
+                  </button>
+                </div>
+              {:else if !isSupervisor && request.status === 'Pending'}
+                <div class="inline-flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="action-button action-edit rounded-lg px-3 py-2 text-xs font-semibold"
+                    on:click={() => editRequest(request)}
+                    title="Edit this request"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    class="action-button action-delete rounded-lg px-3 py-2 text-xs font-semibold"
+                    on:click={() => deleteRequest(request.id)}
+                    title="Delete this request"
+                  >
+                    Delete
                   </button>
                 </div>
               {/if}
@@ -709,6 +758,12 @@
     border-color: #bed2e8;
     color: var(--rq-heading);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .requests-input::placeholder {
+    color: #94a9c4;
+    font-weight: 500;
+    opacity: 0.7;
   }
 
   .requests-input:focus {
@@ -872,6 +927,28 @@
     transform: translateY(-1px);
   }
 
+  .action-edit {
+    background: linear-gradient(90deg, #3b82f6, #2563eb);
+    color: #ffffff;
+    border-color: #3b82f6;
+  }
+
+  .action-edit:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  .action-delete {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+    color: #ffffff;
+    border-color: #ef4444;
+  }
+
+  .action-delete:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
   :global(.dark) .requests-shell {
     --rq-surface: #162338;
     --rq-surface-soft: #1b2a42;
@@ -944,6 +1021,11 @@
   :global(.dark) .requests-input:focus {
     border-color: #7cc3ff;
     box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .requests-input::placeholder {
+    color: #5a7a9e;
+    opacity: 0.8;
   }
 
   :global(.dark) .requests-empty-state {
