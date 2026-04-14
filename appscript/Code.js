@@ -2555,7 +2555,7 @@ function jsonResponse_(obj) {
 var DOCUMENTS_SHEET_ = 'documents';
 var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'category', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
 var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
-var ACT_ATTACHMENTS_HEADERS_ = ['id', 'task_id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
+var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
 
 // Add a new attachment to act_attachments with sequential ATT_0001 IDs
@@ -2569,8 +2569,8 @@ function addActivityTaskAttachment(payload) {
     var uploadedAt = String(payload.uploaded_at || new Date().toISOString()).trim();
     var uploadedBy = String(payload.uploaded_by || '').trim();
 
-    if (!taskId || !userId) {
-      return { ok: false, error: 'task_id and user_id are required.' };
+    if (!userId) {
+      return { ok: false, error: 'user_id is required.' };
     }
 
     var sheet = getOrCreateSheetWithHeaders_(ACT_ATTACHMENTS_SHEET_, ACT_ATTACHMENTS_HEADERS_);
@@ -2600,7 +2600,6 @@ function addActivityTaskAttachment(payload) {
       ok: true,
       attachment: {
         id: attId,
-        task_id: taskId,
         user_id: userId,
         file_type: fileType,
         file_size: fileSize,

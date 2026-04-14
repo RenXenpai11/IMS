@@ -882,14 +882,13 @@ let assignedTasksError = '';
       
       // Save attachments to act_attachments sheet
       const attachmentErrors = [];
-      if (taskId && addTaskForm.attachments.length > 0) {
+      if (addTaskForm.attachments.length > 0) {
         for (const attachment of addTaskForm.attachments) {
           if (attachment instanceof File) {
             try {
               const ext = attachment.name.split('.').pop()?.toLowerCase() || '';
               const sizeMB = `${(attachment.size / 1024 / 1024).toFixed(2)}MB`;
               await callAddActivityTaskAttachment({
-                task_id: taskId,
                 user_id: user?.user_id || '',
                 file_type: ext || '',
                 file_size: sizeMB,

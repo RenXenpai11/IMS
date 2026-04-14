@@ -126,12 +126,31 @@ function getActivityWorklogs(payload) {
 			var attachRow = attachmentRows[i];
 			var attachTaskId = String(attachRow.task_id || '').trim();
 			if (worklogsMap[attachTaskId]) {
-				worklogsMap[attachTaskId].attachments.push({
-					attachment_id: String(attachRow.attachment_id || '').trim(),
-					file_type: String(attachRow.file_type || '').trim(),
-					file_size: String(attachRow.file_size || '').trim(),
-					uploaded_at: String(attachRow.uploaded_at || '').trim()
+				var attachmentId = String(attachRow.attachment_id || '').trim();
+				var fileType = String(attachRow.file_type || '').trim();
+				var fileSize = String(attachRow.file_size || '').trim();
+				
+				// Check if attachment already exists to avoid duplicates
+				var alreadyExists = worklogsMap[attachTaskId].attachments.some(function(att) {
+					return String(att.attachment_id || '').trim() === attachmentId;
 				});
+				
+				// Also check by file_type and file_size combination
+				if (!alreadyExists) {
+					alreadyExists = worklogsMap[attachTaskId].attachments.some(function(att) {
+						return String(att.file_type || '').trim() === fileType && 
+							   String(att.file_size || '').trim() === fileSize;
+					});
+				}
+				
+				if (!alreadyExists) {
+					worklogsMap[attachTaskId].attachments.push({
+						attachment_id: attachmentId,
+						file_type: fileType,
+						file_size: fileSize,
+						uploaded_at: String(attachRow.uploaded_at || '').trim()
+					});
+				}
 			}
 		}
 	} catch (err) {
@@ -234,27 +253,6 @@ function getActivityTasks(payload) {
 			tasksMap[taskId] = task;
 			return task;
 		});
-	
-	// Fetch and join attachments from act_attachments sheet
-	try {
-		var attachmentSheet = getSheet_('act_attachments');
-		var attachmentRows = readSheetObjects_(attachmentSheet);
-		for (var i = 0; i < attachmentRows.length; i++) {
-			var attachRow = attachmentRows[i];
-			var attachTaskId = String(attachRow.task_id || '').trim();
-			if (tasksMap[attachTaskId]) {
-				var attachData = {
-					id: String(attachRow.id || '').trim(),
-					file_type: String(attachRow.file_type || '').trim(),
-					file_size: String(attachRow.file_size || '').trim(),
-					uploaded_at: String(attachRow.uploaded_at || '').trim()
-				};
-				tasksMap[attachTaskId].attachments.push(attachData);
-			}
-		}
-	} catch (err) {
-		// If sheet doesn't exist, just skip attachments
-	}
 
 	tasks.sort(function(left, right) {
 		var rightTime = new Date(right.created_at || 0).getTime() || 0;
