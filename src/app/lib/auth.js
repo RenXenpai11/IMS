@@ -468,6 +468,7 @@ export async function getStudentDashboard(userId, options = {}) {
     time_logs: Array.isArray(result.time_logs) ? result.time_logs : [],
     activity_logs: Array.isArray(result.activity_logs) ? result.activity_logs : [],
     tasks: Array.isArray(result.tasks) ? result.tasks : [],
+    pending_requests: Array.isArray(result.pending_requests) ? result.pending_requests : [],
   };
 }
 

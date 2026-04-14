@@ -31,11 +31,99 @@
   let form = {
     requestType: 'Absence',
     date: '',
-    time: '',
+    startTime: '',
+    endTime: '',
     reason: '',
   };
 
-  $: showTimeField = form.requestType === 'Overtime';
+  let minDate = '';
+  
+  $: showOvertimeFields = form.requestType === 'Overtime';
+  $: overtimeHours = calculateOvertimeHours(form.startTime, form.endTime);
+  $: isFormValid = (() => {
+    // Force re-evaluation on form changes
+    void form.requestType;
+    void form.date;
+    void form.startTime;
+    void form.endTime;
+    return checkFormValidityImmediate();
+  })();
+
+  function getTodayDate() {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function checkFormValidityImmediate() {
+    // Initialize minDate if not already set
+    if (!minDate) {
+      minDate = getTodayDate();
+    }
+
+    // Check if date is provided
+    if (!form.date) {
+      return false;
+    }
+
+    // Check if date is not in the past (compare as strings in YYYY-MM-DD format)
+    if (form.date < minDate) {
+      return false;
+    }
+
+    // Reason/notes is required for both absence and overtime
+    if (!String(form.reason || '').trim()) {
+      return false;
+    }
+
+    // Check if absence is on a weekend (day off)
+    if (form.requestType === 'Absence') {
+      const dateObj = new Date(form.date + 'T00:00:00');
+      const dayOfWeek = dateObj.getDay(); // 0=Sunday, 6=Saturday
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        return false; // Weekend, cannot file absence
+      }
+    }
+
+    // Check overtime-specific validations
+    if (form.requestType === 'Overtime') {
+      if (!form.startTime || !form.endTime) {
+        return false;
+      }
+
+      const [startHour, startMin] = String(form.startTime).split(':').map(Number);
+      const [endHour, endMin] = String(form.endTime).split(':').map(Number);
+      const startTotalMin = startHour * 60 + startMin;
+      const endTotalMin = endHour * 60 + endMin;
+
+      if (endTotalMin <= startTotalMin) {
+        return false;
+      }
+
+      if (overtimeHours < 0.5) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function calculateOvertimeHours(startTime, endTime) {
+    if (!startTime || !endTime) return 0;
+    
+    const [startHour, startMin] = String(startTime).split(':').map(Number);
+    const [endHour, endMin] = String(endTime).split(':').map(Number);
+    
+    const startTotalMin = startHour * 60 + startMin;
+    const endTotalMin = endHour * 60 + endMin;
+    
+    if (endTotalMin <= startTotalMin) return 0;
+    
+    const diffMin = endTotalMin - startTotalMin;
+    return Math.round((diffMin / 60) * 10) / 10; // Round to 1 decimal place
+  }
 
   async function callBackend(action, payload) {
     return callApiAction(action, payload || {});
@@ -112,12 +200,48 @@
   }
 
   function validateForm() {
-    if (!form.requestType || !form.date || !String(form.reason || '').trim()) {
-      return 'Request type, date, and reason are required.';
+    // Use the same today date for validation
+    const today = getTodayDate();
+
+    if (!form.date) {
+      return 'Date is required.';
     }
 
-    if (form.requestType === 'Overtime' && !String(form.time || '').trim()) {
-      return 'Time is required for overtime requests.';
+    if (form.date < today) {
+      return 'Request date cannot be in the past. Please select today or a future date.';
+    }
+
+    if (!String(form.reason || '').trim()) {
+      return 'Reason/Notes is required for both absence and overtime requests.';
+    }
+
+    if (form.requestType === 'Absence') {
+      const dateObj = new Date(form.date + 'T00:00:00');
+      const dayOfWeek = dateObj.getDay(); // 0=Sunday, 6=Saturday
+      const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek];
+      
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        return `Absence cannot be requested on ${dayName}s (your day off). Please select a weekday (Monday-Friday).`;
+      }
+    }
+
+    if (form.requestType === 'Overtime') {
+      if (!form.startTime || !form.endTime) {
+        return 'Start time and end time are required for overtime requests.';
+      }
+
+      const [startHour, startMin] = String(form.startTime).split(':').map(Number);
+      const [endHour, endMin] = String(form.endTime).split(':').map(Number);
+      const startTotalMin = startHour * 60 + startMin;
+      const endTotalMin = endHour * 60 + endMin;
+
+      if (endTotalMin <= startTotalMin) {
+        return 'End time must be after start time.';
+      }
+
+      if (overtimeHours < 0.5) {
+        return 'Overtime must be at least 30 minutes.';
+      }
     }
 
     return '';
@@ -127,7 +251,8 @@
     form = {
       requestType: 'Absence',
       date: '',
-      time: '',
+      startTime: '',
+      endTime: '',
       reason: '',
     };
   }
@@ -154,7 +279,9 @@
         requester_name: String(currentUser?.full_name || '').trim() || 'Student',
         request_type: form.requestType,
         request_date: form.date,
-        request_time: form.requestType === 'Overtime' ? form.time : '',
+        start_time: form.requestType === 'Overtime' ? form.startTime : '',
+        end_time: form.requestType === 'Overtime' ? form.endTime : '',
+        total_hours: form.requestType === 'Overtime' ? overtimeHours : 0,
         reason: String(form.reason || '').trim(),
       });
 
@@ -194,7 +321,40 @@
     }
   }
 
+  function editRequest(request) {
+    // Load request data into form for editing
+    form.requestType = request.requestType;
+    form.date = request.date;
+    form.startTime = request.start_time || '';
+    form.endTime = request.end_time || '';
+    form.reason = request.reason || '';
+    // Switch to create tab
+    activeTab = 'create-request';
+    // Scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function deleteRequest(requestId) {
+    if (!confirm('Are you sure you want to delete this request?')) {
+      return;
+    }
+
+    try {
+      // Since there's no delete endpoint, we'll update status to 'Cancelled' or remove from UI
+      // For now, we'll just remove it from the requests array
+      requests = requests.filter((r) => r.id !== requestId);
+      formSuccess = 'Request deleted successfully.';
+      setTimeout(() => (formSuccess = ''), 3000);
+    } catch (err) {
+      console.error('Delete request error:', err);
+      formError = 'Failed to delete request.';
+    }
+  }
+
   onMount(() => {
+    // Initialize minDate
+    minDate = getTodayDate();
+    
     currentUser = getCurrentUser();
     unsubscribeAuth = subscribeToCurrentUser((user) => {
       currentUser = user;
@@ -228,7 +388,7 @@
   $: listTabLabel = isSupervisor ? 'Student Requests' : 'My Requests';
   $: pageSubtitle = isSupervisor
     ? 'Review and resolve assigned student requests'
-    : 'Manage your absence and overtime requests';
+    : 'Submit absence and overtime requests for approval';
   $: totalRequests = requests.length;
   $: pendingRequests = requests.filter((request) => String(request?.status || '').toLowerCase() === 'pending').length;
   $: resolvedRequests = requests.filter((request) => {
@@ -318,19 +478,31 @@
 
         <label class="flex flex-col gap-1.5">
           <span class="requests-label text-sm font-medium">Date</span>
-          <input bind:value={form.date} type="date" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+          <input bind:value={form.date} type="date" min={minDate} placeholder="mm/dd/yyyy" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
         </label>
 
-        {#if showTimeField}
+        {#if showOvertimeFields}
           <label class="flex flex-col gap-1.5">
-            <span class="requests-label text-sm font-medium">Time</span>
-            <input bind:value={form.time} type="time" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+            <span class="requests-label text-sm font-medium">Start Time</span>
+            <input bind:value={form.startTime} type="time" placeholder="hh:mm" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
           </label>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="requests-label text-sm font-medium">End Time</span>
+            <input bind:value={form.endTime} type="time" placeholder="hh:mm" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+          </label>
+
+          {#if form.startTime && form.endTime && overtimeHours > 0}
+            <div class="flex flex-col gap-1.5 lg:col-span-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
+              <span class="requests-label text-sm font-medium">Total Overtime Hours</span>
+              <div class="text-lg font-bold text-blue-900">{overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
+            </div>
+          {/if}
         {/if}
       </div>
 
       <label class="mt-4 flex flex-col gap-1.5">
-        <span class="requests-label text-sm font-medium">Reason</span>
+        <span class="requests-label text-sm font-medium">Reason / Notes</span>
         <textarea
           bind:value={form.reason}
           rows="5"
@@ -348,7 +520,7 @@
           type="button" 
           class="submit-button rounded-xl px-5 py-2.5 text-sm font-semibold" 
           on:click={submitRequest}
-          disabled={isSubmitting}
+          disabled={isSubmitting || !isFormValid}
         >
           {isSubmitting ? 'Submitting...' : 'Submit Request'}
         </button>
@@ -381,8 +553,16 @@
                   </div>
                   <div class="request-meta mt-2 flex flex-wrap items-center gap-2">
                     <span class="meta-pill">Date: {formatDate(request.date)}</span>
-                    {#if request.time}
-                      <span class="meta-pill">Time: {request.time}</span>
+                    {#if request.requestType === 'Overtime'}
+                      {#if request.start_time}
+                        <span class="meta-pill">Start: {request.start_time}</span>
+                      {/if}
+                      {#if request.end_time}
+                        <span class="meta-pill">End: {request.end_time}</span>
+                      {/if}
+                      {#if request.total_hours}
+                        <span class="meta-pill">Hours: {request.total_hours}h</span>
+                      {/if}
                     {/if}
                     {#if isSupervisor}
                       <span class="meta-pill">Student: {request.requester_name || 'Unknown'}</span>
@@ -407,6 +587,25 @@
                     on:click={() => updateRequestStatus(request.id, 'Rejected')}
                   >
                     Reject
+                  </button>
+                </div>
+              {:else if !isSupervisor && request.status === 'Pending'}
+                <div class="inline-flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="action-button action-edit rounded-lg px-3 py-2 text-xs font-semibold"
+                    on:click={() => editRequest(request)}
+                    title="Edit this request"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    class="action-button action-delete rounded-lg px-3 py-2 text-xs font-semibold"
+                    on:click={() => deleteRequest(request.id)}
+                    title="Delete this request"
+                  >
+                    Delete
                   </button>
                 </div>
               {/if}
@@ -559,6 +758,12 @@
     border-color: #bed2e8;
     color: var(--rq-heading);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .requests-input::placeholder {
+    color: #94a9c4;
+    font-weight: 500;
+    opacity: 0.7;
   }
 
   .requests-input:focus {
@@ -722,6 +927,28 @@
     transform: translateY(-1px);
   }
 
+  .action-edit {
+    background: linear-gradient(90deg, #3b82f6, #2563eb);
+    color: #ffffff;
+    border-color: #3b82f6;
+  }
+
+  .action-edit:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  .action-delete {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+    color: #ffffff;
+    border-color: #ef4444;
+  }
+
+  .action-delete:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
   :global(.dark) .requests-shell {
     --rq-surface: #162338;
     --rq-surface-soft: #1b2a42;
@@ -794,6 +1021,11 @@
   :global(.dark) .requests-input:focus {
     border-color: #7cc3ff;
     box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .requests-input::placeholder {
+    color: #5a7a9e;
+    opacity: 0.8;
   }
 
   :global(.dark) .requests-empty-state {
