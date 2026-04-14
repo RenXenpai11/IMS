@@ -244,18 +244,5 @@
         </div>
       {/if}
     </div>
-
-    <div class="menu-shell">
-      <div class="profile-button" aria-label={userName}>
-        <div class="avatar">
-          {#if userPhotoUrl}
-            <img src={userPhotoUrl} alt={`${userName} avatar`} class="avatar-image" />
-          {:else}
-            {userInitials}
-          {/if}
-        </div>
-        <span class="profile-name">{userName}</span>
-      </div>
-    </div>
   </div>
 </header>

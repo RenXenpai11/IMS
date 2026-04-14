@@ -48,8 +48,8 @@
   let unsubscribeAuth;
 
   function getRoleDefaultPath_() {
-    const role = String(currentUser?.role || getCurrentUser()?.role || '').trim();
-    return role === 'Supervisor' ? '/supervisor' : '/';
+    const role = String(currentUser?.role || getCurrentUser()?.role || '').trim().toLowerCase();
+    return role === 'supervisor' ? '/supervisor' : '/';
   }
 
   function isSupervisorPath_(path) {
@@ -125,7 +125,7 @@
   });
 
   $: currentUserRole = String(currentUser?.role || '').trim();
-  $: isSupervisorUser = currentUserRole === 'Supervisor';
+  $: isSupervisorUser = currentUserRole.toLowerCase() === 'supervisor';
   $: CurrentPage = pageComponents[currentPath] ?? Dashboard;
   $: basePageMeta = getPageMeta(currentPath);
   $: isAuthPage = authPaths.has(currentPath);

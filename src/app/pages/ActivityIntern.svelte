@@ -121,6 +121,13 @@ onMount(() => {
   });
 });
 
+onMount(() => {
+  fetchAssignedTasks();
+  stopUserSubscription = subscribeToCurrentUser(() => {
+    fetchAssignedTasks();
+  });
+});
+
 // Helper to compute minutes ago from a date string (using dueDate as a stand-in for last updated)
 function getUpdatedMinutesAgo(dateString) {
   // Try to parse the date string (e.g., 'Apr 5, 2026')

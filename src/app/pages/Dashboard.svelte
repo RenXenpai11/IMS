@@ -598,9 +598,12 @@
     border-radius: 1.25rem;
     padding: 0.35rem;
     isolation: isolate;
-    width: 100%;
+    width: calc(100% + 3rem);
     min-width: 0;
     box-sizing: border-box;
+    margin-top: -1.5rem;
+    margin-left: -1.5rem;
+    margin-right: -1.5rem;
   }
 
   .dashboard-shell::before {
@@ -645,9 +648,10 @@
   .welcome-title {
     margin: 0;
     font-size: 1.25rem;
-    font-weight: 800;
+    font-weight: 600;
     color: #ffffff;
     letter-spacing: 0.2px;
+    font-family: var(--font-sans);
   }
 
   .welcome-subtitle {
@@ -813,6 +817,7 @@
   .progress-label {
     font-weight: 700;
     color: var(--db-heading);
+    font-size: 1.1rem;
   }
 
   .progress-stats {
@@ -824,6 +829,7 @@
     margin-top: 0.5rem;
     font-weight: 700;
     color: var(--db-heading);
+    font-size: 1.8rem;
   }
 
   .muted {
@@ -1279,6 +1285,10 @@
 
   @media (max-width: 768px) {
     .dashboard-shell {
+      width: 100%;
+      margin-top: 0;
+      margin-left: 0;
+      margin-right: 0;
       border-radius: 1rem;
       padding: 0;
     }

@@ -74,7 +74,7 @@
   $: userRole = formatRole(currentUser?.role);
   $: userPhotoUrl = String(currentUser?.profile_photo_url || '').trim();
   $: userInitials = buildInitials(userName);
-  $: isSupervisorUser = String(currentUser?.role || '').trim() === 'Supervisor';
+  $: isSupervisorUser = String(currentUser?.role || '').trim().toLowerCase() === 'supervisor';
   $: navItems = isSupervisorUser ? supervisorNavItems : studentNavItems;
   $: logoSrc = $theme === 'dark' ? '/ims-logo-dark.jfif' : '/ims-logo-white.jfif';
 

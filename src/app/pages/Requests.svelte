@@ -134,7 +134,7 @@
 
     isLoading = true;
     try {
-      const isSupervisor = String(currentUser?.role || '').trim() === 'Supervisor';
+      const isSupervisor = String(currentUser?.role || '').trim().toLowerCase() === 'supervisor';
       let result;
 
       if (isSupervisor) {
@@ -381,7 +381,7 @@
     }
   });
 
-  $: isSupervisor = String(currentUser?.role || '').trim() === 'Supervisor';
+  $: isSupervisor = String(currentUser?.role || '').trim().toLowerCase() === 'supervisor';
   $: if (isSupervisor && activeTab === 'create-request') {
     activeTab = 'my-requests';
   }

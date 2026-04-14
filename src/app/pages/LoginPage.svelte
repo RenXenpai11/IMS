@@ -21,7 +21,7 @@
 		try {
 			const user = await loginWithCredentials(email, password);
 			const role = String(user?.role || '').trim();
-			const redirectPath = role === 'Supervisor' ? '/supervisor' : '/';
+			const redirectPath = role.toLowerCase() === 'supervisor' ? '/supervisor' : '/';
 			message = 'Authenticated successfully. Redirecting...';
 			setTimeout(() => {
 				window.location.hash = redirectPath;

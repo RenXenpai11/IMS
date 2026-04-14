@@ -5,7 +5,6 @@
     Building,
     Camera,
     Mail,
-    MapPin,
     Phone,
     Save,
     User,
@@ -29,31 +28,11 @@
   const ALLOWED_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
   let profile = {
-    firstName: '',
-    lastName: '',
+    fullName: '',
     email: '',
     phone: '',
     department: '',
-    location: '',
-    bio: '',
   };
-
-  function splitFullName(fullName) {
-    const normalized = String(fullName || '').trim().replace(/\s+/g, ' ');
-    if (!normalized) {
-      return { firstName: '', lastName: '' };
-    }
-
-    const parts = normalized.split(' ');
-    if (parts.length === 1) {
-      return { firstName: parts[0], lastName: '' };
-    }
-
-    return {
-      firstName: parts[0],
-      lastName: parts.slice(1).join(' '),
-    };
-  }
 
   function toTitleCase(value) {
     const text = String(value || '').trim();
@@ -71,17 +50,12 @@
 
     currentUser = user;
 
-    const parsedName = splitFullName(user.full_name);
-
     profile = {
       ...profile,
-      firstName: parsedName.firstName,
-      lastName: parsedName.lastName,
+      fullName: String(user.full_name || ''),
       email: String(user.email || ''),
       phone: String(user.phone || ''),
       department: String(user.department || ''),
-      location: String(user.location || ''),
-      bio: String(user.bio || ''),
     };
   }
 
@@ -170,12 +144,10 @@
 
 
   const profileFields = [
-    { key: 'firstName', label: 'First Name', icon: User, type: 'text' },
-    { key: 'lastName', label: 'Last Name', icon: User, type: 'text' },
+    { key: 'fullName', label: 'Full Name', icon: User, type: 'text' },
     { key: 'email', label: 'Email Address', icon: Mail, type: 'email', readOnly: true },
     { key: 'phone', label: 'Phone Number', icon: Phone, type: 'text' },
     { key: 'department', label: 'Department', icon: Building, type: 'text' },
-    { key: 'location', label: 'Location', icon: MapPin, type: 'text' },
   ];
 
   const notificationRows = [
@@ -206,13 +178,10 @@
       return;
     }
 
-    const fullName = [String(profile.firstName || '').trim(), String(profile.lastName || '').trim()]
-      .filter(Boolean)
-      .join(' ')
-      .trim();
+    const fullName = String(profile.fullName || '').trim();
 
     if (!fullName) {
-      saveError = 'Please provide at least your first name.';
+      saveError = 'Please provide your full name.';
       return;
     }
 
@@ -223,8 +192,6 @@
         full_name: fullName,
         phone: profile.phone,
         department: profile.department,
-        location: profile.location,
-        bio: profile.bio,
       });
 
       saved = true;
@@ -263,9 +230,7 @@
     });
   });
 
-  $: displayFirstName = String(profile.firstName || '').trim();
-  $: displayLastName = String(profile.lastName || '').trim();
-  $: displayName = [displayFirstName, displayLastName].filter(Boolean).join(' ') || 'User';
+  $: displayName = String(profile.fullName || '').trim() || 'User';
   $: currentUserRole = String(currentUser?.role || '').trim().toLowerCase();
   $: canViewMainDb = currentUserRole === 'admin';
   $: roleLabel = toTitleCase(currentUser?.role) || 'Intern';
@@ -351,16 +316,6 @@
             </span>
           </label>
         {/each}
-
-        <label class="block sm:col-span-2">
-          <span class="theme-text mb-1.5 block text-[13px]">Bio</span>
-          <textarea
-            rows="2"
-            value={profile.bio}
-            on:input={(event) => updateProfileField('bio', event.currentTarget.value)}
-            class="theme-input w-full resize-none rounded-xl border px-3 py-2.5 text-[14px] outline-none transition-colors focus:border-indigo-400"
-          ></textarea>
-        </label>
       </div>
     </div>
   </section>

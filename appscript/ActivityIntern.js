@@ -300,6 +300,52 @@ function getActivityTasks(payload) {
 		tasks: tasks
 	};
 }
+
+function getActivityTasks(payload) {
+	var filter = payload || {};
+	var sheet = getSheet_('activity_logs');
+	var rows = readSheetObjects_(sheet);
+	var requestedUserId = String(filter.user_id || '').trim();
+	var requestedEmail = String(filter.email || '').trim().toLowerCase();
+	var tasks = rows
+		.filter(function(row) {
+			if (requestedUserId) {
+				return String(row.user_id || '').trim() === requestedUserId;
+			}
+			if (requestedEmail && String(row.owner_email || row.email || '').trim().toLowerCase() !== requestedEmail) {
+				return false;
+			}
+			return true;
+		})
+		.map(function(row) {
+			return {
+				id: String(row.id || '').trim(),
+				user_id: String(row.user_id || '').trim(),
+				task_name: String(row.task_name || row.title || '').trim(),
+				due_date: String(row.due_date || '').trim(),
+				status: String(row.status || 'Pending').trim(),
+				description: String(row.description || '').trim(),
+				assigned_by: String(row.assigned_by || '').trim(),
+				checklist: parseActivityJsonArray_(row.checklist),
+				attachments: parseActivityJsonArray_(row.attachments),
+				priority: String(row.priority || 'medium').trim(),
+				created_at: String(row.created_at || '').trim(),
+				created_by: String(row.created_by || '').trim(),
+				updated_at: String(row.updated_at || '').trim(),
+				updated_by: String(row.updated_by || '').trim()
+			};
+		})
+		.sort(function(left, right) {
+			var rightTime = new Date(right.created_at || 0).getTime() || 0;
+			var leftTime = new Date(left.created_at || 0).getTime() || 0;
+			return rightTime - leftTime;
+		});
+
+	return {
+		ok: true,
+		tasks: tasks
+	};
+}
 // Update a task by id
 function updateActivityTask(payload) {
 	var sheet = getSheet_('activity_logs');
