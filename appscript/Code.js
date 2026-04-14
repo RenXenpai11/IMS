@@ -2555,8 +2555,64 @@ function jsonResponse_(obj) {
 var DOCUMENTS_SHEET_ = 'documents';
 var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'category', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
 var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
-var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'link', 'uploaded_at', 'uploaded_by'];
+var ACT_ATTACHMENTS_HEADERS_ = ['id', 'task_id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
+
+// Add a new attachment to act_attachments with sequential ATT_0001 IDs
+function addActivityTaskAttachment(payload) {
+  try {
+    var taskId = String(payload.task_id || '').trim();
+    var userId = String(payload.user_id || '').trim();
+    var fileType = String(payload.file_type || '').trim();
+    var fileSize = String(payload.file_size || '').trim();
+    var link = String(payload.link || '').trim();
+    var uploadedAt = String(payload.uploaded_at || new Date().toISOString()).trim();
+    var uploadedBy = String(payload.uploaded_by || '').trim();
+
+    if (!taskId || !userId) {
+      return { ok: false, error: 'task_id and user_id are required.' };
+    }
+
+    var sheet = getOrCreateSheetWithHeaders_(ACT_ATTACHMENTS_SHEET_, ACT_ATTACHMENTS_HEADERS_);
+    // Generate sequential ATT_0001 ID
+    var lastId = 0;
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var val = String(data[i][0] || '');
+      if (/^ATT_\d+$/.test(val)) {
+        var num = parseInt(val.replace('ATT_', ''), 10);
+        if (!isNaN(num) && num > lastId) lastId = num;
+      }
+    }
+    var attId = 'ATT_' + String(lastId + 1).padStart(4, '0');
+
+    sheet.appendRow([
+      attId,
+      userId,
+      fileType,
+      fileSize,
+      link,
+      uploadedAt,
+      uploadedBy,
+    ]);
+
+    return {
+      ok: true,
+      attachment: {
+        id: attId,
+        task_id: taskId,
+        user_id: userId,
+        file_type: fileType,
+        file_size: fileSize,
+        link: link,
+        uploaded_at: uploadedAt,
+        uploaded_by: uploadedBy
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
 
 function getOrCreateDocumentUploadsFolder_() {
   var folders = DriveApp.getFoldersByName(DOCUMENT_UPLOADS_FOLDER_);
@@ -2891,5 +2947,6 @@ function authorizeImsScopes_() {
 function authorizeImsScopes() {
   return authorizeImsScopes_()
 }
+
 
 

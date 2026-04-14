@@ -31,12 +31,69 @@ function addActivityWorklog(payload) {
 	return { ok: true, task_id: uniqueKey };
 }
 
+var WORKLOG_ATTACHMENTS_SHEET_ = 'worklogs_attachment';
+var WORKLOG_ATTACHMENTS_HEADERS_ = ['attachment_id', 'task_id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
+
+function addWorklogAttachment(payload) {
+	try {
+		var taskId = String(payload.task_id || '').trim();
+		var userId = String(payload.user_id || '').trim();
+		var fileType = String(payload.file_type || '').trim();
+		var fileSize = String(payload.file_size || '').trim();
+		var uploadedAt = String(payload.uploaded_at || new Date().toISOString()).trim();
+		var uploadedBy = String(payload.uploaded_by || '').trim();
+		var fileName = String(payload.file_name || 'upload').trim();
+
+		if (!taskId || !userId) {
+			return { ok: false, error: 'task_id and user_id are required.' };
+		}
+
+		var attachmentId = String(payload.attachment_id || '').trim();
+		if (!attachmentId) {
+			var sheet = getOrCreateSheetWithHeaders_(WORKLOG_ATTACHMENTS_SHEET_, WORKLOG_ATTACHMENTS_HEADERS_);
+			var rowCount = sheet.getLastRow();
+			var nextNumber = rowCount; // Row 1 is header, so row 2 = WLA_0001
+			var paddedNumber = String(nextNumber).padStart(4, '0');
+			attachmentId = 'WLA_' + paddedNumber;
+		} else {
+			var sheet = getOrCreateSheetWithHeaders_(WORKLOG_ATTACHMENTS_SHEET_, WORKLOG_ATTACHMENTS_HEADERS_);
+		}
+		sheet.appendRow([
+			attachmentId,
+			taskId,
+			userId,
+			fileType,
+			fileSize,
+			'',
+			uploadedAt,
+			uploadedBy
+		]);
+
+		return {
+			ok: true,
+			attachment: {
+				attachment_id: attachmentId,
+				task_id: taskId,
+				user_id: userId,
+				file_type: fileType,
+				file_size: fileSize,
+				file_name: fileName,
+				uploaded_at: uploadedAt,
+				uploaded_by: uploadedBy
+			}
+		};
+	} catch (err) {
+		return { ok: false, error: err.message || String(err) };
+	}
+}
+
 function getActivityWorklogs(payload) {
 	var filter = payload || {};
 	var sheet = getSheet_('activity_worklogs');
 	var rows = readSheetObjects_(sheet);
 	var requestedUserId = String(filter.user_id || '').trim();
 
+	var worklogsMap = {};
 	var worklogs = rows
 		.filter(function (row) {
 			if (requestedUserId) {
@@ -45,8 +102,9 @@ function getActivityWorklogs(payload) {
 			return true;
 		})
 		.map(function (row) {
-			return {
-				task_id: String(row.task_id || row.id || '').trim(),
+			var taskId = String(row.task_id || row.id || '').trim();
+			var worklog = {
+				task_id: taskId,
 				user_id: String(row.user_id || '').trim(),
 				task: String(row.task || '').trim(),
 				notes: String(row.notes || '').trim(),
@@ -54,14 +112,37 @@ function getActivityWorklogs(payload) {
 				date: String(row.date || '').trim(),
 				created_at: String(row.created_at || '').trim(),
 				created_by: String(row.created_by || '').trim(),
-				updated_by: String(row.updated_by || '').trim()
+				updated_by: String(row.updated_by || '').trim(),
+				attachments: []
 			};
-		})
-		.sort(function (left, right) {
-			var rightTime = new Date(right.created_at || right.date || 0).getTime() || 0;
-			var leftTime = new Date(left.created_at || left.date || 0).getTime() || 0;
-			return rightTime - leftTime;
+			worklogsMap[taskId] = worklog;
+			return worklog;
 		});
+
+	try {
+		var attachmentSheet = getSheet_('worklogs_attachment');
+		var attachmentRows = readSheetObjects_(attachmentSheet);
+		for (var i = 0; i < attachmentRows.length; i++) {
+			var attachRow = attachmentRows[i];
+			var attachTaskId = String(attachRow.task_id || '').trim();
+			if (worklogsMap[attachTaskId]) {
+				worklogsMap[attachTaskId].attachments.push({
+					attachment_id: String(attachRow.attachment_id || '').trim(),
+					file_type: String(attachRow.file_type || '').trim(),
+					file_size: String(attachRow.file_size || '').trim(),
+					uploaded_at: String(attachRow.uploaded_at || '').trim()
+				});
+			}
+		}
+	} catch (err) {
+		// If sheet doesn't exist, just skip attachments
+	}
+
+	worklogs.sort(function (left, right) {
+		var rightTime = new Date(right.created_at || right.date || 0).getTime() || 0;
+		var leftTime = new Date(left.created_at || left.date || 0).getTime() || 0;
+		return rightTime - leftTime;
+	});
 
 	return { ok: true, worklogs: worklogs };
 }
@@ -120,6 +201,8 @@ function getActivityTasks(payload) {
 	var rows = readSheetObjects_(sheet);
 	var requestedUserId = String(filter.user_id || '').trim();
 	var requestedEmail = String(filter.email || '').trim().toLowerCase();
+	
+	var tasksMap = {};
 	var tasks = rows
 		.filter(function(row) {
 			if (requestedUserId) {
@@ -131,8 +214,9 @@ function getActivityTasks(payload) {
 			return true;
 		})
 		.map(function(row) {
-			return {
-				id: String(row.id || '').trim(),
+			var taskId = String(row.id || '').trim();
+			var task = {
+				id: taskId,
 				user_id: String(row.user_id || '').trim(),
 				task_name: String(row.task_name || row.title || '').trim(),
 				due_date: String(row.due_date || '').trim(),
@@ -140,19 +224,43 @@ function getActivityTasks(payload) {
 				description: String(row.description || '').trim(),
 				assigned_by: String(row.assigned_by || '').trim(),
 				checklist: parseActivityJsonArray_(row.checklist),
-				attachments: parseActivityJsonArray_(row.attachments),
+				attachments: parseActivityJsonArray_(row.attachments) || [],
 				priority: String(row.priority || 'medium').trim(),
 				created_at: String(row.created_at || '').trim(),
 				created_by: String(row.created_by || '').trim(),
 				updated_at: String(row.updated_at || '').trim(),
 				updated_by: String(row.updated_by || '').trim()
 			};
-		})
-		.sort(function(left, right) {
-			var rightTime = new Date(right.created_at || 0).getTime() || 0;
-			var leftTime = new Date(left.created_at || 0).getTime() || 0;
-			return rightTime - leftTime;
+			tasksMap[taskId] = task;
+			return task;
 		});
+	
+	// Fetch and join attachments from act_attachments sheet
+	try {
+		var attachmentSheet = getSheet_('act_attachments');
+		var attachmentRows = readSheetObjects_(attachmentSheet);
+		for (var i = 0; i < attachmentRows.length; i++) {
+			var attachRow = attachmentRows[i];
+			var attachTaskId = String(attachRow.task_id || '').trim();
+			if (tasksMap[attachTaskId]) {
+				var attachData = {
+					id: String(attachRow.id || '').trim(),
+					file_type: String(attachRow.file_type || '').trim(),
+					file_size: String(attachRow.file_size || '').trim(),
+					uploaded_at: String(attachRow.uploaded_at || '').trim()
+				};
+				tasksMap[attachTaskId].attachments.push(attachData);
+			}
+		}
+	} catch (err) {
+		// If sheet doesn't exist, just skip attachments
+	}
+
+	tasks.sort(function(left, right) {
+		var rightTime = new Date(right.created_at || 0).getTime() || 0;
+		var leftTime = new Date(left.created_at || 0).getTime() || 0;
+		return rightTime - leftTime;
+	});
 
 	return {
 		ok: true,
@@ -269,8 +377,21 @@ function handleCreateActivityTask_(payload) {
 	var createdBy = user_id;
 	var updatedBy = user_id;
 
+	var activityId = String(payload.id || payload.activity_id || '').trim();
+	if (!activityId) {
+		var lastId = 0;
+		for (var i = 1; i < sheet.getLastRow(); i++) {
+			var val = String(sheet.getRange(i + 1, 1).getValue() || '');
+			if (/^ACT_\d+$/.test(val)) {
+				var num = parseInt(val.replace('ACT_', ''), 10);
+				if (!isNaN(num) && num > lastId) lastId = num;
+			}
+		}
+		activityId = 'ACT_' + String(lastId + 1).padStart(4, '0');
+	}
+
 	var rowObject = {
-		id: String(payload.id || payload.activity_id || createId_('ACT')),
+		id: activityId,
 		user_id: user_id,
 		task_name: taskName,
 		due_date: dueDate,
