@@ -679,30 +679,36 @@
   }
 
   .tab-switch {
-    border-color: var(--rq-border);
-    background: #e9f2fc;
-    padding: 0.2rem;
+    border: none;
+    background: transparent;
+    padding: 0;
+    display: flex;
+    gap: 0.75rem;
   }
 
   .tab-button {
-    border: none;
+    border: 1px solid #cbd5e1;
     background: transparent;
-    color: #34506e;
-    padding: 0.55rem 1rem;
-    border-radius: 0.7rem;
+    color: #64748b;
+    padding: 0.55rem 1.2rem;
+    border-radius: 0.6rem;
     transition: all 0.2s ease;
+    font-weight: 500;
+    cursor: pointer;
   }
 
   .tab-button:hover {
-    background: #dbeafe;
-    color: #0f6cbd;
+    border-color: #0066cc;
+    color: #0066cc;
+    background: transparent;
   }
 
   .tab-button-active {
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    background: #0066cc;
     color: #ffffff;
-    font-weight: 700;
-    box-shadow: 0 10px 20px -14px rgba(15, 108, 189, 0.9);
+    border-color: #0066cc;
+    font-weight: 600;
+    box-shadow: none;
   }
 
   .request-kpi {
@@ -997,17 +1003,25 @@
   }
 
   :global(.dark) .tab-switch {
-    background: #1a2c46;
-    border-color: #335174;
+    background: transparent;
+    border: none;
   }
 
   :global(.dark) .tab-button {
-    color: #b3c7df;
+    color: #94a3b8;
+    border-color: #475569;
   }
 
   :global(.dark) .tab-button:hover {
-    background: #233652;
-    color: #e2ebf7;
+    border-color: #0066cc;
+    color: #0066cc;
+    background: transparent;
+  }
+
+  :global(.dark) .tab-button-active {
+    background: #0066cc;
+    color: #ffffff;
+    border-color: #0066cc;
   }
 
   :global(.dark) .requests-input,

@@ -2070,28 +2070,28 @@ let assignedTasksError = '';
       <header class="panel-header">
         <h3>Daily Work Logs</h3>
       </header>
-      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; background: var(--color-bg);">
+      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start;">
         <!-- Add Work Log Card -->
-        <div style="flex: 1 1 340px; min-width: 320px; background: var(--color-surface); border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; border: 1px solid var(--color-border); max-width: 420px; display: flex; flex-direction: column;">
-          <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); margin-bottom: 1rem; font-family: inherit; display: flex; align-items: flex-start; gap: 0.5rem; min-height: 24px;">
+        <div style="flex: 1 1 340px; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; max-width: 420px; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border);">
+          <h4 style="font-size: 0.93rem; font-weight: 700; margin-bottom: 1rem; font-family: inherit; display: flex; align-items: flex-start; gap: 0.5rem; min-height: 24px; color: var(--color-heading);">
             <FileEdit size={18} style="color: var(--color-accent);" />
             Add Work Log
           </h4>
           <form on:submit|preventDefault={handleAddWorkLog}>
               <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Task</span>
-                <textarea bind:value={workLogTask} placeholder="Task worked on" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Task</span>
+                <textarea bind:value={workLogTask} placeholder="Task worked on" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
               </label>
               <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Notes</span>
-                <textarea bind:value={workLogNotes} placeholder="Notes" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Notes</span>
+                <textarea bind:value={workLogNotes} placeholder="Notes" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
               </label>
               <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Learnings</span>
-                <textarea bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text); font-family: inherit;"></textarea>
+                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Learnings</span>
+                <textarea bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
               </label>
               <label style="display: block; margin-bottom: 1.1rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-text); font-family: inherit;">Attachment</span>
+                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Attachment</span>
                 <br />
                 <input type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} style="margin-top: 0.2rem; font-size: 0.83rem;" />
                 {#if workLogAttachments.length > 0}
@@ -2106,15 +2106,15 @@ let assignedTasksError = '';
             </form>
         </div>
         <!-- Work Logs Card -->
-        <div style="flex: 2 1 0%; min-width: 320px; background: var(--color-surface); border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; border: 1px solid var(--color-border); width: 100%; max-width: none; display: flex; flex-direction: column;">
+        <div style="flex: 2 1 0%; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; width: 100%; max-width: none; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border);">
           <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 1rem;">
             <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); font-family: inherit; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0; min-height: 24px;">
               <BookOpen size={18} style="color: var(--color-accent);" />
               Work Logs
             </h4>
             <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
-              <input type="text" placeholder="Search task, notes, learnings..." bind:value={workLogFilterKeyword} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); font-size: 0.87rem; min-width: 180px;" />
-              <input type="date" bind:value={workLogFilterDate} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); font-size: 0.87rem; min-width: 140px;" />
+              <input type="text" placeholder="Search task, notes, learnings..." bind:value={workLogFilterKeyword} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-size: 0.87rem; min-width: 180px;" />
+              <input type="date" bind:value={workLogFilterDate} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-size: 0.87rem; min-width: 140px;" />
             </div>
           </div>
           {#if filteredWorkLogs.length === 0}
@@ -2172,18 +2172,28 @@ let assignedTasksError = '';
           gap: 0.7rem;
         }
         .worklog-accordion-item {
-          border: 1px solid var(--color-border);
           border-radius: 0.7rem;
-          background: var(--color-soft);
           transition: box-shadow 0.15s, border-color 0.15s, background 0.15s;
           box-shadow: 0 2px 8px -6px rgba(60,72,100,0.08);
           overflow: hidden;
+          border: 1px solid var(--color-border);
+          background: var(--color-surface);
+        }
+        :global(html.dark) .worklog-accordion-item {
+          border: 1px solid #1e3352 !important;
+          background: #132337 !important;
         }
         .worklog-accordion-item.expanded,
         .worklog-accordion-item:hover {
-          border-color: #0f6cbd;
-          background: #edf4fb;
-          box-shadow: 0 4px 16px -8px #0f6cbd, 0 2px 8px -6px rgba(60,72,100,0.10);
+          border-color: var(--color-accent);
+          background: color-mix(in srgb, var(--color-border) 30%, var(--color-surface));
+        }
+        :global(html.dark) .worklog-accordion-item.expanded,
+        :global(html.dark) .worklog-accordion-item:hover {
+          border-color: #38bdf8 !important;
+          background: #1a2f4a !important;
+          box-shadow: 0 4px 16px -8px rgba(56,189,248,0.2) !important;
+        }
         }
         .worklog-accordion-trigger {
           width: 100%;
@@ -2192,7 +2202,7 @@ let assignedTasksError = '';
           justify-content: space-between;
           gap: 0.7rem;
           text-align: left;
-          background: none;
+          background: transparent;
           border: none;
           outline: none;
           padding: 0.9rem 1rem;
@@ -2202,6 +2212,9 @@ let assignedTasksError = '';
           font-weight: 600;
           color: var(--color-heading);
           transition: background 0.12s;
+        }
+        :global(html.dark) .worklog-accordion-trigger {
+          color: #e5edf8 !important;
         }
         .worklog-title-meta {
           display: flex;
@@ -2215,19 +2228,29 @@ let assignedTasksError = '';
           color: var(--color-heading);
           margin-bottom: 0.1rem;
         }
+        :global(html.dark) .worklog-task-title {
+          color: #e5edf8 !important;
+        }
         .worklog-date {
           font-size: 0.85rem;
           color: var(--color-muted);
           font-weight: 500;
         }
+        :global(html.dark) .worklog-date {
+          color: #8eaec9 !important;
+        }
         .worklog-accordion-body {
           padding: 0.7rem 1.2rem 1.1rem 2.1rem;
-          background: var(--color-surface);
+          background: var(--color-soft);
           border-top: 1px solid var(--color-border);
           display: flex;
           flex-direction: column;
           gap: 0.7rem;
           animation: fadeIn 0.18s;
+        }
+        :global(html.dark) .worklog-accordion-body {
+          background: #0d1b2e !important;
+          border-top: 1px solid #1e3352 !important;
         }
         .worklog-section {
           margin-bottom: 0.1rem;
@@ -2239,6 +2262,9 @@ let assignedTasksError = '';
           color: var(--color-heading);
           margin-bottom: 0.18rem;
         }
+        :global(html.dark) .worklog-label {
+          color: #e5edf8 !important;
+        }
         .worklog-notes, .worklog-learnings {
           font-size: 0.97rem;
           color: var(--color-text);
@@ -2247,51 +2273,44 @@ let assignedTasksError = '';
           line-height: 1.5;
           font-style: normal;
         }
-        .worklog-learnings {
-          font-style: normal;
-          color: var(--color-text);
+        :global(html.dark) .worklog-notes, :global(html.dark) .worklog-learnings {
+          color: #cfdceb !important;
         }
         .worklog-attachment-chip {
-          background: var(--color-soft);
-          color: var(--color-text);
-          border: 1px solid #bfdbfe;
           border-radius: 0.5rem;
           padding: 0.18rem 0.7rem;
           font-size: 0.85rem;
           font-weight: 600;
           cursor: pointer;
           transition: background 0.13s, border-color 0.13s;
+          background: var(--color-border);
+          color: var(--color-accent);
+          border: 1px solid var(--color-border);
+        }
+        :global(html.dark) .worklog-attachment-chip {
+          background: #1e3352 !important;
+          color: #38bdf8 !important;
+          border: 1px solid #2a4a6e !important;
         }
         .worklog-attachment-chip:focus,
         .worklog-attachment-chip:hover {
-          background: color-mix(in srgb, #0f6cbd 12%, var(--color-surface));
-          border-color: #0f6cbd;
+          background: var(--color-border);
+          border-color: var(--color-accent);
           outline: none;
-          color: var(--color-text);
+          color: var(--color-accent);
+        }
+        :global(html.dark) .worklog-attachment-chip:focus,
+        :global(html.dark) .worklog-attachment-chip:hover {
+          background: #2a4a6e !important;
+          border-color: #38bdf8 !important;
+          outline: none;
+          color: #38bdf8 !important;
         }
         .worklog-attachments {
           display: flex;
           flex-wrap: wrap;
           gap: 0.4rem;
           margin-top: 0.1rem;
-        }
-        .worklog-attachment-chip {
-          display: inline-block;
-          background: var(--color-soft);
-          color: #0f6cbd;
-          border: 1px solid #bfdbfe;
-          border-radius: 0.5rem;
-          padding: 0.18rem 0.7rem;
-          font-size: 0.85rem;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.13s, border-color 0.13s;
-        }
-        .worklog-attachment-chip:focus,
-        .worklog-attachment-chip:hover {
-          background: color-mix(in srgb, #0f6cbd 12%, var(--color-surface));
-          border-color: #0f6cbd;
-          outline: none;
         }
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
@@ -2464,7 +2483,7 @@ let assignedTasksError = '';
 
   <style>
   .notes-panel {
-    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: 1.1rem;
     box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07);
     padding: 1.2rem 1.3rem 1.1rem 1.3rem;
@@ -2472,8 +2491,12 @@ let assignedTasksError = '';
     flex-direction: column;
     align-items: stretch;
     min-height: 210px;
-    border: 1px solid var(--color-border);
     gap: 0.7rem;
+    background: var(--color-surface);
+  }
+  :global(html.dark) .notes-panel {
+    background: #132337 !important;
+    border: 1px solid #1e3352 !important;
   }
   .notes-header {
     display: flex;
@@ -2552,7 +2575,7 @@ let assignedTasksError = '';
     --color-bg: #101a2b;
     --color-surface: #162338;
     --color-soft: #1a2c45;
-    --color-card: #162338;
+    --color-card: #1a2c45;
     --color-border: #334b6b;
     --color-heading: #e5edf8;
     --color-text: #cfdceb;
@@ -2635,11 +2658,18 @@ let assignedTasksError = '';
     position: relative;
     overflow: hidden;
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 1rem 1.1rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 1.1rem 1.2rem;
     min-height: 5.45rem;
     transition: transform 0.22s ease, box-shadow 0.22s ease;
+  }
+
+  :global(html.dark) .stat-card {
+    background: #132337 !important;
+    border-color: #1e3352 !important;
+    box-shadow: 0 18px 36px -20px rgba(0,0,0,0.5) !important;
   }
 
   .stat-card::before {
@@ -2657,7 +2687,7 @@ let assignedTasksError = '';
   }
 
   .tone-card-green::before {
-    background: linear-gradient(90deg, #0f766e, #10b981);
+    background: linear-gradient(90deg, #0d9488, #10b981);
   }
 
   .tone-card-blue::before {
@@ -2665,12 +2695,15 @@ let assignedTasksError = '';
   }
 
   .tone-card-violet::before {
-    background: linear-gradient(90deg, #0f766e, #06b6d4);
+    background: linear-gradient(90deg, #0891b2, #22d3ee);
   }
 
   .stat-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 20px 36px -26px rgba(15, 23, 42, 0.45);
+  }
+
+  :global(html.dark) .stat-card:hover {
+    border-color: #2a4a6e !important;
   }
 
   .panel {
@@ -2705,9 +2738,10 @@ let assignedTasksError = '';
     letter-spacing: -0.01em;
     text-shadow: 0 1px 2px rgba(17,24,39,0.10);
   }
+
   :global(html.dark) .stat-value {
-    color: #7cc3ff;
-    text-shadow: 0 1px 2px rgba(165,180,252,0.18);
+    color: #e5edf8 !important;
+    text-shadow: none;
   }
 
   .stat-label {
@@ -2715,6 +2749,10 @@ let assignedTasksError = '';
     color: var(--color-muted);
     font-size: 0.86rem;
     font-weight: 700;
+  }
+
+  :global(html.dark) .stat-label {
+    color: #8eaec9 !important;
   }
 
   .documents-grid {
@@ -2730,10 +2768,15 @@ let assignedTasksError = '';
     gap: 0.8rem;
     flex-wrap: wrap;
     padding: 0.85rem 0.95rem;
-    border: 1px solid var(--color-border);
     border-radius: 0.95rem;
     background: var(--color-surface);
+    border: 1px solid var(--color-border);
     box-shadow: 0 14px 28px -26px rgba(15, 23, 42, 0.4);
+  }
+
+  :global(html.dark) .controls-bar {
+    border: 1px solid #1e3352 !important;
+    background: #132337 !important;
   }
 
   .controls-right {
@@ -2760,15 +2803,27 @@ let assignedTasksError = '';
     gap: 0.4rem;
     padding: 0 0.7rem;
     color: var(--color-muted);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.7rem;
+  }
+
+  :global(html.dark) .search-control {
+    background: #132337 !important;
+    border-color: #1e3352 !important;
   }
 
   .search-control input {
     border: 0;
     background: transparent;
-    color: var(--color-heading);
+    color: var(--color-text);
     font-size: 0.85rem;
     width: 12rem;
     outline: none;
+  }
+
+  :global(html.dark) .search-control input {
+    color: #e5edf8 !important;
   }
 
   .status-control {
@@ -2798,6 +2853,15 @@ let assignedTasksError = '';
     font-size: 0.84rem;
     cursor: pointer;
     outline: none;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.7rem;
+  }
+
+  :global(html.dark) .status-control select {
+    background: #132337 !important;
+    border: 1px solid #1e3352 !important;
+    color: #e5edf8 !important;
   }
 
   .new-task-btn {
@@ -2834,12 +2898,27 @@ let assignedTasksError = '';
     color: var(--color-muted);
     font-size: 0.84rem;
     cursor: pointer;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.7rem;
+  }
+
+  :global(html.dark) .view-toggle button {
+    color: #8eaec9 !important;
+    background: #132337 !important;
+    border: 1px solid #1e3352 !important;
   }
 
   .view-toggle button.active {
-    color: #0f6cbd;
-    border-color: #bfdbfe;
-    background: color-mix(in srgb, #0f6cbd 10%, var(--color-surface));
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+    background: var(--color-surface);
+  }
+
+  :global(html.dark) .view-toggle button.active {
+    color: #38bdf8 !important;
+    border-color: #38bdf8 !important;
+    background: #1e3352 !important;
   }
 
   .view-toggle button.active span {
@@ -2851,7 +2930,12 @@ let assignedTasksError = '';
     align-items: center;
     justify-content: space-between;
     padding: 1rem 1rem 0.9rem;
+    background: var(--color-surface);
     border-bottom: 1px solid var(--color-border);
+  }
+  :global(html.dark) .panel-header {
+    background: #132337 !important;
+    border-bottom: 1px solid #1e3352 !important;
   }
 
   .panel-header h3 {
@@ -2863,12 +2947,17 @@ let assignedTasksError = '';
     text-shadow: 0 1px 2px rgba(17,24,39,0.08);
   }
   :global(html.dark) .panel-header h3 {
-    color: #7cc3ff;
-    text-shadow: 0 1px 2px rgba(165,180,252,0.12);
+    color: #e5edf8 !important;
   }
 
   .tasks-panel {
     overflow: hidden;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+  }
+  :global(html.dark) .tasks-panel {
+    background: #0d1b2e !important;
+    border-color: #1e3352 !important;
   }
 
   .tasks-header {
@@ -2892,7 +2981,10 @@ let assignedTasksError = '';
     display: grid;
     gap: 1rem;
     padding: 1rem;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--color-soft) 88%, var(--color-surface)) 0%, var(--color-soft) 100%);
+  }
+
+  :global(html.dark) .overview-shell {
+    background: #0d1b2e !important;
   }
 
   .overview-panels {
@@ -2902,12 +2994,17 @@ let assignedTasksError = '';
   }
 
   .overview-panel {
-    border: 1px solid var(--color-border);
     border-radius: 0.8rem;
-    background: var(--color-surface);
     padding: 0.95rem;
     min-height: 10.25rem;
-    box-shadow: 0 12px 24px -24px rgba(15, 23, 42, 0.36);
+    box-shadow: 0 12px 24px -20px rgba(0,0,0,0.4);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+
+  :global(html.dark) .overview-panel {
+    border: 1px solid #1e3352 !important;
+    background: #132337 !important;
   }
 
   .overview-panel h4 {
@@ -2915,6 +3012,10 @@ let assignedTasksError = '';
     color: var(--color-heading);
     font-size: 1rem;
     font-weight: 650;
+  }
+
+  :global(html.dark) .overview-panel h4 {
+    color: #e5edf8 !important;
   }
 
   .overview-panel ul {
@@ -2945,10 +3046,20 @@ let assignedTasksError = '';
     transition: background-color 120ms ease, border-color 120ms ease;
   }
 
+  :global(html.dark) .overview-task-link {
+    color: #cfdceb !important;
+  }
+
   .overview-task-link:hover,
   .overview-task-link.active {
-    background: var(--color-soft);
+    background: var(--color-border);
     border-color: var(--color-border);
+  }
+
+  :global(html.dark) .overview-task-link:hover,
+  :global(html.dark) .overview-task-link.active {
+    background: #1e3352 !important;
+    border-color: #2a4a6e !important;
   }
 
   .overview-panel li span {
@@ -2967,6 +3078,10 @@ let assignedTasksError = '';
     margin: 0.7rem 0 0;
     color: var(--color-muted);
     font-size: 0.76rem;
+  }
+
+  :global(html.dark) .overview-empty-copy {
+    color: #8eaec9 !important;
   }
 
   .completion-panel {
@@ -3748,6 +3863,12 @@ let assignedTasksError = '';
     border-color: #dbeafe;
   }
 
+  :global(html.dark) .tone-indigo {
+    color: #38bdf8 !important;
+    background: rgba(56,189,248,0.15) !important;
+    border-color: rgba(56,189,248,0.25) !important;
+  }
+
   .tone-card-indigo {
     background: var(--color-surface);
     border-color: var(--color-border);
@@ -3784,10 +3905,22 @@ let assignedTasksError = '';
     border-color: #dbeafe;
   }
 
+  :global(html.dark) .tone-blue {
+    color: #60a5fa !important;
+    background: rgba(96,165,250,0.15) !important;
+    border-color: rgba(96,165,250,0.25) !important;
+  }
+
   .tone-green {
     color: #059669;
     background: #ecfdf5;
     border-color: #a7f3d0;
+  }
+
+  :global(html.dark) .tone-green {
+    color: #34d399 !important;
+    background: rgba(52,211,153,0.15) !important;
+    border-color: rgba(52,211,153,0.25) !important;
   }
 
   .tone-red {
@@ -3806,6 +3939,12 @@ let assignedTasksError = '';
     color: #7c3aed;
     background: #f5f3ff;
     border-color: #ddd6fe;
+  }
+
+  :global(html.dark) .tone-violet {
+    color: #22d3ee !important;
+    background: rgba(34,211,238,0.15) !important;
+    border-color: rgba(34,211,238,0.25) !important;
   }
 
   :global(html.dark) .tone-indigo {
