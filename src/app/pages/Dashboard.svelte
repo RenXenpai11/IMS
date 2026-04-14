@@ -639,10 +639,10 @@
     gap: 1rem;
     padding: 1.25rem 1.25rem;
     border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    background: linear-gradient(115deg, #0f172a 0%, #0f6cbd 52%, #0ea5e9 100%);
+    border: 1px solid rgba(0, 102, 204, 0.15);
+    background: #0066cc;
     color: #ffffff;
-    box-shadow: 0 24px 42px -34px rgba(2, 8, 23, 0.92);
+    box-shadow: 0 24px 42px -34px rgba(0, 51, 102, 0.88);
   }
 
   .welcome-title {
@@ -788,12 +788,8 @@
   }
 
   .date-highlight {
-    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
-    color: #ffffff;
-    padding: 0.75rem 1rem;
-    border-radius: 10px;
+    color: #000000;
     display: inline-block;
-    box-shadow: 0 8px 20px -8px rgba(15, 108, 189, 0.4);
     font-size: 1.375rem;
     font-weight: 700;
     letter-spacing: 0.3px;
@@ -1211,15 +1207,51 @@
     box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
   }
 
+  :global(.dark) .welcome-banner {
+    background: linear-gradient(115deg, #1a2442 0%, #1e3a5f 52%, #2d5a8c 100%);
+    border-color: rgba(59, 130, 246, 0.25);
+    box-shadow: 0 24px 42px -34px rgba(2, 8, 23, 0.98);
+  }
+
+  :global(.dark) .welcome-title {
+    color: #e5f0ff;
+  }
+
+  :global(.dark) .welcome-subtitle {
+    color: rgba(226, 232, 240, 0.8);
+  }
+
+  :global(.dark) .profile-badge {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(100, 150, 220, 0.4);
+    color: #93c5fd;
+  }
+
+  :global(.dark) .profile-detail {
+    color: rgba(226, 232, 240, 0.85);
+  }
+
+  :global(.dark) .mode-label {
+    color: rgba(226, 232, 240, 0.85);
+  }
+
+  :global(.dark) .mode-toggle {
+    background: rgba(30, 58, 95, 0.4);
+    border-color: rgba(79, 172, 254, 0.25);
+  }
+
+  :global(.dark) .mode-toggle button.active {
+    background: rgba(59, 130, 246, 0.25);
+    border-color: rgba(59, 130, 246, 0.5);
+  }
+
   :global(.dark) .estimated-end-card {
     background: linear-gradient(135deg, #1a2d45 0%, #162338 100%);
     border: 1px solid #2b4570;
   }
 
   :global(.dark) .date-highlight {
-    background: linear-gradient(135deg, #3b82f6 0%, #0ea5e9 100%);
     color: #ffffff;
-    box-shadow: 0 8px 20px -8px rgba(59, 130, 246, 0.5);
   }
 
   :global(.dark) .card-icon {
