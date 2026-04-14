@@ -3,11 +3,71 @@
 	import heroImage from '../../assets/hero.png';
 	import { loginWithCredentials } from '../lib/auth.js';
 
+	const PENDING_REDIRECT_STORAGE_KEY = 'ims-pending-redirect';
+
 	let email = '';
 	let password = '';
 	let showPassword = false;
 	let message = '';
 	let error = '';
+
+	function readPendingRedirectIntent() {
+		let pending = null;
+
+		try {
+			const raw = window.sessionStorage.getItem(PENDING_REDIRECT_STORAGE_KEY);
+			if (raw) {
+				pending = JSON.parse(raw);
+			}
+		} catch {
+			pending = null;
+		}
+
+		try {
+			window.sessionStorage.removeItem(PENDING_REDIRECT_STORAGE_KEY);
+		} catch {
+			// Ignore cleanup errors.
+		}
+
+		if (pending && String(pending.page || '').toLowerCase() === 'requests') {
+			return {
+				page: 'requests',
+				requestId: String(pending.requestId || '').trim(),
+			};
+		}
+
+		const params = new URLSearchParams(window.location.search || '');
+		const page = String(params.get('page') || '').trim().toLowerCase();
+		if (page !== 'requests') {
+			return null;
+		}
+
+		return {
+			page: 'requests',
+			requestId: String(params.get('requestId') || '').trim(),
+		};
+	}
+
+	function applyPostLoginRedirect(user) {
+		const role = String(user?.role || '').trim().toLowerCase();
+		const fallbackPath = role === 'supervisor' ? '/supervisor' : '/';
+		const intent = readPendingRedirectIntent();
+
+		if (!intent || intent.page !== 'requests') {
+			window.location.hash = fallbackPath;
+			return;
+		}
+
+		const targetPath = role === 'supervisor' ? '/supervisor/requests' : '/requests';
+		const params = new URLSearchParams();
+		params.set('page', 'requests');
+		if (intent.requestId) {
+			params.set('requestId', intent.requestId);
+		}
+
+		window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+		window.location.hash = targetPath;
+	}
 
 	async function handleLogin() {
 		error = '';
@@ -20,11 +80,9 @@
 
 		try {
 			const user = await loginWithCredentials(email, password);
-			const role = String(user?.role || '').trim();
-			const redirectPath = role.toLowerCase() === 'supervisor' ? '/supervisor' : '/';
 			message = 'Authenticated successfully. Redirecting...';
 			setTimeout(() => {
-				window.location.hash = redirectPath;
+				applyPostLoginRedirect(user);
 			}, 420);
 		} catch (err) {
 			error = err?.message || 'Invalid credentials. Please try again.';

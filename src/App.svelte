@@ -42,6 +42,7 @@
   };
 
   const authPaths = new Set(['/login', '/signup']);
+  const PENDING_REDIRECT_STORAGE_KEY = 'ims-pending-redirect';
 
   let currentPath = '/';
   let currentUser = null;
@@ -56,12 +57,57 @@
     return String(path || '').startsWith('/supervisor');
   }
 
+  function readRequestsDeepLinkIntent_() {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const params = new URLSearchParams(window.location.search || '');
+    const page = String(params.get('page') || '').trim().toLowerCase();
+    if (page !== 'requests') {
+      return null;
+    }
+
+    return {
+      page: 'requests',
+      requestId: String(params.get('requestId') || '').trim(),
+    };
+  }
+
+  function storePendingRedirectIntent_(intent) {
+    if (typeof window === 'undefined' || !intent) {
+      return;
+    }
+
+    try {
+      window.sessionStorage.setItem(PENDING_REDIRECT_STORAGE_KEY, JSON.stringify(intent));
+    } catch {
+      // Ignore storage errors and continue with auth fallback behavior.
+    }
+  }
+
   function syncRoute() {
     const hash = window.location.hash.replace(/^#/, '') || '/login';
     const normalized = normalizePath(hash);
     const authed = isAuthenticated();
     const defaultPath = getRoleDefaultPath_();
     const supervisorSession = defaultPath === '/supervisor';
+    const deepLinkIntent = readRequestsDeepLinkIntent_();
+
+    if (!authed && deepLinkIntent) {
+      storePendingRedirectIntent_(deepLinkIntent);
+    }
+
+    if (authed && deepLinkIntent) {
+      const deepLinkPath = supervisorSession ? '/supervisor/requests' : '/requests';
+      if (normalized !== deepLinkPath) {
+        currentPath = deepLinkPath;
+        if (hash !== deepLinkPath) {
+          window.location.hash = deepLinkPath;
+        }
+        return;
+      }
+    }
 
     if (!authed && !authPaths.has(normalized)) {
       currentPath = '/login';
