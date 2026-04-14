@@ -1,7 +1,9 @@
 <script>
+// @ts-nocheck
 
 let workLogs = [];
-
+let isLoadingWorkLogs = false;
+let workLogsError = '';
 
 let expandedWorkLog = null;
 let hoveredWorkLog = null;
@@ -63,8 +65,10 @@ onMount(() => {
 
 onMount(() => {
   fetchAssignedTasks();
+  fetchWorkLogs();
   stopUserSubscription = subscribeToCurrentUser(() => {
     fetchAssignedTasks();
+    fetchWorkLogs();
   });
 });
 
@@ -115,6 +119,72 @@ let workLogAttachments = [];
 let workLogFilterKeyword = '';
 let workLogFilterDate = '';
 
+function callGetActivityWorklogs(payload = {}) {
+  return new Promise((resolve, reject) => {
+    const run = globalThis?.google?.script?.run;
+
+    if (!run) {
+      reject(new Error('Apps Script runtime is not available in this view.'));
+      return;
+    }
+
+    run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((error) => {
+        reject(new Error(error?.message || String(error)));
+      })
+      .getActivityWorklogs(payload);
+  });
+}
+
+function mapWorklogToUi(row) {
+  const source = row || {};
+  return {
+    task_id: String(source.task_id || source.id || '').trim(),
+    user_id: String(source.user_id || '').trim(),
+    task: String(source.task || '').trim(),
+    notes: String(source.notes || '').trim(),
+    learnings: String(source.learnings || '').trim(),
+    date: String(source.date || '').trim(),
+    created_at: String(source.created_at || '').trim(),
+    created_by: String(source.created_by || '').trim(),
+    updated_by: String(source.updated_by || '').trim(),
+    attachments: Array.isArray(source.attachments) ? source.attachments : []
+  };
+}
+
+async function fetchWorkLogs() {
+  const user = getCurrentUser();
+
+  if (!user?.user_id) {
+    workLogs = [];
+    workLogsError = '';
+    return;
+  }
+
+  isLoadingWorkLogs = true;
+  workLogsError = '';
+
+  try {
+    const result = await callGetActivityWorklogs({
+      user_id: user.user_id,
+    });
+
+    if (!result?.ok) {
+      throw new Error(result?.error || 'Unable to load work logs.');
+    }
+
+    workLogs = Array.isArray(result.worklogs)
+      ? result.worklogs.map((row) => mapWorklogToUi(row))
+      : [];
+  } catch (error) {
+    workLogs = [];
+    workLogsError = error?.message || 'Unable to load work logs.';
+  } finally {
+    isLoadingWorkLogs = false;
+  }
+}
+
 // Returns true if log matches keyword (in task, notes, learnings, or attachment)
 function matchesWorkLogKeyword(log, keyword) {
   if (!keyword.trim()) return true;
@@ -138,6 +208,16 @@ function matchesWorkLogDate(log, dateStr) {
   const d = String(parsed.getDate()).padStart(2, '0');
   const logDateStr = `${y}-${m}-${d}`;
   return logDateStr === dateStr;
+}
+
+function formatWorklogDate(dateText) {
+  const parsed = parseDueDate(dateText);
+  const date = parsed || new Date();
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
 }
 
 $: filteredWorkLogs = workLogs.filter(
@@ -185,17 +265,7 @@ async function handleAddWorkLog() {
     const run = globalThis?.google?.script?.run;
     if (!run) return;
     run.withSuccessHandler(() => {
-      // Optionally, fetch worklogs again or add to UI
-      workLogs = [
-        {
-          task: payload.task,
-          notes: payload.notes,
-          learnings: payload.learnings,
-          attachments: [...workLogAttachments],
-          date: payload.date
-        },
-        ...workLogs
-      ];
+      fetchWorkLogs();
       workLogTask = '';
       workLogNotes = '';
       workLogLearnings = '';
@@ -1789,7 +1859,7 @@ let assignedTasksError = '';
                   <button class="worklog-accordion-trigger" type="button" aria-expanded={expandedWorkLog === idx} on:click={() => expandedWorkLog = expandedWorkLog === idx ? null : idx}>
                     <span class="worklog-title-meta">
                       <span class="worklog-task-title">{log.task}</span>
-                      <span class="worklog-date">{log.date}</span>
+                      <span class="worklog-date">{formatWorklogDate(log.date)}</span>
                     </span>
                     <svelte:component this={ChevronDown} size={15} class={expandedWorkLog === idx ? 'chevron-open' : ''} />
                   </button>

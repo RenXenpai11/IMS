@@ -26,16 +26,44 @@ function addActivityWorklog(payload) {
 		payload.created_at || now.toISOString(),
 		payload.created_by || '',
 		payload.updated_by || '',
-		payload.attachment_id || '',
-		payload.user_id || '', // user_id again for attachment
-		payload.file_type || '',
-		payload.file_size || '',
-		payload.link || '',
-		payload.uploaded_at || '',
-		payload.uploaded_by || ''
 	];
 	sheet.appendRow(row);
 	return { ok: true, task_id: uniqueKey };
+}
+
+function getActivityWorklogs(payload) {
+	var filter = payload || {};
+	var sheet = getSheet_('activity_worklogs');
+	var rows = readSheetObjects_(sheet);
+	var requestedUserId = String(filter.user_id || '').trim();
+
+	var worklogs = rows
+		.filter(function (row) {
+			if (requestedUserId) {
+				return String(row.user_id || '').trim() === requestedUserId;
+			}
+			return true;
+		})
+		.map(function (row) {
+			return {
+				task_id: String(row.task_id || row.id || '').trim(),
+				user_id: String(row.user_id || '').trim(),
+				task: String(row.task || '').trim(),
+				notes: String(row.notes || '').trim(),
+				learnings: String(row.learnings || '').trim(),
+				date: String(row.date || '').trim(),
+				created_at: String(row.created_at || '').trim(),
+				created_by: String(row.created_by || '').trim(),
+				updated_by: String(row.updated_by || '').trim()
+			};
+		})
+		.sort(function (left, right) {
+			var rightTime = new Date(right.created_at || right.date || 0).getTime() || 0;
+			var leftTime = new Date(left.created_at || left.date || 0).getTime() || 0;
+			return rightTime - leftTime;
+		});
+
+	return { ok: true, worklogs: worklogs };
 }
 
 function parseActivityJsonArray_(value) {
