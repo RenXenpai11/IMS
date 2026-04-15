@@ -415,6 +415,39 @@
     deleteConfirmEntry = null;
   }
 
+  async function checkForActiveSession() {
+    const user = authApi.getCurrentUser();
+    if (!user?.user_id) {
+      isLoggedIn = false;
+      return;
+    }
+
+    try {
+      console.log('🔍 Checking for active session for user:', user.user_id);
+      
+      // Call backend to check if user has active session for today
+      const response = await authApi.callApiAction('get_active_session', {
+        user_id: user.user_id,
+        log_date: date,
+      });
+
+      console.log('🔍 Active session check response:', response);
+      
+      if (response && response.ok === true && response.session) {
+        console.log('✅ Found active session! Restoring state...');
+        // Restore login time from active session
+        timeIn = response.session.time_in || timeIn;
+        isLoggedIn = true;
+      } else {
+        console.log('ℹ️ No active session found for today');
+        isLoggedIn = false;
+      }
+    } catch (err) {
+      console.error('❌ Error checking active session:', err);
+      isLoggedIn = false;
+    }
+  }
+
   async function showDebugInfo() {
     try {
       const response = await authApi.callApiAction('debug_sessions_sheet', {});
@@ -443,6 +476,7 @@
     
     syncRequiredHoursFromAccount();
     loadEntriesFromApi();
+    checkForActiveSession(); // Check if user has an active session for today
 
     return () => {
       // no-op cleanup for now
@@ -692,19 +726,6 @@
       </div>
     </section>
   </div>
-
-  <!-- Debug Info Button -->
-  <div class="px-6 py-3 text-center">
-    <button
-      type="button"
-      on:click={showDebugInfo}
-      class="text-xs font-medium px-3 py-1.5 rounded bg-gray-500 text-white hover:bg-gray-600 transition"
-      title="Show backend sheet information for debugging"
-    >
-      🔧 Show Debug Info
-    </button>
-  </div>
-
   <section class="theme-panel history-panel overflow-hidden rounded-2xl border shadow-md">
     <div class="theme-divider flex items-center justify-between border-b px-6 py-4">
       <h3 class="theme-heading text-base font-semibold">Time Log History</h3>
