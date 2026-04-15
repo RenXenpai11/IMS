@@ -368,6 +368,7 @@ export async function createTimeLog(logInput) {
     time_in: String(logInput?.time_in || '').trim(),
     time_out: String(logInput?.time_out || '').trim(),
     hours_rendered: Number(logInput?.hours_rendered || 0),
+    entry_type: String(logInput?.entry_type || 'login').trim(),
     status: String(logInput?.status || 'recorded').trim(),
     notes: String(logInput?.notes || '').trim(),
     updateStartDate: logInput?.updateStartDate === true,

@@ -12,7 +12,9 @@ var PROFILE_PHOTO_MAX_BYTES_ = 5 * 1024 * 1024;
 var PROFILE_PHOTO_MAX_MB_ = Math.floor(PROFILE_PHOTO_MAX_BYTES_ / (1024 * 1024));
 var PROFILE_PHOTOS_FOLDER_NAME_ = 'IMS Profile Photos';
 var TIME_LOGS_SHEET_ = 'time_logs';
-var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'status', 'notes', 'created_at'];
+var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'entry_type', 'status', 'notes', 'created_at'];
+var ACTIVE_SESSIONS_SHEET_ = 'active_sessions';
+var ACTIVE_SESSIONS_HEADERS_ = ['session_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'notes', 'created_at'];
 var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
@@ -95,6 +97,14 @@ function dispatchAction_(payload) {
 
   if (action === 'delete_time_log') {
     return handleDeleteTimeLog_(payload);
+  }
+
+  if (action === 'start_session') {
+    return handleStartSession_(payload);
+  }
+
+  if (action === 'end_session') {
+    return handleEndSession_(payload);
   }
 
   if (action === 'list_students_for_assignment') {
@@ -189,6 +199,10 @@ function dispatchAction_(payload) {
 
   if (action === 'mark_all_notifications_read') {
     return handleMarkAllNotificationsRead_(payload);
+  }
+
+  if (action === 'debug_sessions_sheet') {
+    return handleDebugSessionsSheet_(payload);
   }
 
   return { ok: false, error: 'Unknown action: ' + action };
@@ -920,15 +934,22 @@ function handleCreateTimeLog_(payload) {
   var logDate = String(payload.log_date || '').trim();
   var timeIn = String(payload.time_in || '').trim();
   var timeOut = String(payload.time_out || '').trim();
+  var entryType = String(payload.entry_type || 'login').trim().toLowerCase(); // 'login' or 'logout'
   var hoursRendered = Number(payload.hours_rendered || 0);
   var status = 'recorded';
   var notes = String(payload.notes || '').trim();
   var timelogId = String(payload.timelog_id || createId_('TL'));
   var createdAt = String(payload.created_at || isoNow_());
-  var updateStartDate = payload.updateStartDate === true; // Allow first time log to set start date
+  var updateStartDate = payload.updateStartDate === true;
 
-  if (!userId || !logDate || !timeIn || !timeOut || !hoursRendered) {
-    return { ok: false, error: 'user_id, log_date, time_in, time_out, and hours_rendered are required.' };
+  // Required: user_id, log_date, time_in, entry_type
+  if (!userId || !logDate || !timeIn || !entryType) {
+    return { ok: false, error: 'user_id, log_date, time_in, and entry_type are required.' };
+  }
+
+  // Validate entry_type
+  if (entryType !== 'login' && entryType !== 'logout') {
+    return { ok: false, error: 'entry_type must be either "login" or "logout".' };
   }
 
   var userRecord = findUserRecordByUserId_(userId);
@@ -941,13 +962,48 @@ function handleCreateTimeLog_(payload) {
   }
 
   var sheet = getTimeLogsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+  var logDateCol = findColumnIndex_(headers, 'log_date');
+  var entryTypeCol = findColumnIndex_(headers, 'entry_type');
+
+  // For logout entries, validate that logout time is provided
+  if (entryType === 'logout') {
+    if (!timeOut) {
+      return { ok: false, error: 'time_out is required for logout entries.' };
+    }
+    // No need to check for previous login - logout entries contain complete data (time_in + time_out)
+  }
+
+  // For login entries, prevent multiple logins without logout
+  if (entryType === 'login') {
+    // Check for existing unpaired login entry for today
+    var hasUnpairedLogin = false;
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(values[i][userIdCol - 1] || '');
+      var rowLogDate = String(values[i][logDateCol - 1] || '');
+      var rowEntryType = String(values[i][entryTypeCol - 1] || 'login').toLowerCase();
+
+      if (rowUserId === userId && rowLogDate === logDate && rowEntryType === 'login') {
+        hasUnpairedLogin = true;
+        break;
+      }
+    }
+
+    if (hasUnpairedLogin) {
+      return { ok: false, error: 'You are already logged in today. Please log out first before logging in again.' };
+    }
+  }
+
   var rowObject = {
     timelog_id: timelogId,
     user_id: userId,
     log_date: logDate,
     time_in: timeIn,
     time_out: timeOut,
-    hours_rendered: hoursRendered,
+    hours_rendered: entryType === 'logout' ? hoursRendered : 0,
+    entry_type: entryType,
     status: status,
     notes: notes,
     created_at: createdAt
@@ -1048,6 +1104,229 @@ function handleDeleteTimeLog_(payload) {
 
   sheet.deleteRow(rowIndex);
   return { ok: true, message: 'Time log deleted.' };
+}
+
+function handleStartSession_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var logDate = String(payload.log_date || '').trim();
+    var timeIn = String(payload.time_in || '').trim();
+
+    Logger.log('DEBUG handleStartSession_ - Input: user_id=' + userId + ', log_date=' + logDate + ', time_in=' + timeIn);
+
+    if (!userId || !logDate || !timeIn) {
+      return { ok: false, error: 'user_id, log_date, and time_in are required.' };
+    }
+
+    var userRecord = findUserRecordByUserId_(userId);
+    if (!userRecord) {
+      return { ok: false, error: 'User not found.' };
+    }
+
+    if (!isEmailVerifiedValue_(userRecord.user.email_verified, userRecord.user)) {
+      return { ok: false, error: 'Please verify your email before creating a time log.' };
+    }
+
+    // Check if user already has active session for this date
+    var sheet = getActiveSessionsSheet_();
+    Logger.log('DEBUG handleStartSession_ - Got active_sessions sheet: ' + sheet.getName());
+    
+    var headers = getHeaders_(sheet);
+    var values = getSheetValues_(sheet);
+    Logger.log('DEBUG handleStartSession_ - Sheet has ' + values.length + ' rows (including header)');
+    
+    var userIdCol = findColumnIndex_(headers, 'user_id');
+    var logDateCol = findColumnIndex_(headers, 'log_date');
+
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(values[i][userIdCol - 1] || '').trim();
+      var rowLogDate = String(values[i][logDateCol - 1] || '').trim();
+      if (rowUserId === userId && rowLogDate === logDate) {
+        // Session already exists for this date
+        return { ok: false, error: 'You already have an active session for today. Please log out first.' };
+      }
+    }
+
+    var sessionId = createId_('SES');
+    var createdAt = isoNow_();
+
+    var sessionRow = {
+      session_id: sessionId,
+      user_id: userId,
+      log_date: logDate,
+      time_in: timeIn,
+      time_out: '',
+      hours_rendered: 0,
+      notes: '',
+      created_at: createdAt
+    };
+
+    Logger.log('DEBUG handleStartSession_ - About to save session: ' + JSON.stringify(sessionRow));
+    appendObjectRow_(sheet, sessionRow);
+    Logger.log('DEBUG handleStartSession_ - Session saved successfully');
+
+    return {
+      ok: true,
+      message: 'Session started successfully.',
+      session: sessionRow
+    };
+  } catch (e) {
+    Logger.log('ERROR in handleStartSession_: ' + e.toString() + ' | Stack: ' + e.stack);
+    return { ok: false, error: 'Error creating session: ' + e.toString() };
+  }
+}
+
+function handleEndSession_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var logDate = String(payload.log_date || '').trim();
+    var timeOut = String(payload.time_out || '').trim();
+    var hours = Number(payload.hours_rendered || 0);
+    var notes = String(payload.notes || '').trim();
+
+    Logger.log('DEBUG handleEndSession_ - Input: user_id=' + userId + ', log_date=' + logDate + ', time_out=' + timeOut);
+
+    if (!userId || !logDate || !timeOut) {
+      return { ok: false, error: 'user_id, log_date, and time_out are required.' };
+    }
+
+    var userRecord = findUserRecordByUserId_(userId);
+    if (!userRecord) {
+      return { ok: false, error: 'User not found.' };
+    }
+
+    if (!isEmailVerifiedValue_(userRecord.user.email_verified, userRecord.user)) {
+      return { ok: false, error: 'Please verify your email before updating a time log.' };
+    }
+
+    // Find active session for this user on this date
+    var sessionsSheet = getActiveSessionsSheet_();
+    Logger.log('DEBUG handleEndSession_ - Got active_sessions sheet: ' + sessionsSheet.getName());
+    
+    var sessHeaders = getHeaders_(sessionsSheet);
+    var sessValues = getSheetValues_(sessionsSheet);
+    Logger.log('DEBUG handleEndSession_ - Sheet has ' + sessValues.length + ' rows (including header)');
+    
+    var userIdCol = findColumnIndex_(sessHeaders, 'user_id');
+    var logDateCol = findColumnIndex_(sessHeaders, 'log_date');
+    var sessionIdCol = findColumnIndex_(sessHeaders, 'session_id');
+    var timeInCol = findColumnIndex_(sessHeaders, 'time_in');
+
+    var sessionRow = -1;
+    var sessionId = '';
+    var timeIn = '';
+
+    Logger.log('DEBUG handleEndSession_ - Looking for: user_id=' + userId + ', log_date=' + logDate);
+    
+    for (var i = 1; i < sessValues.length; i++) {
+      var rowUserId = String(sessValues[i][userIdCol - 1] || '').trim();
+      var rowLogDate = String(sessValues[i][logDateCol - 1] || '').trim();
+      Logger.log('DEBUG handleEndSession_ - Row ' + i + ': user_id=' + rowUserId + ', log_date=' + rowLogDate);
+      
+      if (rowUserId === userId && rowLogDate === logDate) {
+        sessionRow = i + 1;
+        sessionId = String(sessValues[i][sessionIdCol - 1] || '').trim();
+        timeIn = String(sessValues[i][timeInCol - 1] || '').trim();
+        Logger.log('DEBUG handleEndSession_ - Found session! Row=' + sessionRow + ', session_id=' + sessionId + ', time_in=' + timeIn);
+        break;
+      }
+    }
+
+    if (sessionRow <= 0) {
+      Logger.log('DEBUG handleEndSession_ - No session found for user=' + userId + ', date=' + logDate);
+      return { ok: false, error: 'No active session found. Please log in first.' };
+    }
+
+    // Create time log entry with both times
+    var timelogId = createId_('TL');
+    var createdAt = isoNow_();
+
+    var timelogRow = {
+      timelog_id: timelogId,
+      user_id: userId,
+      log_date: logDate,
+      time_in: timeIn,
+      time_out: timeOut,
+      hours_rendered: hours,
+      entry_type: 'entry',
+      status: 'recorded',
+      notes: notes,
+      created_at: createdAt
+    };
+
+    // Add to time_logs
+    var logsSheet = getTimeLogsSheet_();
+    Logger.log('DEBUG handleEndSession_ - About to save timelog: ' + JSON.stringify(timelogRow));
+    appendObjectRow_(logsSheet, timelogRow);
+    Logger.log('DEBUG handleEndSession_ - Timelog saved');
+
+    // Delete from active_sessions
+    Logger.log('DEBUG handleEndSession_ - Deleting session row ' + sessionRow);
+    sessionsSheet.deleteRow(sessionRow);
+    Logger.log('DEBUG handleEndSession_ - Session deleted');
+
+    return {
+      ok: true,
+      message: 'Session ended successfully.',
+      timelog: timelogRow
+    };
+  } catch (e) {
+    Logger.log('ERROR in handleEndSession_: ' + e.toString() + ' | Stack: ' + e.stack);
+    return { ok: false, error: 'Error ending session: ' + e.toString() };
+  }
+}
+
+function handleDebugSessionsSheet_(payload) {
+  try {
+    // Get active_sessions sheet
+    var activeSessions = getActiveSessionsSheet_();
+    var activeHeaders = getHeaders_(activeSessions);
+    var activeValues = getSheetValues_(activeSessions);
+    
+    // Get time_logs sheet
+    var timeLogs = getTimeLogsSheet_();
+    var timeHeaders = getHeaders_(timeLogs);
+    var timeValues = getSheetValues_(timeLogs);
+    
+    // Format the data for display
+    var activeSessionsData = [];
+    for (var i = 1; i < activeValues.length; i++) {
+      var row = {};
+      for (var j = 0; j < activeHeaders.length; j++) {
+        row[activeHeaders[j]] = activeValues[i][j];
+      }
+      activeSessionsData.push(row);
+    }
+    
+    var timeLogsData = [];
+    for (var i = 1; i < timeValues.length; i++) {
+      var row = {};
+      for (var j = 0; j < timeHeaders.length; j++) {
+        row[timeHeaders[j]] = timeValues[i][j];
+      }
+      timeLogsData.push(row);
+    }
+    
+    return {
+      ok: true,
+      message: 'Sheet debugging info',
+      active_sessions: {
+        sheet_name: activeSessions.getName(),
+        headers: activeHeaders,
+        row_count: activeValues.length - 1,
+        data: activeSessionsData
+      },
+      time_logs: {
+        sheet_name: timeLogs.getName(),
+        headers: timeHeaders,
+        row_count: timeValues.length - 1,
+        data: timeLogsData.slice(0, 10)
+      }
+    };
+  } catch (e) {
+    Logger.log('ERROR in handleDebugSessionsSheet_: ' + e.toString());
+    return { ok: false, error: 'Debug error: ' + e.toString() };
+  }
 }
 
 function handleListStudentsForAssignment_(payload) {
@@ -2396,6 +2675,10 @@ function getOrCreateSheetWithHeaders_(sheetName, headers) {
 
 function getTimeLogsSheet_() {
   return getOrCreateSheetWithHeaders_(TIME_LOGS_SHEET_, TIME_LOGS_HEADERS_);
+}
+
+function getActiveSessionsSheet_() {
+  return getOrCreateSheetWithHeaders_(ACTIVE_SESSIONS_SHEET_, ACTIVE_SESSIONS_HEADERS_);
 }
 
 function getSupervisorAssignmentsSheet_() {

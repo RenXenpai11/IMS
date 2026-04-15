@@ -19,6 +19,7 @@
   };
 
   let activeTab = 'my-requests';
+  let requestFilter = 'all'; // 'all', 'absence', 'overtime'
   let currentUser = null;
   let unsubscribeAuth;
   let unsubscribeSync;
@@ -237,6 +238,29 @@
       weekday: 'short',
       month: 'short',
       day: '2-digit',
+      year: 'numeric',
+    }).format(parsed);
+  }
+
+  function formatCreatedDate(dateValue) {
+    const dateString = String(dateValue || '').trim();
+    if (!dateString) return '';
+
+    // Extract just the date part if it's a full datetime string
+    let dateToFormat = dateString;
+    if (dateString.includes('T') || dateString.includes(' ')) {
+      dateToFormat = dateString.split('T')[0].split(' ')[0];
+    }
+
+    const parsed = new Date(`${dateToFormat}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) {
+      return dateValue;
+    }
+
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
       year: 'numeric',
     }).format(parsed);
   }
@@ -473,48 +497,30 @@
   $: pageSubtitle = isSupervisor
     ? 'Review and resolve assigned student requests'
     : 'Submit absence and overtime requests for approval';
-  $: totalRequests = requests.length;
-  $: pendingRequests = requests.filter((request) => String(request?.status || '').toLowerCase() === 'pending').length;
-  $: resolvedRequests = requests.filter((request) => {
+  
+  // Filter and sort requests based on active filter
+  $: filteredRequests = requests
+    .filter((r) => {
+      if (requestFilter === 'all') return true;
+      return String(r.requestType || '').toLowerCase() === requestFilter.toLowerCase();
+    })
+    .sort((a, b) => {
+      // Sort by applied date (most recent first)
+      const dateA = new Date(a.date || a.request_date || a.applied_date || 0);
+      const dateB = new Date(b.date || b.request_date || b.applied_date || 0);
+      return dateB.getTime() - dateA.getTime();
+    });
+
+  $: totalRequests = filteredRequests.length;
+  $: pendingRequests = filteredRequests.filter((request) => String(request?.status || '').toLowerCase() === 'pending').length;
+  $: resolvedRequests = filteredRequests.filter((request) => {
     const status = String(request?.status || '').toLowerCase();
     return status === 'approved' || status === 'rejected';
   }).length;
 </script>
 
 <section class="requests-shell flex flex-col gap-6">
-  <section class="requests-header-card rounded-2xl border p-6 shadow-md">
-    <div class="inline-flex h-11 w-11 items-center justify-center rounded-xl requests-header-icon">
-      <FileText size={18} />
-    </div>
-    <h2 class="requests-heading mt-4 text-2xl font-bold tracking-tight">Requests</h2>
-    <p class="requests-subtitle mt-1 text-sm">{pageSubtitle}</p>
-  </section>
-
-  <section class="requests-panel rounded-2xl border p-5 shadow-md">
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-end">
-      <div class="inline-flex w-full rounded-xl border tab-switch lg:w-auto">
-        <button
-          type="button"
-          class="tab-button"
-          class:tab-button-active={activeTab === 'my-requests'}
-          on:click={() => setTab('my-requests')}
-        >
-          {listTabLabel}
-        </button>
-        {#if !isSupervisor}
-          <button
-            type="button"
-            class="tab-button"
-            class:tab-button-active={activeTab === 'create-request'}
-            on:click={() => setTab('create-request')}
-          >
-            Create Request
-          </button>
-        {/if}
-      </div>
-    </div>
-  </section>
-
+  <!-- KPI Cards at Top -->
   <section class="requests-kpi-grid grid grid-cols-1 gap-4 md:grid-cols-3">
     <article class="request-kpi request-kpi-total rounded-2xl border p-5 shadow-sm">
       <div class="request-kpi-icon inline-flex h-10 w-10 items-center justify-center rounded-xl">
@@ -541,6 +547,28 @@
     </article>
   </section>
 
+  <!-- Toggle Buttons Below Cards -->
+  <div class="inline-flex rounded-lg border tab-switch w-fit">
+    <button
+      type="button"
+      class="tab-button"
+      class:tab-button-active={activeTab === 'my-requests'}
+      on:click={() => setTab('my-requests')}
+    >
+      {listTabLabel}
+    </button>
+    {#if !isSupervisor}
+      <button
+        type="button"
+        class="tab-button"
+        class:tab-button-active={activeTab === 'create-request'}
+        on:click={() => setTab('create-request')}
+      >
+        Create Request
+      </button>
+    {/if}
+  </div>
+
   {#if formSuccess}
     <p class="alert-success rounded-xl border px-4 py-3 text-sm font-medium">{formSuccess}</p>
   {/if}
@@ -550,42 +578,79 @@
       <h3 class="requests-heading text-base font-semibold">Create Request</h3>
       <p class="requests-subtitle mt-1 text-sm">Fill out the request details before submission.</p>
 
-      <div class="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <label class="flex flex-col gap-1.5">
-          <span class="requests-label text-sm font-medium">Request Type</span>
-          <select bind:value={form.requestType} class="requests-input w-full rounded-xl border px-4 py-3 outline-none">
-            {#each REQUEST_TYPES as option}
-              <option value={option}>{option}</option>
-            {/each}
-          </select>
-        </label>
+      <!-- Modern Request Type Toggle -->
+      <div class="mt-6 mb-6">
+        <span class="requests-label text-sm font-medium block mb-3">Request Type</span>
+        <div class="inline-flex rounded-lg border request-type-toggle shadow-sm">
+          {#each REQUEST_TYPES as type}
+            <button
+              type="button"
+              class="request-type-btn px-6 py-2.5 font-medium text-sm transition-colors rounded-lg"
+              class:request-type-btn-active={form.requestType === type}
+              on:click={() => { form.requestType = type; form.startTime = ''; form.endTime = ''; }}
+              title="Select {type} request"
+            >
+              {#if type === 'Absence'}
+                <span>📅 Absence</span>
+              {:else}
+                <span>⏱️ Overtime</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      </div>
 
+      <div class="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <!-- Date Input with MM/DD/YYYY format -->
         <label class="flex flex-col gap-1.5">
           <span class="requests-label text-sm font-medium">Date</span>
-          <input bind:value={form.date} type="date" min={minDate} placeholder="mm/dd/yyyy" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+          <input 
+            bind:value={form.date} 
+            type="date" 
+            min={minDate} 
+            class="requests-input w-full rounded-xl border px-4 py-3 outline-none"
+            title="Select date in MM/DD/YYYY format"
+          />
         </label>
 
+        <!-- Spacer for alignment on mobile -->
+        <div></div>
+
         {#if showOvertimeFields}
+          <!-- Start Time Input -->
           <label class="flex flex-col gap-1.5">
             <span class="requests-label text-sm font-medium">Start Time</span>
-            <input bind:value={form.startTime} type="time" placeholder="hh:mm" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+            <input 
+              bind:value={form.startTime} 
+              type="time" 
+              class="requests-input requests-time-input w-full rounded-xl border px-4 py-3 outline-none"
+              placeholder="HH:MM"
+              title="Enter start time"
+            />
           </label>
 
+          <!-- End Time Input -->
           <label class="flex flex-col gap-1.5">
             <span class="requests-label text-sm font-medium">End Time</span>
-            <input bind:value={form.endTime} type="time" placeholder="hh:mm" class="requests-input w-full rounded-xl border px-4 py-3 outline-none" />
+            <input 
+              bind:value={form.endTime} 
+              type="time" 
+              class="requests-input requests-time-input w-full rounded-xl border px-4 py-3 outline-none"
+              placeholder="HH:MM"
+              title="Enter end time"
+            />
           </label>
 
           {#if form.startTime && form.endTime && overtimeHours > 0}
-            <div class="overtime-hours-summary flex flex-col gap-1.5 lg:col-span-2 rounded-lg border p-3">
+            <div class="flex flex-col gap-1.5 lg:col-span-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
               <span class="requests-label text-sm font-medium">Total Overtime Hours</span>
-              <div class="overtime-hours-value text-lg font-bold">{overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
+              <div class="text-lg font-bold text-blue-900">{overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
             </div>
           {/if}
         {/if}
       </div>
 
-      <label class="mt-4 flex flex-col gap-1.5">
+      <label class="mt-6 flex flex-col gap-1.5">
         <span class="requests-label text-sm font-medium">Reason / Notes</span>
         <textarea
           bind:value={form.reason}
@@ -617,7 +682,46 @@
       {:else if requests.length === 0}
         <p class="requests-empty-state requests-subtitle text-center py-8">No requests yet.</p>
       {:else}
-        {#each requests as request (request.id)}
+        <!-- Request Filter Buttons -->
+        <div class="flex flex-wrap gap-2 pb-3">
+          <button
+            class={`filter-btn text-sm font-medium px-4 py-2 rounded-lg transition-all ${
+              requestFilter === 'all'
+                ? 'filter-btn-active bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+            on:click={() => (requestFilter = 'all')}
+          >
+            All Requests
+          </button>
+          <button
+            class={`filter-btn text-sm font-medium px-4 py-2 rounded-lg transition-all ${
+              requestFilter === 'absence'
+                ? 'filter-btn-active bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+            on:click={() => (requestFilter = 'absence')}
+          >
+            📅 Absence
+          </button>
+          <button
+            class={`filter-btn text-sm font-medium px-4 py-2 rounded-lg transition-all ${
+              requestFilter === 'overtime'
+                ? 'filter-btn-active bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+            on:click={() => (requestFilter = 'overtime')}
+          >
+            ⏱️ Overtime
+          </button>
+        </div>
+
+        {#if filteredRequests.length === 0}
+          <p class="requests-empty-state requests-subtitle text-center py-8">
+            {requests.length === 0 ? 'No requests yet.' : 'No requests match the selected filter.'}
+          </p>
+        {:else}
+          {#each filteredRequests as request (request.id)}
           {@const statusMeta = STATUS_META[request.status] ?? STATUS_META.Pending}
           {@const statusTone = String(request.status || 'Pending').toLowerCase()}
           <article
@@ -651,6 +755,9 @@
                       {#if request.total_hours}
                         <span class="meta-pill">Hours: {request.total_hours}h</span>
                       {/if}
+                    {/if}
+                    {#if request.created_at}
+                      <span class="meta-pill-secondary">Created: {formatCreatedDate(request.created_at)}</span>
                     {/if}
                     {#if isSupervisor}
                       <span class="meta-pill">Student: {request.requester_name || 'Unknown'}</span>
@@ -705,6 +812,7 @@
             </div>
           </article>
         {/each}
+        {/if}
       {/if}
     </section>
   {/if}
@@ -984,6 +1092,26 @@
     font-weight: 600;
   }
 
+  .meta-pill-secondary {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid #d1d5db;
+    background: #f3f4f6;
+    color: #6b7280;
+    padding: 0.2rem 0.65rem;
+    font-size: 0.74rem;
+    font-weight: 500;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .meta-pill-secondary {
+      border-color: #4b5563;
+      background: #2d3748;
+      color: #cbd5e0;
+    }
+  }
+
   .reason-box {
     background: #f1f7fd;
     border-color: #c9d9ec;
@@ -1200,10 +1328,152 @@
     color: #fca5a5;
   }
 
+  /* Modern Request Type Toggle */
+  .request-type-toggle {
+    display: inline-flex;
+    background: #f0f4f8;
+    border: 1px solid #d7e3f1;
+    border-radius: 0.75rem;
+    padding: 0.3rem;
+    gap: 0;
+  }
+
+  .request-type-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #60748e;
+    padding: 0.65rem 1.25rem;
+    border-radius: 0.6rem;
+    font-weight: 500;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .request-type-btn:hover {
+    background: #e8f0f7;
+    color: #34506e;
+  }
+
+  .request-type-btn-active {
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+    color: #ffffff;
+    border-color: #0f6cbd;
+    box-shadow: 0 8px 16px -6px rgba(15, 108, 189, 0.4);
+    font-weight: 600;
+  }
+
+  .request-type-btn-active:hover {
+    box-shadow: 0 12px 24px -8px rgba(15, 108, 189, 0.5);
+    transform: translateY(-1px);
+  }
+
+  /* Filter Buttons */
+  .filter-btn {
+    border: 1px solid transparent;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    background: hsl(var(--clr-bg-secondary, 210 40% 96%));
+    color: hsl(var(--clr-text-secondary, 210 20% 50%));
+  }
+
+  .filter-btn:hover {
+    background: hsl(var(--clr-bg-tertiary, 210 35% 90%));
+  }
+
+  .filter-btn-active {
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: 0 8px 16px -6px rgba(15, 108, 189, 0.4);
+  }
+
+  .filter-btn-active:hover {
+    box-shadow: 0 12px 24px -8px rgba(15, 108, 189, 0.5);
+    transform: translateY(-1px);
+  }
+
+  /* Dark mode support for filter buttons */
+  @media (prefers-color-scheme: dark) {
+    .filter-btn {
+      background: hsl(210 15% 25%);
+      color: hsl(210 15% 80%);
+    }
+
+    .filter-btn:hover {
+      background: hsl(210 15% 32%);
+    }
+
+    .filter-btn-active {
+      background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+      color: #ffffff;
+      box-shadow: 0 8px 16px -6px rgba(15, 108, 189, 0.6);
+    }
+
+    .filter-btn-active:hover {
+      box-shadow: 0 12px 24px -8px rgba(15, 108, 189, 0.7);
+    }
+  }
+
+  /* Format hint text */
+  .requests-hint {
+    color: #9ca3af;
+    font-style: italic;
+    margin-top: -0.5rem;
+  }
+
+  /* Date and Time Input Styling */
+  .requests-date-input,
+  .requests-time-input {
+    color-scheme: light dark;
+  }
+
+  .requests-date-input::-webkit-calendar-picker-indicator,
+  .requests-time-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    border-radius: 4px;
+    margin-right: 2px;
+    opacity: 0.6;
+    filter: invert(0.8);
+  }
+
+  .requests-date-input::-webkit-calendar-picker-indicator:hover,
+  .requests-time-input::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+
+  /* Show placeholder text styling */
+  .requests-date-input::placeholder,
+  .requests-time-input::placeholder {
+    color: #a1a1a1;
+    opacity: 1 !important;
+  }
+
+  /* Firefox */
+  .requests-date-input::-moz-placeholder,
+  .requests-time-input::-moz-placeholder {
+    color: #a1a1a1;
+    opacity: 1 !important;
+  }
+
   @media (max-width: 768px) {
     .requests-shell {
       border-radius: 1rem;
       padding: 0;
+    }
+
+    .request-type-toggle {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+    .request-type-btn {
+      flex: 1;
+      justify-content: center;
     }
   }
 </style>
