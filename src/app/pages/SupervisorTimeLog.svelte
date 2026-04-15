@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { Clock3, ListFilter, RefreshCw, Trash2, UserCircle2, Users } from 'lucide-svelte';
   import {
+    callApiAction,
     deleteSupervisorTimeLog,
     getCurrentUser,
     listSupervisorAssignedStudents,
@@ -17,8 +18,10 @@
   let selectedStudentId = '';
   let selectedStudent = null;
   let logs = [];
+  let activeSessions = [];
   let loadingStudents = true;
   let loadingLogs = false;
+  let loadingActiveSessions = false;
   let deletingId = '';
   let errorMessage = '';
   let successMessage = '';
@@ -226,6 +229,43 @@
     }
   }
 
+  async function loadActiveSessions() {
+    const supervisorId = String(currentUser?.user_id || '').trim();
+    const roleNow = String(currentUser?.role || '').trim().toLowerCase();
+
+    if (!supervisorId || roleNow !== 'supervisor') {
+      activeSessions = [];
+      return;
+    }
+
+    loadingActiveSessions = true;
+
+    try {
+      const result = await callApiAction('list_supervisor_active_sessions', {
+        supervisor_user_id: supervisorId,
+      });
+
+      if (result && result.ok) {
+        // Map active sessions to include student names
+        activeSessions = (result.active_sessions || []).map((session) => {
+          const student = assignedStudents.find((s) => String(s.user_id) === String(session.user_id));
+          return {
+            ...session,
+            student_name: student?.full_name || 'Unknown Student',
+            student_email: student?.email || '',
+          };
+        });
+      } else {
+        activeSessions = [];
+      }
+    } catch (err) {
+      console.error('Error loading active sessions:', err);
+      activeSessions = [];
+    } finally {
+      loadingActiveSessions = false;
+    }
+  }
+
   async function handleDelete(logId) {
     const supervisorId = String(currentUser?.user_id || '').trim();
     const studentId = String(selectedStudentId || '').trim();
@@ -287,6 +327,9 @@
   $: selectedProgress = selectedRequiredHours > 0 ? Math.min(100, Math.round((selectedCompletedHours / selectedRequiredHours) * 100)) : 0;
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
   $: isSupervisorUser = currentRole === 'supervisor';
+  $: if (assignedStudents.length > 0 && isSupervisorUser) {
+    loadActiveSessions();
+  }
 </script>
 
 {#if currentUser && !isSupervisorUser}
@@ -295,6 +338,34 @@
   </section>
 {:else}
   <section class="supervisor-shell flex flex-col gap-6">
+    <!-- Active Sessions Section -->
+    {#if activeSessions.length > 0}
+      <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md border-emerald-300 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600/10 text-emerald-600">
+            <Clock3 size={18} />
+          </div>
+          <div>
+            <h3 class="supervisor-heading text-base font-semibold text-emerald-900 dark:text-emerald-200">Currently Logged In</h3>
+            <p class="supervisor-sub text-xs text-emerald-700 dark:text-emerald-300 mt-1">{activeSessions.length} {activeSessions.length === 1 ? 'student is' : 'students are'} currently logged in today</p>
+          </div>
+        </div>
+        <div class="space-y-2">
+          {#each activeSessions as session (session.session_id)}
+            <div class="flex items-center justify-between rounded-lg bg-white/50 dark:bg-white/5 px-3 py-2 border border-emerald-200 dark:border-emerald-500/20">
+              <div class="flex items-center gap-2">
+                <UserCircle2 size={16} class="text-emerald-600 dark:text-emerald-400" />
+                <div>
+                  <p class="text-sm font-medium text-emerald-900 dark:text-emerald-100">{session.student_name}</p>
+                  <p class="text-xs text-emerald-700 dark:text-emerald-400">Logged in at {session.time_in}</p>
+                </div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
       <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
