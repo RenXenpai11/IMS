@@ -46,6 +46,7 @@
   let unsubscribeAuth;
   const dispatch = createEventDispatcher();
 
+
   function buildInitials(fullName) {
     const value = String(fullName || '').trim();
     if (!value) {
@@ -186,3 +187,7 @@
     </div>
   </div>
 </aside>
+
+<style>
+  /* Sidebar styles can be added here if needed */
+</style>

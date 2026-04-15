@@ -107,6 +107,10 @@ function dispatchAction_(payload) {
     return handleEndSession_(payload);
   }
 
+  if (action === 'get_active_session') {
+    return handleGetActiveSession_(payload);
+  }
+
   if (action === 'list_students_for_assignment') {
     return handleListStudentsForAssignment_(payload);
   }
@@ -121,6 +125,10 @@ function dispatchAction_(payload) {
 
   if (action === 'list_supervisor_time_logs') {
     return handleListSupervisorTimeLogs_(payload);
+  }
+
+  if (action === 'list_supervisor_active_sessions') {
+    return handleListSupervisorActiveSessions_(payload);
   }
 
   if (action === 'delete_supervisor_time_log') {
@@ -183,6 +191,10 @@ function dispatchAction_(payload) {
 
   if (action === 'update_request_status') {
     return handleUpdateRequestStatus_(payload);
+  }
+
+  if (action === 'delete_request') {
+    return handleDeleteRequest_(payload);
   }
 
   if (action === 'list_notifications') {
@@ -1260,6 +1272,57 @@ function handleEndSession_(payload) {
   }
 }
 
+function handleGetActiveSession_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var logDate = String(payload.log_date || '').trim();
+
+    Logger.log('DEBUG handleGetActiveSession_ - Input: user_id=' + userId + ', log_date=' + logDate);
+
+    if (!userId || !logDate) {
+      return { ok: false, error: 'user_id and log_date are required.' };
+    }
+
+    var sheet = getActiveSessionsSheet_();
+    var headers = getHeaders_(sheet);
+    var values = getSheetValues_(sheet);
+
+    var userIdCol = findColumnIndex_(headers, 'user_id');
+    var logDateCol = findColumnIndex_(headers, 'log_date');
+
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(values[i][userIdCol - 1] || '').trim();
+      var rowLogDate = String(values[i][logDateCol - 1] || '').trim();
+      
+      if (rowUserId === userId && rowLogDate === logDate) {
+        // Found active session for this user on this date
+        // Build object from row data using headers
+        var sessionObj = {};
+        for (var j = 0; j < headers.length; j++) {
+          sessionObj[headers[j]] = values[i][j] || '';
+        }
+        
+        Logger.log('DEBUG handleGetActiveSession_ - Found session: ' + JSON.stringify(sessionObj));
+        
+        return {
+          ok: true,
+          session: sessionObj
+        };
+      }
+    }
+
+    // No active session found
+    Logger.log('DEBUG handleGetActiveSession_ - No active session found for user=' + userId + ', date=' + logDate);
+    return {
+      ok: true,
+      session: null
+    };
+  } catch (e) {
+    Logger.log('ERROR in handleGetActiveSession_: ' + e.toString() + ' | Stack: ' + e.stack);
+    return { ok: false, error: 'Error retrieving active session: ' + e.toString() };
+  }
+}
+
 function handleDebugSessionsSheet_(payload) {
   try {
     // Get active_sessions sheet
@@ -1580,6 +1643,49 @@ function handleListSupervisorTimeLogs_(payload) {
   return { ok: true, logs: rows };
 }
 
+function handleListSupervisorActiveSessions_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+
+  if (!supervisorUserId) {
+    return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+    return { ok: false, error: 'Only supervisors can view active sessions.' };
+  }
+
+  // Get all students assigned to this supervisor
+  var assignmentsSheet = getSheet_('supervisor_student_assignments');
+  var assignmentRows = readSheetObjects_(assignmentsSheet);
+  var assignedStudentIds = assignmentRows
+    .filter(function (row) {
+      return String(row.supervisor_user_id || '').trim() === supervisorUserId;
+    })
+    .map(function (row) {
+      return String(row.student_user_id || '').trim();
+    });
+
+  // Get active sessions for these students (today's date)
+  var todayDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var sessionsSheet = getActiveSessionsSheet_();
+  var sessionRows = readSheetObjects_(sessionsSheet)
+    .filter(function (row) {
+      var studentId = String(row.user_id || '').trim();
+      var logDate = String(row.log_date || '').trim();
+      return assignedStudentIds.indexOf(studentId) >= 0 && logDate === todayDate && !row.time_out;
+    })
+    .map(function (row) {
+      return sanitizeObjectForClient_(row);
+    });
+
+  return { ok: true, active_sessions: sessionRows };
+}
+
 function handleDeleteSupervisorTimeLog_(payload) {
   var supervisorUserId = String(payload.supervisor_user_id || '').trim();
   var studentUserId = String(payload.student_user_id || '').trim();
@@ -1819,6 +1925,7 @@ function handleListRequestsByUser_(payload) {
         reason: String(row.reason || ''),
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
+        created_at: String(row.created_at || ''),
       });
     }
   }
@@ -1863,6 +1970,7 @@ function handleListAssignedStudentRequests_(payload) {
         reason: String(row.reason || ''),
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
+        created_at: String(row.created_at || ''),
       });
     }
   }
@@ -1910,6 +2018,35 @@ function handleUpdateRequestStatus_(payload) {
   }
 
   return { ok: false, error: 'Request not found.' };
+}
+
+function handleDeleteRequest_(payload) {
+  var requestId = String(payload.request_id || '').trim();
+
+  if (!requestId) {
+    return { ok: false, error: 'request_id is required.' };
+  }
+
+  try {
+    var sheet = getRequestsSheet_();
+    var rows = getSheetValues_(sheet);
+    var headers = getHeaders_(sheet);
+    var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+
+    // Find the row with matching request_id
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
+        // Delete the row (row numbers are 1-indexed)
+        sheet.deleteRow(i + 1);
+        return { ok: true, message: 'Request deleted permanently.' };
+      }
+    }
+
+    return { ok: false, error: 'Request not found.' };
+  } catch (e) {
+    Logger.log('ERROR in handleDeleteRequest_: ' + e.toString());
+    return { ok: false, error: 'Error deleting request: ' + e.toString() };
+  }
 }
 
 // --- Notification handlers ---

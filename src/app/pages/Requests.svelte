@@ -29,24 +29,38 @@
   let formSuccess = '';
   let isSubmitting = false;
 
+  // Delete confirmation modal state
+  let showDeleteModal = false;
+  let requestToDelete = null;
+  let isDeleting = false;
+
   let form = {
     requestType: 'Absence',
     date: '',
     startTime: '',
     endTime: '',
+    lunchBreak: 0, // in minutes
     reason: '',
   };
 
   let minDate = '';
   
   $: showOvertimeFields = form.requestType === 'Overtime';
-  $: overtimeHours = calculateOvertimeHours(form.startTime, form.endTime);
+  $: overtimeHours = calculateOvertimeHours(form.startTime, form.endTime, form.lunchBreak);
+  $: isWeekend = (() => {
+    if (!form.date) return false;
+    const dateObj = new Date(form.date + 'T00:00:00');
+    const dayOfWeek = dateObj.getDay();
+    return dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
+  })();
   $: isFormValid = (() => {
     // Force re-evaluation on form changes
     void form.requestType;
     void form.date;
     void form.startTime;
     void form.endTime;
+    void form.lunchBreak;
+    void form.reason;
     return checkFormValidityImmediate();
   })();
 
@@ -111,7 +125,7 @@
     return true;
   }
 
-  function calculateOvertimeHours(startTime, endTime) {
+  function calculateOvertimeHours(startTime, endTime, lunchBreak = 0) {
     if (!startTime || !endTime) return 0;
     
     const [startHour, startMin] = String(startTime).split(':').map(Number);
@@ -123,7 +137,9 @@
     if (endTotalMin <= startTotalMin) return 0;
     
     const diffMin = endTotalMin - startTotalMin;
-    return Math.round((diffMin / 60) * 10) / 10; // Round to 1 decimal place
+    const lunchMinutes = Number(lunchBreak) || 0;
+    const actualWorkMin = Math.max(0, diffMin - lunchMinutes);
+    return Math.round((actualWorkMin / 60) * 10) / 10; // Round to 1 decimal place
   }
 
   async function callBackend(action, payload) {
@@ -175,9 +191,8 @@
     }
 
     return new Intl.DateTimeFormat('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: '2-digit',
+      month: 'long',
+      day: 'numeric',
       year: 'numeric',
     }).format(parsed);
   }
@@ -203,6 +218,27 @@
       day: 'numeric',
       year: 'numeric',
     }).format(parsed);
+  }
+
+  function formatTime(timeValue) {
+    const timeString = String(timeValue || '').trim();
+    if (!timeString) return '';
+
+    // If it's already in HH:MM format, return as-is
+    if (/^\d{1,2}:\d{2}(:\d{2})?/.test(timeString)) {
+      return timeString.substring(0, 5); // Get only HH:MM
+    }
+
+    // If it contains a date, extract the time portion
+    if (timeString.includes(' ') || timeString.includes('T')) {
+      const parts = timeString.split(' ');
+      const timePart = parts[parts.length - 1];
+      if (/^\d{1,2}:\d{2}/.test(timePart)) {
+        return timePart.substring(0, 5);
+      }
+    }
+
+    return timeString;
   }
 
   function previewReason(text) {
@@ -277,6 +313,7 @@
       date: '',
       startTime: '',
       endTime: '',
+      lunchBreak: 0,
       reason: '',
     };
   }
@@ -305,6 +342,7 @@
         request_date: form.date,
         start_time: form.requestType === 'Overtime' ? form.startTime : '',
         end_time: form.requestType === 'Overtime' ? form.endTime : '',
+        lunch_break: form.requestType === 'Overtime' ? Number(form.lunchBreak) || 0 : 0,
         total_hours: form.requestType === 'Overtime' ? overtimeHours : 0,
         reason: String(form.reason || '').trim(),
       });
@@ -358,20 +396,40 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  async function deleteRequest(requestId) {
-    if (!confirm('Are you sure you want to delete this request?')) {
-      return;
-    }
+  function openDeleteModal(request) {
+    requestToDelete = request;
+    showDeleteModal = true;
+  }
 
+  function closeDeleteModal() {
+    requestToDelete = null;
+    showDeleteModal = false;
+  }
+
+  async function confirmDeleteRequest() {
+    if (!requestToDelete) return;
+
+    isDeleting = true;
     try {
-      // Since there's no delete endpoint, we'll update status to 'Cancelled' or remove from UI
-      // For now, we'll just remove it from the requests array
-      requests = requests.filter((r) => r.id !== requestId);
-      formSuccess = 'Request deleted successfully.';
-      setTimeout(() => (formSuccess = ''), 3000);
+      // Call backend to permanently delete the request
+      const result = await callBackend('delete_request', {
+        request_id: requestToDelete.request_id,
+      });
+
+      if (result && result.ok) {
+        // Reload requests from backend to ensure consistency
+        await loadRequests();
+        formSuccess = 'Request deleted permanently.';
+        setTimeout(() => (formSuccess = ''), 3000);
+        closeDeleteModal();
+      } else {
+        formError = result?.error || 'Failed to delete request.';
+      }
     } catch (err) {
       console.error('Delete request error:', err);
       formError = 'Failed to delete request.';
+    } finally {
+      isDeleting = false;
     }
   }
 
@@ -529,6 +587,14 @@
           />
         </label>
 
+        <!-- Weekend Warning for Absence Requests -->
+        {#if form.requestType === 'Absence' && isWeekend && form.date}
+          <div class="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 lg:col-span-2">
+            <span class="text-lg">⚠️</span>
+            <span class="text-sm font-medium text-amber-900">This date is a weekend/day off. Absence requests cannot be submitted for weekends.</span>
+          </div>
+        {/if}
+
         <!-- Spacer for alignment on mobile -->
         <div></div>
 
@@ -557,10 +623,28 @@
             />
           </label>
 
+          <!-- Lunch Break Input -->
+          <label class="flex flex-col gap-1.5">
+            <span class="requests-label text-sm font-medium">Lunch Break (minutes)</span>
+            <input 
+              bind:value={form.lunchBreak} 
+              type="number" 
+              min="0"
+              max="480"
+              step="15"
+              class="requests-input w-full rounded-xl border px-4 py-3 outline-none"
+              placeholder="e.g., 60 for 1 hour"
+              title="Enter lunch break duration in minutes"
+            />
+          </label>
+
           {#if form.startTime && form.endTime && overtimeHours > 0}
-            <div class="flex flex-col gap-1.5 lg:col-span-2 rounded-lg bg-blue-50 border border-blue-200 p-4">
+            <div class="flex flex-col gap-1.5 lg:col-span-2 rounded-lg overtime-hours-display p-4">
               <span class="requests-label text-sm font-medium">Total Overtime Hours</span>
-              <div class="text-2xl font-bold text-blue-900">⏱️ {overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
+              <div class="text-2xl font-bold">⏱️ {overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
+              {#if Number(form.lunchBreak) > 0}
+                <span class="requests-subtitle text-xs mt-1">(After deducting {Number(form.lunchBreak)} minutes for lunch break)</span>
+              {/if}
             </div>
           {/if}
         {/if}
@@ -656,23 +740,17 @@
                     <span class={statusMeta.badgeClass}>{request.status}</span>
                   </div>
                   <div class="request-meta mt-2 flex flex-wrap items-center gap-2">
-                    <span class="meta-pill">Date: {formatDate(request.date)}</span>
+                    <span class="meta-pill">📅 For: {formatDate(request.date)}</span>
                     {#if request.requestType === 'Overtime'}
-                      {#if request.start_time}
-                        <span class="meta-pill">Start: {request.start_time}</span>
-                      {/if}
-                      {#if request.end_time}
-                        <span class="meta-pill">End: {request.end_time}</span>
-                      {/if}
                       {#if request.total_hours}
-                        <span class="meta-pill">Hours: {request.total_hours}h</span>
+                        <span class="meta-pill">⏳ Duration: {request.total_hours}h</span>
                       {/if}
                     {/if}
                     {#if request.created_at}
-                      <span class="meta-pill-secondary">Created: {formatCreatedDate(request.created_at)}</span>
+                      <span class="meta-pill">Submitted: {formatCreatedDate(request.created_at)}</span>
                     {/if}
                     {#if isSupervisor}
-                      <span class="meta-pill">Student: {request.requester_name || 'Unknown'}</span>
+                      <span class="meta-pill">👤 {request.requester_name || 'Unknown'}</span>
                     {/if}
                   </div>
                 </div>
@@ -709,7 +787,7 @@
                   <button
                     type="button"
                     class="action-button action-delete rounded-lg px-3 py-2 text-xs font-semibold"
-                    on:click={() => deleteRequest(request.id)}
+                    on:click={() => openDeleteModal(request)}
                     title="Delete this request"
                   >
                     Delete
@@ -727,6 +805,93 @@
         {/if}
       {/if}
     </section>
+  {/if}
+
+  <!-- Delete Confirmation Modal -->
+  {#if showDeleteModal && requestToDelete}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div class="relative w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-slate-800 flex flex-col">
+        <!-- Modal Header -->
+        <div class="border-b border-red-100 px-6 py-5 dark:border-red-900/40 flex-shrink-0">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-lg font-bold text-red-700 dark:text-red-400">Delete Request</h2>
+              <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                This action cannot be undone.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Body -->
+        <div class="flex-1 overflow-y-auto px-6 py-5">
+          <p class="mb-5 text-base text-gray-700 dark:text-gray-300">
+            Are you sure you want to permanently delete this request?
+          </p>
+
+          <!-- Request Details -->
+          <div class="mb-6 rounded-xl bg-red-50 p-4 dark:bg-red-950/30">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Type:</span>
+                <span class="font-semibold text-gray-900 dark:text-gray-100">
+                  {requestToDelete.requestType || requestToDelete.request_type}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Date:</span>
+                <span class="font-semibold text-gray-900 dark:text-gray-100">
+                  {new Date(requestToDelete.date || requestToDelete.request_date).toLocaleDateString()}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Status:</span>
+                <span class="font-semibold text-gray-900 dark:text-gray-100">
+                  {requestToDelete.status || 'Pending'}
+                </span>
+              </div>
+              {#if requestToDelete.reason}
+                <div class="border-t border-red-200 dark:border-red-900/50 pt-3">
+                  <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Reason:</span>
+                  <p class="mt-1 text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+                    {requestToDelete.reason}
+                  </p>
+                </div>
+              {/if}
+            </div>
+          </div>
+
+          <p class="text-xs text-gray-500 dark:text-gray-500">
+            Request ID: <span class="font-mono text-gray-600 dark:text-gray-400">{requestToDelete.request_id}</span>
+          </p>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex-shrink-0 flex flex-col-reverse gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-slate-900/50 sm:flex-row">
+          <button
+            type="button"
+            on:click={closeDeleteModal}
+            disabled={isDeleting}
+            class="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-all duration-200 hover:bg-gray-100 hover:border-gray-400 active:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-slate-700 dark:text-gray-200 dark:hover:bg-slate-600 dark:hover:border-gray-500"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            on:click={confirmDeleteRequest}
+            disabled={isDeleting}
+            class="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-red-700 active:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-red-700 dark:hover:bg-red-600 dark:active:bg-red-800"
+          >
+            {#if isDeleting}
+              <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+              <span>Deleting...</span>
+            {:else}
+              <span>Delete Permanently</span>
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
   {/if}
 </section>
 
@@ -861,6 +1026,20 @@
     background: linear-gradient(145deg, #ffffff, #f3f8ff);
   }
 
+  .overtime-hours-display {
+    background: #e8f4ff;
+    border: 1px solid #b3d9ff;
+    color: #0f4c8b;
+  }
+
+  .overtime-hours-display .requests-label {
+    color: #0f4c8b;
+  }
+
+  .overtime-hours-display .requests-subtitle {
+    color: #2874c7;
+  }
+
   .requests-input {
     background: #edf4fb;
     border-color: #bed2e8;
@@ -908,6 +1087,18 @@
     background: #dcfce7;
     border-color: #86efac;
     color: #15803d;
+  }
+
+  :global(.dark) .alert-error {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+  }
+
+  :global(.dark) .alert-success {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.45);
+    color: #86efac;
   }
 
   .requests-empty-state {
@@ -988,6 +1179,12 @@
       border-color: #4b5563;
       background: #2d3748;
       color: #cbd5e0;
+    }
+
+    .meta-pill-applied {
+      border-color: #5b21b6;
+      background: #4c1d95;
+      color: #e9d5ff;
     }
   }
 
@@ -1144,6 +1341,20 @@
     background: #1a2c45;
     border-color: #334b6b;
     color: #dbe7f5;
+  }
+
+  :global(.dark) .overtime-hours-display {
+    background: rgba(91, 177, 255, 0.15);
+    border-color: rgba(91, 177, 255, 0.35);
+    color: #5bb1ff;
+  }
+
+  :global(.dark) .overtime-hours-display .requests-label {
+    color: #5bb1ff;
+  }
+
+  :global(.dark) .overtime-hours-display .requests-subtitle {
+    color: #7cc3ff;
   }
 
   :global(.dark) .requests-input:focus {
