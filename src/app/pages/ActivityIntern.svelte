@@ -2070,9 +2070,9 @@ let assignedTasksError = '';
       <header class="panel-header">
         <h3>Daily Work Logs</h3>
       </header>
-      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start;">
+      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; background: var(--color-bg);">
         <!-- Add Work Log Card -->
-        <div style="flex: 1 1 340px; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; max-width: 420px; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border);">
+        <div style="flex: 1 1 340px; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; max-width: 420px; display: flex; flex-direction: column; background: var(--color-soft); border: 1px solid var(--color-border);">
           <h4 style="font-size: 0.93rem; font-weight: 700; margin-bottom: 1rem; font-family: inherit; display: flex; align-items: flex-start; gap: 0.5rem; min-height: 24px; color: var(--color-heading);">
             <FileEdit size={18} style="color: var(--color-accent);" />
             Add Work Log
@@ -2106,7 +2106,7 @@ let assignedTasksError = '';
             </form>
         </div>
         <!-- Work Logs Card -->
-        <div style="flex: 2 1 0%; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; width: 100%; max-width: none; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border);">
+        <div style="flex: 2 1 0%; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; width: 100%; max-width: none; display: flex; flex-direction: column; background: var(--color-soft); border: 1px solid var(--color-border);">
           <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 1rem;">
             <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); font-family: inherit; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0; min-height: 24px;">
               <BookOpen size={18} style="color: var(--color-accent);" />

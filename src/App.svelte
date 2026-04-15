@@ -11,7 +11,6 @@
   import SupervisorDashboard from './app/pages/SupervisorDashboard.svelte';
   import SupervisorTimeLog from './app/pages/SupervisorTimeLog.svelte';
   import SupervisorActivity from './app/pages/SupervisorActivity.svelte';
-  import SupervisorDocuments from './app/pages/SupervisorDocuments.svelte';
   import SupervisorInternManagement from './app/pages/SupervisorInternManagement.svelte';
   import TimeLog from './app/pages/TimeLog.svelte';
   import { getPageMeta, normalizePath } from './app/routes.js';
@@ -38,23 +37,128 @@
     '/supervisor/time-logs': SupervisorTimeLog,
     '/supervisor/requests': Requests,
     '/supervisor/activity': SupervisorActivity,
-    '/supervisor/documents': SupervisorDocuments,
+    '/supervisor/documents': Documents,
   };
 
   const authPaths = new Set(['/login', '/signup']);
   const PENDING_REDIRECT_STORAGE_KEY = 'ims-pending-redirect';
+  const LAST_STUDENT_TAB_STORAGE_KEY = 'ims-last-student-tab';
+  const LAST_SUPERVISOR_TAB_STORAGE_KEY = 'ims-last-supervisor-tab';
+  const restorableStudentPaths = new Set([
+    '/',
+    '/time-log',
+    '/requests',
+    '/activity',
+    '/documents',
+    '/settings',
+  ]);
+  const restorableSupervisorPaths = new Set([
+    '/supervisor',
+    '/supervisor/interns',
+    '/supervisor/time-logs',
+    '/supervisor/requests',
+    '/supervisor/activity',
+    '/documents',
+  ]);
 
   let currentPath = '/';
   let currentUser = null;
   let unsubscribeAuth;
 
+  function readLastStudentTab_() {
+    if (typeof window === 'undefined') {
+      return '/';
+    }
+
+    try {
+      const storedPath = String(window.localStorage.getItem(LAST_STUDENT_TAB_STORAGE_KEY) || '').trim();
+      return restorableStudentPaths.has(storedPath) ? storedPath : '/';
+    } catch {
+      return '/';
+    }
+  }
+
+  function persistLastStudentTab_(path) {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const role = String(currentUser?.role || getCurrentUser()?.role || '').trim().toLowerCase();
+    if (role === 'supervisor') {
+      return;
+    }
+
+    const normalizedPath = normalizePath(String(path || '').trim());
+    if (!restorableStudentPaths.has(normalizedPath)) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(LAST_STUDENT_TAB_STORAGE_KEY, normalizedPath);
+    } catch {
+      // Ignore storage errors to avoid blocking navigation.
+    }
+  }
+
+  function readLastSupervisorTab_() {
+    if (typeof window === 'undefined') {
+      return '/supervisor';
+    }
+
+    try {
+      const storedPath = String(window.localStorage.getItem(LAST_SUPERVISOR_TAB_STORAGE_KEY) || '').trim();
+      if (storedPath === '/supervisor/documents') {
+        return '/documents';
+      }
+      return restorableSupervisorPaths.has(storedPath) ? storedPath : '/supervisor';
+    } catch {
+      return '/supervisor';
+    }
+  }
+
+  function persistLastSupervisorTab_(path) {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const role = String(currentUser?.role || getCurrentUser()?.role || '').trim().toLowerCase();
+    if (role !== 'supervisor') {
+      return;
+    }
+
+    const normalizedPath = normalizePath(String(path || '').trim());
+    if (!restorableSupervisorPaths.has(normalizedPath)) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(LAST_SUPERVISOR_TAB_STORAGE_KEY, normalizedPath);
+    } catch {
+      // Ignore storage errors to avoid blocking navigation.
+    }
+  }
+
+  function persistLastRoleTab_(path) {
+    const role = String(currentUser?.role || getCurrentUser()?.role || '').trim().toLowerCase();
+    if (role === 'supervisor') {
+      persistLastSupervisorTab_(path);
+      return;
+    }
+    persistLastStudentTab_(path);
+  }
+
   function getRoleDefaultPath_() {
     const role = String(currentUser?.role || getCurrentUser()?.role || '').trim().toLowerCase();
-    return role === 'supervisor' ? '/supervisor' : '/';
+    return role === 'supervisor' ? readLastSupervisorTab_() : readLastStudentTab_();
   }
 
   function isSupervisorPath_(path) {
     return String(path || '').startsWith('/supervisor');
+  }
+
+  function isSupervisorAllowedPath_(path) {
+    const value = String(path || '').trim();
+    return value === '/settings' || value === '/documents' || isSupervisorPath_(value);
   }
 
   function readRequestsDeepLinkIntent_() {
@@ -90,8 +194,9 @@
     const hash = window.location.hash.replace(/^#/, '') || '/login';
     const normalized = normalizePath(hash);
     const authed = isAuthenticated();
+    const role = String(currentUser?.role || getCurrentUser()?.role || '').trim().toLowerCase();
     const defaultPath = getRoleDefaultPath_();
-    const supervisorSession = defaultPath === '/supervisor';
+    const supervisorSession = role === 'supervisor';
     const deepLinkIntent = readRequestsDeepLinkIntent_();
 
     if (!authed && deepLinkIntent) {
@@ -102,6 +207,7 @@
       const deepLinkPath = supervisorSession ? '/supervisor/requests' : '/requests';
       if (normalized !== deepLinkPath) {
         currentPath = deepLinkPath;
+        persistLastRoleTab_(currentPath);
         if (hash !== deepLinkPath) {
           window.location.hash = deepLinkPath;
         }
@@ -109,8 +215,18 @@
       }
     }
 
+    if (authed && supervisorSession && normalized === '/supervisor/documents') {
+      currentPath = '/documents';
+      persistLastRoleTab_(currentPath);
+      if (hash !== '/documents') {
+        window.location.hash = '/documents';
+      }
+      return;
+    }
+
     if (!authed && !authPaths.has(normalized)) {
       currentPath = '/login';
+      persistLastRoleTab_(currentPath);
       if (hash !== '/login') {
         window.location.hash = '/login';
       }
@@ -119,14 +235,16 @@
 
     if (authed && authPaths.has(normalized)) {
       currentPath = defaultPath;
+      persistLastRoleTab_(currentPath);
       if (hash !== defaultPath) {
         window.location.hash = defaultPath;
       }
       return;
     }
 
-    if (authed && supervisorSession && !isSupervisorPath_(normalized)) {
+    if (authed && supervisorSession && !isSupervisorAllowedPath_(normalized)) {
       currentPath = '/supervisor';
+      persistLastRoleTab_(currentPath);
       if (hash !== '/supervisor') {
         window.location.hash = '/supervisor';
       }
@@ -135,6 +253,7 @@
 
     if (authed && !supervisorSession && isSupervisorPath_(normalized)) {
       currentPath = '/';
+      persistLastRoleTab_(currentPath);
       if (hash !== '/') {
         window.location.hash = '/';
       }
@@ -142,6 +261,7 @@
     }
 
     currentPath = normalized;
+    persistLastRoleTab_(currentPath);
 
     if (normalized !== hash) {
       window.location.hash = normalized;

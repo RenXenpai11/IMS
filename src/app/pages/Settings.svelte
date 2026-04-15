@@ -232,7 +232,7 @@
 
   $: displayName = String(profile.fullName || '').trim() || 'User';
   $: currentUserRole = String(currentUser?.role || '').trim().toLowerCase();
-  $: canViewMainDb = currentUserRole === 'admin';
+  $: canViewMainDb = currentUserRole === 'admin' || currentUserRole === 'supervisor';
   $: roleLabel = toTitleCase(currentUser?.role) || 'Intern';
   $: displayDepartment = String(profile.department || '').trim();
   $: profileSubtitle = [displayDepartment, roleLabel].filter(Boolean).join(' ');
