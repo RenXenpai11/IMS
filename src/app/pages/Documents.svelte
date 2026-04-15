@@ -2880,4 +2880,143 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
+
+  /* Light mode guard overrides for enterprise layout */
+  :global(html:not(.dark)) .page-shell,
+  :global(body:not(.dark)) .page-shell {
+    background: #f6f9fd;
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .topbar,
+  :global(body:not(.dark)) .topbar {
+    border-bottom-color: #dbe6f2;
+  }
+
+  :global(html:not(.dark)) .page-title,
+  :global(body:not(.dark)) .page-title {
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .page-subtitle,
+  :global(body:not(.dark)) .page-subtitle,
+  :global(html:not(.dark)) .stat-label,
+  :global(body:not(.dark)) .stat-label,
+  :global(html:not(.dark)) .stat-sub,
+  :global(body:not(.dark)) .stat-sub,
+  :global(html:not(.dark)) .folder-count,
+  :global(body:not(.dark)) .folder-count,
+  :global(html:not(.dark)) .chip,
+  :global(body:not(.dark)) .chip,
+  :global(html:not(.dark)) .docs-count,
+  :global(body:not(.dark)) .docs-count,
+  :global(html:not(.dark)) .documents-table thead th,
+  :global(body:not(.dark)) .documents-table thead th {
+    color: #5f7188;
+  }
+
+  :global(html:not(.dark)) .btn-ghost,
+  :global(html:not(.dark)) .btn-secondary,
+  :global(body:not(.dark)) .btn-ghost,
+  :global(body:not(.dark)) .btn-secondary {
+    background: #eef5fc;
+    color: #11406d;
+    border-color: #d8e2ef;
+  }
+
+  :global(html:not(.dark)) .btn-ghost:hover,
+  :global(html:not(.dark)) .btn-secondary:hover,
+  :global(body:not(.dark)) .btn-ghost:hover,
+  :global(body:not(.dark)) .btn-secondary:hover {
+    background: #e2edf9;
+    color: #0f172a;
+    border-color: #bfd5ec;
+  }
+
+  :global(html:not(.dark)) .stat-card,
+  :global(body:not(.dark)) .stat-card,
+  :global(html:not(.dark)) .folder-card,
+  :global(body:not(.dark)) .folder-card,
+  :global(html:not(.dark)) .docs-panel,
+  :global(body:not(.dark)) .docs-panel,
+  :global(html:not(.dark)) .modal,
+  :global(body:not(.dark)) .modal {
+    background: #ffffff;
+    border-color: #d8e2ef;
+  }
+
+  :global(html:not(.dark)) .stat-value,
+  :global(body:not(.dark)) .stat-value,
+  :global(html:not(.dark)) .folder-name,
+  :global(body:not(.dark)) .folder-name,
+  :global(html:not(.dark)) .docs-panel-title,
+  :global(body:not(.dark)) .docs-panel-title,
+  :global(html:not(.dark)) .file-name,
+  :global(body:not(.dark)) .file-name,
+  :global(html:not(.dark)) .documents-table td,
+  :global(body:not(.dark)) .documents-table td,
+  :global(html:not(.dark)) .modal-header h2,
+  :global(body:not(.dark)) .modal-header h2,
+  :global(html:not(.dark)) .form-group label,
+  :global(body:not(.dark)) .form-group label,
+  :global(html:not(.dark)) .confirmation-content p,
+  :global(body:not(.dark)) .confirmation-content p,
+  :global(html:not(.dark)) .share-email,
+  :global(body:not(.dark)) .share-email,
+  :global(html:not(.dark)) .shares-list h3,
+  :global(body:not(.dark)) .shares-list h3 {
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .search-input,
+  :global(body:not(.dark)) .search-input,
+  :global(html:not(.dark)) .icon-btn,
+  :global(body:not(.dark)) .icon-btn,
+  :global(html:not(.dark)) .folder-action-btn,
+  :global(body:not(.dark)) .folder-action-btn,
+  :global(html:not(.dark)) .form-group input,
+  :global(body:not(.dark)) .form-group input,
+  :global(html:not(.dark)) .form-group select,
+  :global(body:not(.dark)) .form-group select,
+  :global(html:not(.dark)) .share-link-box input,
+  :global(body:not(.dark)) .share-link-box input,
+  :global(html:not(.dark)) .copy-btn,
+  :global(body:not(.dark)) .copy-btn,
+  :global(html:not(.dark)) .folder-tab,
+  :global(body:not(.dark)) .folder-tab,
+  :global(html:not(.dark)) .upload-area,
+  :global(body:not(.dark)) .upload-area,
+  :global(html:not(.dark)) .share-item,
+  :global(body:not(.dark)) .share-item,
+  :global(html:not(.dark)) .share-form,
+  :global(body:not(.dark)) .share-form,
+  :global(html:not(.dark)) .empty-shares,
+  :global(body:not(.dark)) .empty-shares,
+  :global(html:not(.dark)) .chip,
+  :global(body:not(.dark)) .chip {
+    background: #eef5fc;
+    border-color: #d8e2ef;
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .documents-table thead,
+  :global(body:not(.dark)) .documents-table thead {
+    background: #f3f8ff;
+  }
+
+  :global(html:not(.dark)) .documents-table tbody tr,
+  :global(body:not(.dark)) .documents-table tbody tr,
+  :global(html:not(.dark)) .docs-panel-header,
+  :global(body:not(.dark)) .docs-panel-header,
+  :global(html:not(.dark)) .modal-header,
+  :global(body:not(.dark)) .modal-header,
+  :global(html:not(.dark)) .modal-footer,
+  :global(body:not(.dark)) .modal-footer {
+    border-color: #d8e2ef;
+  }
+
+  :global(html:not(.dark)) .documents-table tbody tr:hover,
+  :global(body:not(.dark)) .documents-table tbody tr:hover {
+    background: #f3f8ff;
+  }
 </style>
