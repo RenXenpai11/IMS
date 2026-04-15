@@ -175,6 +175,10 @@ function dispatchAction_(payload) {
     return handleUpdateRequestStatus_(payload);
   }
 
+  if (action === 'delete_request') {
+    return handleDeleteRequest_(payload);
+  }
+
   if (action === 'list_notifications') {
     return handleListNotifications_(payload);
   }
@@ -385,11 +389,15 @@ function handleRegisterAccount_(payload) {
 
   savePendingRegistration_(pendingRecord);
 
-  MailApp.sendEmail({
-    to: email,
-    subject: 'Verify your Internship Management System account',
-    htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_)
-  });
+  MailApp.sendEmail(
+    email,
+    'Verify your Internship Management System account',
+    '',
+    {
+      htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_),
+      name: 'IMS'
+    }
+  );
 
   return {
     ok: true,
@@ -678,11 +686,15 @@ function handleResendEmailOtp_(payload) {
     pending.otp_last_sent_at = isoNow_();
     savePendingRegistration_(pending);
 
-    MailApp.sendEmail({
-      to: email,
-      subject: 'Your new OTP for Internship Management System',
-      htmlBody: buildOtpEmailHtml_(String(pending.full_name || 'User'), pendingOtpCode, OTP_EXPIRY_MINUTES_)
-    });
+    MailApp.sendEmail(
+      email,
+      'Your new OTP for Internship Management System',
+      '',
+      {
+        htmlBody: buildOtpEmailHtml_(String(pending.full_name || 'User'), pendingOtpCode, OTP_EXPIRY_MINUTES_),
+        name: 'IMS'
+      }
+    );
 
     return {
       ok: true,
@@ -718,11 +730,15 @@ function handleResendEmailOtp_(payload) {
   record.user.otp_last_sent_at = isoNow_();
   updateUserRecord_(record);
 
-  MailApp.sendEmail({
-    to: email,
-    subject: 'Your new OTP for Internship Management System',
-    htmlBody: buildOtpEmailHtml_(String(record.user.full_name || 'User'), otpCode, OTP_EXPIRY_MINUTES_)
-  });
+  MailApp.sendEmail(
+    email,
+    'Your new OTP for Internship Management System',
+    '',
+    {
+      htmlBody: buildOtpEmailHtml_(String(record.user.full_name || 'User'), otpCode, OTP_EXPIRY_MINUTES_),
+      name: 'IMS'
+    }
+  );
 
   return { ok: true, message: 'A new OTP has been sent to your email.', verification_email: email };
 }
@@ -1685,6 +1701,60 @@ function handleUpdateRequestStatus_(payload) {
   return { ok: false, error: 'Request not found.' };
 }
 
+function handleDeleteRequest_(payload) {
+  var requestId = String(payload.request_id || '').trim();
+  var userId = String(payload.user_id || '').trim();
+
+  if (!requestId || !userId) {
+    return { ok: false, error: 'request_id and user_id are required.' };
+  }
+
+  var requesterRecord = findUserRecordByUserId_(userId);
+  if (!requesterRecord) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  if (String(requesterRecord.user.role || '').trim().toLowerCase() === 'supervisor') {
+    return { ok: false, error: 'Supervisor accounts cannot delete requests.' };
+  }
+
+  var sheet = getRequestsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+  var userIdColIndex = findColumnIndex_(headers, 'user_id');
+  var statusColIndex = findColumnIndex_(headers, 'status');
+
+  if (requestIdColIndex === 0 || userIdColIndex === 0 || statusColIndex === 0) {
+    throw new Error('requests sheet must include request_id, user_id, and status columns.');
+  }
+
+  var rowIndex = -1;
+  var requestStatus = '';
+
+  for (var i = 1; i < values.length; i++) {
+    var rowRequestId = String(values[i][requestIdColIndex - 1] || '').trim();
+    var rowUserId = String(values[i][userIdColIndex - 1] || '').trim();
+
+    if (rowRequestId === requestId && rowUserId === userId) {
+      rowIndex = i + 1;
+      requestStatus = String(values[i][statusColIndex - 1] || '').trim();
+      break;
+    }
+  }
+
+  if (rowIndex <= 0) {
+    return { ok: false, error: 'Request not found.' };
+  }
+
+  if (requestStatus.toLowerCase() !== 'pending') {
+    return { ok: false, error: 'Only pending requests can be deleted.' };
+  }
+
+  sheet.deleteRow(rowIndex);
+  return { ok: true, message: 'Request deleted successfully.' };
+}
+
 // --- Notification handlers ---
 function handleListNotifications_(payload) {
   var userId = String(payload.user_id || '').trim();
@@ -1901,12 +1971,15 @@ function sendSupervisorRequestEmail_(supervisorUserId, requestDetails) {
   var deepLinkUrl = buildRequestDeepLinkUrl_(requestDetails.requestId);
   var subject = 'New ' + String(requestDetails.requestType || 'Request') + ' Request - ' + String(requestDetails.requesterName || 'Student');
 
-  MailApp.sendEmail({
-    to: supervisorEmail,
-    subject: subject,
-    body: buildRequestEmailText_(requestDetails, deepLinkUrl),
-    htmlBody: buildRequestEmailHtml_(requestDetails, deepLinkUrl),
-  });
+  MailApp.sendEmail(
+    supervisorEmail,
+    subject,
+    buildRequestEmailText_(requestDetails, deepLinkUrl),
+    {
+      htmlBody: buildRequestEmailHtml_(requestDetails, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
 }
 
 // Validates that overtime doesn't overlap with default work schedule (Mon-Fri, 9am-5pm)

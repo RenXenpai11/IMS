@@ -400,15 +400,31 @@
       return;
     }
 
+    if (!currentUser?.user_id) {
+      formError = 'No logged-in user found. Please log in again.';
+      formSuccess = '';
+      return;
+    }
+
     try {
-      // Since there's no delete endpoint, we'll update status to 'Cancelled' or remove from UI
-      // For now, we'll just remove it from the requests array
-      requests = requests.filter((r) => r.id !== requestId);
-      formSuccess = 'Request deleted successfully.';
-      setTimeout(() => (formSuccess = ''), 3000);
+      const result = await callBackend('delete_request', {
+        request_id: String(requestId || '').trim(),
+        user_id: String(currentUser.user_id || '').trim(),
+      });
+
+      if (result && result.ok) {
+        formError = '';
+        formSuccess = result.message || 'Request deleted successfully.';
+        await loadRequests();
+        setTimeout(() => (formSuccess = ''), 3000);
+      } else {
+        formError = result?.error || 'Failed to delete request.';
+        formSuccess = '';
+      }
     } catch (err) {
       console.error('Delete request error:', err);
-      formError = 'Failed to delete request.';
+      formError = err?.message || 'Failed to delete request.';
+      formSuccess = '';
     }
   }
 
@@ -561,9 +577,9 @@
           </label>
 
           {#if form.startTime && form.endTime && overtimeHours > 0}
-            <div class="flex flex-col gap-1.5 lg:col-span-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
+            <div class="overtime-hours-summary flex flex-col gap-1.5 lg:col-span-2 rounded-lg border p-3">
               <span class="requests-label text-sm font-medium">Total Overtime Hours</span>
-              <div class="text-lg font-bold text-blue-900">{overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
+              <div class="overtime-hours-value text-lg font-bold">{overtimeHours} hour{overtimeHours !== 1 ? 's' : ''}</div>
             </div>
           {/if}
         {/if}
@@ -831,6 +847,15 @@
     background: linear-gradient(145deg, #ffffff, #f3f8ff);
   }
 
+  .overtime-hours-summary {
+    background: #e8f2fd;
+    border-color: #bfdbfe;
+  }
+
+  .overtime-hours-value {
+    color: #1e3a8a;
+  }
+
   .requests-input {
     background: #edf4fb;
     border-color: #bed2e8;
@@ -1090,6 +1115,15 @@
 
   :global(.dark) .request-form-panel {
     background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
+  }
+
+  :global(.dark) .overtime-hours-summary {
+    background: #1a2c45;
+    border-color: #334b6b;
+  }
+
+  :global(.dark) .overtime-hours-value {
+    color: #dbe7f5;
   }
 
   :global(.dark) .tab-switch {
