@@ -36,6 +36,7 @@
   let logSyncError = '';
   let isLoggingIn = false;
   let isLoggingOut = false;
+  let isLoggedIn = false; // Simple boolean: true = logged in, false = logged out
   let includeLunch = (() => {
     if (typeof window !== 'undefined') {
       return window.localStorage.getItem('ojt_include_lunch') === 'true';
@@ -46,9 +47,6 @@
   // Delete confirmation state
   let showDeleteConfirm = false;
   let deleteConfirmEntry = null;
-
-  // Track active login status - user has entered login time (local state, not saved yet)
-  $: hasActiveTodayLogin = Boolean(date && timeIn);
 
   function addWorkingDays(startDate, days) {
     const result = new Date(startDate);
@@ -263,13 +261,44 @@
     isLoggingIn = true;
     logSyncError = '';
 
+    const user = authApi.getCurrentUser();
+    if (!user?.user_id) {
+      logSyncError = 'Please log in to your account first.';
+      isLoggingIn = false;
+      return;
+    }
+
     try {
-      // Just update local state, don't save to database yet
-      // Login time is already bound to timeIn
-      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate processing
+      console.log('🔵 Starting session:', {
+        user_id: user.user_id,
+        log_date: date,
+        time_in: timeIn,
+      });
+
+      // Save login to active_sessions table via start_session action
+      const response = await authApi.callApiAction('start_session', {
+        user_id: user.user_id,
+        log_date: date,
+        time_in: timeIn,
+      });
+
+      console.log('🔵 Response from start_session:', response);
+      
+      if (response && response.ok === true) {
+        console.log('✅ Session started successfully');
+        isLoggedIn = true; // Enable logout button
+        logSyncError = '';
+      } else {
+        console.log('❌ Session failed:', response);
+        logSyncError = response?.error || 'Failed to start session';
+        isLoggedIn = false;
+      }
+      
       isLoggingIn = false;
     } catch (err) {
+      console.error('❌ Login error:', err);
       logSyncError = err?.message || 'Unable to process login.';
+      isLoggedIn = false;
       isLoggingIn = false;
     }
   }
@@ -303,40 +332,47 @@
     const hours = calculateHours(timeIn, timeOut, includeLunch);
 
     try {
-      console.log('Attempting to save logout entry:', {
+      console.log('🔴 Ending session:', {
         user_id: user.user_id,
         log_date: date,
         time_in: timeIn,
         time_out: timeOut,
         hours_rendered: hours,
-        entry_type: 'logout',
         notes: trimmedNotes,
       });
 
-      // Save logout entry with complete time data and notes
-      const saved = await authApi.createTimeLog({
+      // End session and create complete time log entry
+      const response = await authApi.callApiAction('end_session', {
         user_id: user.user_id,
         log_date: date,
-        time_in: timeIn,
         time_out: timeOut,
         hours_rendered: hours,
-        entry_type: 'logout', // Mark as logout entry
         notes: trimmedNotes,
       });
 
-      console.log('Logout save response:', saved);
+      console.log('🔴 Response from end_session:', response);
 
-      logSyncError = '';
-      
-      // Reset form fields - keep timeIn in case they log in again, clear logout and notes
-      timeOut = '';
-      todayNotes = '';
-      
-      // Reload all entries to ensure they display correctly in the history
-      await loadEntriesFromApi();
+      if (response && response.ok === true) {
+        console.log('✅ Session ended successfully');
+        logSyncError = '';
+        
+        // Clear session state
+        isLoggedIn = false;
+        
+        // Reset form fields
+        timeOut = '';
+        todayNotes = '';
+        
+        // Reload all entries to ensure they display correctly in the history
+        await loadEntriesFromApi();
+      } else {
+        logSyncError = response?.error || 'Unable to complete session.';
+        console.log('❌ Logout failed:', response);
+      }
+
       isLoggingOut = false;
     } catch (err) {
-      console.error('Logout error:', err);
+      console.error('❌ Logout error:', err);
       logSyncError = err?.message || 'Unable to log out right now.';
       isLoggingOut = false;
       return;
@@ -379,6 +415,24 @@
     deleteConfirmEntry = null;
   }
 
+  async function showDebugInfo() {
+    try {
+      const response = await authApi.callApiAction('debug_sessions_sheet', {});
+      console.log('🔧 DEBUG_SESSIONS_SHEET Response:', response);
+      
+      if (response && response.ok === true) {
+        console.log('✅ Active Sessions:', JSON.stringify(response.active_sessions, null, 2));
+        console.log('✅ Time Logs:', JSON.stringify(response.time_logs, null, 2));
+        alert('Check browser console (Cmd+Option+I) for detailed debug information!');
+      } else {
+        alert('Debug Error: ' + (response?.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('❌ Debug error:', err);
+      alert('Error: ' + err.message);
+    }
+  }
+
   onMount(() => {
     // Set date to today by default
     const today = new Date();
@@ -397,17 +451,17 @@
 
   $: formHours = calculateHours(timeIn, timeOut, includeLunch);
   $: trimmedNotes = todayNotes.trim();
-  $: canLogin = Boolean(date && timeIn);
-  $: canLogout = Boolean(date && timeIn && timeOut && hasActiveTodayLogin && trimmedNotes);
+  $: canLogin = Boolean(date && timeIn && !isLoggedIn);
+  $: canLogout = Boolean(isLoggedIn && date && timeIn && timeOut && trimmedNotes);
   $: currentUserId = String(authApi.getCurrentUser()?.user_id || '').trim();
   $: completedHoursStorageKey = currentUserId ? `ojt_completed_hours_${currentUserId}` : '';
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
   $: remainingHours = Math.max(0, requiredHours - completedHours);
   $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
 
-  // Filter for completed entries (both login and logout times recorded)
+  // Filter for completed entries (all entries with time_out recorded and hours > 0)
   $: completedEntries = entries.filter(
-    (entry) => String(entry.type || 'login').toLowerCase() === 'logout' && entry.timeOut && Number(entry.hours) > 0
+    (entry) => entry.timeOut && Number(entry.hours) > 0
   );
   // Save completed hours to user-scoped local cache for dashboard fallback.
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
@@ -497,9 +551,10 @@
     </div>
   </section>
 
-  <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+  <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
+    <!-- Panel 1: Time In -->
     <section class="theme-panel entry-panel rounded-xl border p-6 shadow-md">
-      <h3 class="theme-heading text-base font-semibold">Log Time Entry</h3>
+      <h3 class="theme-heading text-base font-semibold">Time In</h3>
 
       <div class="mt-5 flex flex-col gap-4">
         <label class="flex flex-col gap-1.5">
@@ -511,31 +566,60 @@
           />
         </label>
 
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {#if !hasActiveTodayLogin}
-            <label class="flex flex-col gap-1.5">
-              <span class="theme-text text-sm font-medium">Login Time *</span>
-              <input
-                bind:value={timeIn}
-                type="time"
-                class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
-              />
-            </label>
-          {/if}
+        <label class="flex flex-col gap-1.5">
+          <span class="theme-text text-sm font-medium">Login Time *</span>
+          <input
+            bind:value={timeIn}
+            type="time"
+            class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
+          />
+        </label>
 
-          {#if hasActiveTodayLogin}
-            <label class="flex flex-col gap-1.5">
-              <span class="theme-text text-sm font-medium">Logout Time *</span>
-              <input
-                bind:value={timeOut}
-                type="time"
-                class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
-              />
-            </label>
+        <button
+          class="timelog-submit-btn w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
+          type="button"
+          on:click={handleLogin}
+          disabled={!canLogin || isLoggingIn}
+          title={isLoggedIn ? 'Already logged in for today' : !canLogin ? 'Enter date and login time' : 'Submit login time'}
+        >
+          {#if isLoggingIn}
+            <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+            <span>Logging In...</span>
+          {:else}
+            <Clock size={15} />
+            <span>Log In</span>
           {/if}
-        </div>
+        </button>
 
-        {#if hasActiveTodayLogin && timeIn && timeOut && formHours > 0}
+        {#if isLoggedIn}
+          <div class="status-chip status-active rounded-xl border px-4 py-2 text-sm">
+            <p class="theme-heading font-semibold">✓ Logged In</p>
+            <p class="theme-muted text-xs">Proceed to Time Out</p>
+          </div>
+        {:else if date && !timeIn}
+          <div class="status-chip status-inactive rounded-xl border px-4 py-2 text-sm">
+            <p class="theme-text font-semibold">→ Ready</p>
+            <p class="theme-muted text-xs">Enter login time</p>
+          </div>
+        {/if}
+      </div>
+    </section>
+
+    <!-- Panel 2: Time Out -->
+    <section class="theme-panel entry-panel rounded-xl border p-6 shadow-md">
+      <h3 class="theme-heading text-base font-semibold">Time Out</h3>
+
+      <div class="mt-5 flex flex-col gap-4">
+        <label class="flex flex-col gap-1.5">
+          <span class="theme-text text-sm font-medium">Logout Time *</span>
+          <input
+            bind:value={timeOut}
+            type="time"
+            class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition"
+          />
+        </label>
+
+        {#if timeIn && timeOut && formHours > 0}
           <div class="lunch-toggle-row flex items-center justify-between rounded-xl border px-4 py-3">
             <div class="flex items-center gap-2.5">
               <div class="lunch-toggle-icon inline-flex h-8 w-8 items-center justify-center rounded-lg">
@@ -543,7 +627,7 @@
               </div>
               <div>
                 <p class="theme-heading text-sm font-medium">Include Lunch</p>
-                <p class="theme-muted text-xs">{includeLunch ? 'Lunch hour counted as OJT time' : '1 hour lunch break deducted'}</p>
+                <p class="theme-muted text-xs">{includeLunch ? 'Counted' : 'Not counted'}</p>
               </div>
             </div>
             <button
@@ -558,95 +642,67 @@
           </div>
 
           <div class="duration-chip rounded-xl border px-4 py-3 text-sm shadow-sm">
-            Duration: <strong class="font-semibold">{formHours} hours</strong>
+            <strong class="font-semibold">{formHours}h</strong>
             {#if !includeLunch && formHours > 0}
               <span class="theme-muted text-xs ml-1">(1h lunch deducted)</span>
             {/if}
           </div>
         {/if}
 
-        <div class="flex flex-col gap-2 sm:flex-row sm:gap-3">
-          <button
-            class="timelog-submit-btn flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
-            type="button"
-            on:click={handleLogin}
-            disabled={!canLogin || isLoggingIn}
-            title={hasActiveTodayLogin ? 'Already logged in for today. Logout first.' : 'Submit login time'}
-          >
-            {#if isLoggingIn}
-              <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-              <span>Logging In...</span>
-            {:else}
-              <Clock size={15} />
-              <span>Log In</span>
-            {/if}
-          </button>
+        <button
+          class="timelog-logout-btn w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
+          type="button"
+          on:click={handleLogout}
+          disabled={!canLogout || isLoggingOut}
+          title={!canLogout ? 'Complete all fields' : 'Submit logout time'}
+        >
+          {#if isLoggingOut}
+            <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+            <span>Logging Out...</span>
+          {:else}
+            <Clock size={15} />
+            <span>Log Out</span>
+          {/if}
+        </button>
 
-          <button
-            class="timelog-logout-btn flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
-            type="button"
-            on:click={handleLogout}
-            disabled={!canLogout || isLoggingOut}
-            title={!hasActiveTodayLogin ? 'You must log in first' : !timeOut ? 'Enter logout time' : !trimmedNotes ? 'Notes are required for logout' : 'Submit logout time'}
-          >
-            {#if isLoggingOut}
-              <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-              <span>Logging Out...</span>
-            {:else}
-              <Clock size={15} />
-              <span>Log Out</span>
-            {/if}
-          </button>
-        </div>
-
-        {#if hasActiveTodayLogin}
-          <div class="status-chip status-active rounded-xl border px-4 py-2 text-sm">
-            <p class="theme-heading font-semibold">✓ Logged In</p>
-            <p class="theme-muted text-xs">
-              {#if !timeOut}
-                You are logged in. Enter your logout time to complete your shift.
-              {:else if !trimmedNotes}
-                Enter your notes about what you did today before logging out.
-              {:else}
-                Ready to log out. Click the "Log Out" button to complete your shift.
-              {/if}
-            </p>
-          </div>
-        {:else if date}
+        {#if !isLoggedIn}
           <div class="status-chip status-inactive rounded-xl border px-4 py-2 text-sm">
-            <p class="theme-text font-semibold">→ Ready to Log In</p>
-            <p class="theme-muted text-xs">Enter your login time and click "Log In" to start your shift.</p>
+            <p class="theme-text font-semibold">→ Not logged in</p>
+            <p class="theme-muted text-xs">Use Time In first</p>
           </div>
         {/if}
-
-        <p class="theme-text text-xs leading-6">
-          <strong>How it works:</strong> Click "Log In" to record your start time. Later, enter your logout time and click "Log Out" to complete your shift and record your hours.
-        </p>
       </div>
     </section>
 
-    {#if hasActiveTodayLogin}
-      <section class="theme-panel notes-panel rounded-2xl border p-6 shadow-md">
-        <div class="flex items-start gap-3">
-          <div class="feature-icon notes-icon inline-flex h-11 w-11 items-center justify-center rounded-xl">
-            <ClipboardList size={18} />
-          </div>
-          <div>
-            <h3 class="theme-heading text-base font-semibold">Today's Notes *</h3>
-            <p class="theme-text mt-1 text-sm">Describe your tasks and activities for today. Required for logout.</p>
-          </div>
-        </div>
+    <!-- Panel 3: Notes -->
+    <section class="theme-panel entry-panel rounded-xl border p-6 shadow-md">
+      <h3 class="theme-heading text-base font-semibold">Notes</h3>
 
+      <div class="mt-5 flex flex-col gap-4">
         <textarea
-          class="theme-input theme-placeholder mt-5 min-h-55 w-full rounded-xl border px-4 py-4 outline-none transition"
           bind:value={todayNotes}
-          rows="7"
-          placeholder="Describe your tasks and activities for today..."
+          placeholder="Describe your tasks and activities..."
+          class="theme-input entry-input w-full rounded-xl border px-4 py-3 outline-none transition flex-1"
+          rows="6"
         ></textarea>
 
-        <p class="theme-text mt-4 text-xs">Your notes will be saved with your logout entry.</p>
-      </section>
-    {/if}
+        <p class="theme-text text-xs">
+          <strong>Required:</strong> Describe what you did today before logging out.
+        </p>
+      </div>
+    </section>
+  </div>
+
+  <!-- Debug Info Button -->
+  <div class="px-6 py-3 text-center">
+    <button
+      type="button"
+      on:click={showDebugInfo}
+      class="text-xs font-medium px-3 py-1.5 rounded bg-gray-500 text-white hover:bg-gray-600 transition"
+      title="Show backend sheet information for debugging"
+    >
+      🔧 Show Debug Info
+    </button>
   </div>
 
   <section class="theme-panel history-panel overflow-hidden rounded-2xl border shadow-md">
@@ -675,8 +731,8 @@
           {#each completedEntries as entry (entry.id)}
             {@const meta = statusMeta[entry.status] ?? statusMeta.recorded}
             {@const StatusIcon = meta.icon}
-            {@const entryTypeLabel = entry.type === 'logout' ? 'Log Out' : 'Log In'}
-            {@const entryTypeClass = entry.type === 'logout' ? 'entry-type-logout' : 'entry-type-login'}
+            {@const entryTypeLabel = 'Time Entry'}
+            {@const entryTypeClass = 'entry-type-entry'}
             <tr class="theme-table-row border-b transition">
               <td class="theme-text px-6 py-4 text-sm">{formatTableDate(entry.date)}</td>
               <td class="px-6 py-4">
@@ -1323,6 +1379,12 @@
     border: 1px solid #fca5a5;
   }
 
+  .entry-type-entry {
+    background: #dcfce7;
+    color: #0f766e;
+    border: 1px solid #86efac;
+  }
+
   .status-chip {
     border-radius: 8px;
     padding: 0.75rem 1rem;
@@ -1362,6 +1424,12 @@
     background: rgba(239, 68, 68, 0.18);
     color: #fca5a5;
     border-color: rgba(239, 68, 68, 0.35);
+  }
+
+  :global(.dark) .entry-type-entry {
+    background: rgba(34, 197, 94, 0.18);
+    color: #86efac;
+    border-color: rgba(34, 197, 94, 0.35);
   }
 
   :global(.dark) .status-active {
