@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Home } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Home } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -422,6 +422,48 @@
     }, 2000);
   }
 
+  function resolveDocumentUrl_(doc) {
+    if (!doc || typeof doc !== 'object') {
+      return '';
+    }
+
+    const candidates = [
+      doc.url,
+      doc.link,
+      doc.file_url,
+      doc.fileUrl,
+      doc.document_url,
+      doc.documentUrl,
+      doc.web_view_link,
+      doc.webViewLink,
+      doc.preview_url,
+      doc.previewUrl,
+    ];
+
+    for (const candidate of candidates) {
+      const value = String(candidate || '').trim();
+      if (value && value !== '#') {
+        return value;
+      }
+    }
+
+    return '';
+  }
+
+  function openDocument(doc) {
+    const targetUrl = resolveDocumentUrl_(doc);
+    if (!targetUrl) {
+      showActionMessage_('This document has no preview link yet.', 'error');
+      return;
+    }
+
+    const openedWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    if (!openedWindow) {
+      showActionMessage_('Popup blocked. Opening document in this tab...', 'success');
+      window.location.href = targetUrl;
+    }
+  }
+
   async function deleteDocument(id) {
     try {
       const response = await callBackend_('delete_document', {
@@ -535,211 +577,217 @@
 </script>
 
 <section class="page-shell">
-  <div class="documents-container">
-    <!-- Header -->
-    <div class="documents-header">
-      <div>
-        <h1 class="page-title">Documents</h1>
-        <p class="page-subtitle">Upload documents, add links, and organize your important files</p>
+  <div class="topbar">
+    <div class="page-title-group">
+      <div class="page-title">
+        <FileText size={20} />
+        Documents
       </div>
-      <div class="header-actions">
-        <button class="btn btn-primary" on:click={() => (showUploadModal = true)}>
-          <Upload size={18} />
-          <span>Upload Document</span>
-        </button>
-        <button class="btn btn-secondary" on:click={() => (showLinkModal = true)}>
-          <Link2 size={18} />
-          <span>Add Link</span>
-        </button>
-        <button class="btn btn-secondary" on:click={() => (showCreateFolderModal = true)}>
-          <Folder size={18} />
-          <span>Create Folder</span>
-        </button>
-      </div>
+      <div class="page-subtitle">Upload and manage your important documents, records, and links</div>
     </div>
+    <div class="action-bar">
+      <button class="btn btn-ghost" on:click={() => (showLinkModal = true)}>
+        <Link2 size={14} />
+        <span>Add Link</span>
+      </button>
+      <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
+        <Folder size={14} />
+        <span>Create Folder</span>
+      </button>
+      <button class="btn btn-primary" on:click={() => (showUploadModal = true)}>
+        <Upload size={14} />
+        <span>Upload Document</span>
+      </button>
+    </div>
+  </div>
 
+  <div class="documents-container">
     {#if actionMessage}
       <div class={`action-message ${actionMessageType === 'error' ? 'action-message-error' : 'action-message-success'}`}>
         <span>{actionMessage}</span>
       </div>
     {/if}
 
-    <!-- Folder Navigation -->
-    <div class="folder-nav">
-      <h3>Folders</h3>
-      <div class="folders-grid">
-        {#each folderStructure.root.subfolders as folder (folder)}
-          {@const folderPath = '/' + folder}
-          {@const docCount = documents.filter(d => d.folder === folderPath).length}
-          <div class="folder-item-wrapper">
-            <button 
-              class="folder-item"
-              class:active={currentFolder === folderPath}
-              on:click={() => currentFolder = folderPath}
-            >
-              <div class="folder-icon">
-                {#if currentFolder === folderPath}
-                  <FolderOpen size={24} />
-                {:else}
-                  <Folder size={24} />
-                {/if}
-              </div>
-              <div class="folder-info">
-                <div class="folder-name">{folder}</div>
-                <div class="folder-count">{docCount} items</div>
-              </div>
-            </button>
-            <div class="folder-actions">
-              <button 
-                class="folder-action-btn rename-btn"
-                title="Rename folder"
-                on:click={() => openRenameFolderModal(folder)}
-              >
-                ✎
-              </button>
-              <button 
-                class="folder-action-btn delete-btn"
-                title="Delete folder"
-                on:click={() => {
-                  folderToDelete = folder;
-                  showDeleteFolderConfirm = true;
-                }}
-              >
-                🗑
-              </button>
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Folders</div>
+        <div class="stat-value">{folderStructure.root.subfolders.length}</div>
+        <div class="stat-sub">Organized categories</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Your Documents</div>
+        <div class="stat-value">{documents.filter((doc) => !doc.isLink).length}</div>
+        <div class="stat-sub">Files uploaded</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Shared Links</div>
+        <div class="stat-value">{documents.filter((doc) => doc.isLink).length}</div>
+        <div class="stat-sub">External references</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Items</div>
+        <div class="stat-value">{documents.length}</div>
+        <div class="stat-sub">Across all folders</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <span class="section-title">Folders</span>
+      <a class="section-link">Manage folders</a>
+    </div>
+
+    <div class="folders-grid">
+      {#each folderStructure.root.subfolders as folder (folder)}
+        {@const folderPath = '/' + folder}
+        {@const docCount = documents.filter((d) => d.folder === folderPath).length}
+        <div class="folder-card-wrap">
+          <button class="folder-card" class:active={currentFolder === folderPath} on:click={() => (currentFolder = folderPath)}>
+            <div class="folder-icon-wrap">
+              {#if currentFolder === folderPath}
+                <FolderOpen size={18} />
+              {:else}
+                <Folder size={18} />
+              {/if}
             </div>
-          </div>
-        {/each}
-      </div>
-    </div>
-
-    <!-- Search and Filter -->
-    <div class="search-filter-container">
-      <div class="search-box">
-        <Search size={18} />
-        <input
-          type="text"
-          placeholder="Search documents..."
-          bind:value={searchQuery}
-        />
-      </div>
-
-      <div class="category-tabs">
-        {#each categories as category (category)}
-          <button
-            class="category-tab"
-            class:active={selectedCategory === category}
-            on:click={() => (selectedCategory = category)}
-          >
-            {category}
+            <div class="folder-info">
+              <div class="folder-name">{folder}</div>
+              <div class="folder-count">{docCount} items</div>
+            </div>
           </button>
-        {/each}
-      </div>
+          <div class="folder-actions">
+            <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
+            <button
+              class="folder-action-btn delete-btn"
+              title="Delete folder"
+              on:click={() => {
+                folderToDelete = folder;
+                showDeleteFolderConfirm = true;
+              }}
+            >
+              🗑
+            </button>
+          </div>
+        </div>
+      {/each}
     </div>
 
-    <!-- Documents Table -->
-    <div class="documents-table-container">
-      <div class="table-header">
-        <h2>Your Documents</h2>
-        <span class="doc-count">{filteredDocuments.length} items</span>
-      </div>
+    <div class="bottom-area">
+      <div>
+        <div class="search-filter-bar">
+          <div class="search-wrap">
+            <Search size={15} />
+            <input class="search-input" type="text" placeholder="Search documents..." bind:value={searchQuery} />
+          </div>
+          <div class="filter-chips">
+            {#each categories as category (category)}
+              <button class="chip" class:active={selectedCategory === category} on:click={() => (selectedCategory = category)}>{category}</button>
+            {/each}
+          </div>
+        </div>
 
-      {#if filteredDocuments.length > 0}
-        <div class="table-wrapper">
-          <table class="documents-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Category</th>
-                <th>Size</th>
-                <th>Uploaded</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each filteredDocuments as doc (doc.id)}
-                <tr class="table-row">
-                  <td class="col-name">
-                    <div class="file-info">
-                      <div class="file-icon">
-                        {#if doc.isLink}
-                          <Link2 size={18} />
+        <div class="docs-panel">
+          <div class="docs-panel-header">
+            <span class="docs-panel-title">Your Documents</span>
+            <span class="docs-count">{filteredDocuments.length} items</span>
+          </div>
+
+          {#if filteredDocuments.length > 0}
+            <div class="table-wrapper">
+              <table class="documents-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Size</th>
+                    <th>Uploaded</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each filteredDocuments as doc (doc.id)}
+                    <tr class="table-row">
+                      <td class="col-name">
+                        <div class="file-info">
+                          <div class="file-icon">
+                            {#if doc.isLink}
+                              <Link2 size={16} />
+                            {:else}
+                              <FileText size={16} />
+                            {/if}
+                          </div>
+                          <button class="file-name-btn" title="Open document" on:click={() => openDocument(doc)}>
+                            <span class="file-name">{doc.name}</span>
+                          </button>
+                        </div>
+                      </td>
+                      <td class="col-type">
+                        <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
+                      </td>
+                      <td class="col-category">
+                        <span class="category-badge">{doc.category}</span>
+                      </td>
+                      <td class="col-size">
+                        {#if doc.size}
+                          {doc.size}
                         {:else}
-                          <Folder size={18} />
+                          —
                         {/if}
-                      </div>
-                      <span class="file-name">{doc.name}</span>
-                    </div>
-                  </td>
-                  <td class="col-type">
-                    <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
-                  </td>
-                  <td class="col-category">
-                    <span class="category-badge">{doc.category}</span>
-                  </td>
-                  <td class="col-size">
-                    {#if doc.size}
-                      {doc.size}
-                    {:else}
-                      —
-                    {/if}
-                  </td>
-                  <td class="col-date">{formatDate(doc.uploadedDate)}</td>
-                  <td class="col-status">
-                    <span 
-                      class="status-badge" 
-                      style={`background-color: ${getAccessBadgeColor(doc.accessLevel)}20; color: ${getAccessBadgeColor(doc.accessLevel)}`}
-                    >
-                      {doc.accessLevel === 'private' ? '🔒 Private' : doc.accessLevel === 'shared' ? '👥 Shared' : '⚠️ Restricted'}
-                    </span>
-                  </td>
-                  <td class="col-actions">
-                    <div class="action-buttons">
-                      <button
-                        class="icon-btn"
-                        title="View/Download"
-                        on:click={() => {
-                          if (doc.isLink) {
-                            window.open(doc.url, '_blank');
-                          }
-                        }}
-                      >
-                        {#if doc.isLink}
-                          <Eye size={16} />
-                        {:else}
-                          <Download size={16} />
-                        {/if}
-                      </button>
-                      <button
-                        class="icon-btn share-btn"
-                        title="Share"
-                        on:click={() => openShareModal(doc)}
-                      >
-                        <Share2 size={16} />
-                      </button>
-                      <button
-                        class="icon-btn delete-btn"
-                        title="Delete"
-                        on:click={() => deleteDocument(doc.id)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+                      </td>
+                      <td class="col-date">{formatDate(doc.uploadedDate)}</td>
+                      <td class="col-status">
+                        <span class="status-badge" style={`background-color: ${getAccessBadgeColor(doc.accessLevel)}20; color: ${getAccessBadgeColor(doc.accessLevel)}`}>
+                          {doc.accessLevel === 'private' ? 'Private' : doc.accessLevel === 'shared' ? 'Shared' : 'Restricted'}
+                        </span>
+                      </td>
+                      <td class="col-actions">
+                        <div class="action-buttons">
+                          <button
+                            class="icon-btn"
+                            title="View/Download"
+                            on:click={() => openDocument(doc)}
+                          >
+                            {#if doc.isLink}
+                              <Eye size={14} />
+                            {:else}
+                              <Download size={14} />
+                            {/if}
+                          </button>
+                          <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
+                            <Share2 size={14} />
+                          </button>
+                          <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {:else}
+            <div class="empty-state">
+              <div class="empty-icon-wrap">
+                <FileText size={28} />
+              </div>
+              <div class="empty-title">No documents yet</div>
+              <div class="empty-sub">Start by uploading a document or adding a link to an external resource</div>
+              <div class="empty-actions">
+                <button class="btn btn-ghost empty-btn" on:click={() => (showLinkModal = true)}>
+                  <Link2 size={13} />
+                  Add Link
+                </button>
+                <button class="btn btn-primary empty-btn" on:click={() => (showUploadModal = true)}>
+                  <Upload size={13} />
+                  Upload Document
+                </button>
+              </div>
+            </div>
+          {/if}
         </div>
-      {:else}
-        <div class="empty-state">
-          <Folder size={48} />
-          <h3>No documents found</h3>
-          <p>Start by uploading a document or adding a link</p>
-        </div>
-      {/if}
+      </div>
     </div>
   </div>
 
@@ -2166,6 +2214,670 @@
 
     .modal {
       width: 95%;
+    }
+  }
+
+  /* Exact enterprise layout overrides */
+  .page-shell {
+    background: #0f1929;
+    min-height: 100%;
+    color: #e2e8f0;
+    border-radius: 0;
+    padding: 0;
+  }
+
+  .page-shell::before,
+  .page-shell::after,
+  :global(.dark) .page-shell::before,
+  :global(.dark) .page-shell::after {
+    display: none;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    gap: 12px;
+  }
+
+  .page-title-group {
+    min-width: 0;
+  }
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: #f1f5f9;
+    letter-spacing: -0.3px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+  }
+
+  .page-title :global(svg) {
+    color: #60a5fa;
+  }
+
+  .page-subtitle {
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 3px;
+  }
+
+  .action-bar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .documents-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 28px 32px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    line-height: 1;
+  }
+
+  .btn :global(svg) {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .btn-ghost,
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    color: #94a3b8;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .btn-ghost:hover,
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #e2e8f0;
+    border-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(0);
+    box-shadow: none;
+  }
+
+  .btn-primary {
+    background: #2563eb;
+    color: #fff;
+    border: 1px solid #3b82f6;
+  }
+
+  .btn-primary:hover {
+    background: #1d4ed8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .action-message {
+    margin-bottom: 16px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .action-message-success {
+    background: rgba(22, 163, 74, 0.16);
+    border-color: rgba(34, 197, 94, 0.35);
+    color: #86efac;
+  }
+
+  .action-message-error {
+    background: rgba(220, 38, 38, 0.16);
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fca5a5;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+
+  .stat-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 16px 20px;
+    transition: background 0.2s ease;
+  }
+
+  .stat-card:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+
+  .stat-value {
+    font-size: 22px;
+    font-weight: 600;
+    color: #f1f5f9;
+    line-height: 1.1;
+  }
+
+  .stat-sub {
+    font-size: 12px;
+    color: #475569;
+    margin-top: 3px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+
+  .section-link {
+    font-size: 12px;
+    color: #3b82f6;
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .section-link:hover {
+    color: #60a5fa;
+  }
+
+  .folders-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .folder-card-wrap {
+    position: relative;
+  }
+
+  .folder-card {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 18px 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: relative;
+    overflow: hidden;
+    text-align: left;
+  }
+
+  .folder-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .folder-card:hover,
+  .folder-card.active {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+  }
+
+  .folder-card:hover::before,
+  .folder-card.active::before {
+    opacity: 1;
+  }
+
+  .folder-icon-wrap {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: #60a5fa;
+  }
+
+  .folder-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e2e8f0;
+  }
+
+  .folder-count {
+    font-size: 12px;
+    color: #475569;
+    margin-top: 2px;
+  }
+
+  .folder-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .folder-card-wrap:hover .folder-actions {
+    opacity: 1;
+  }
+
+  .folder-action-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.35);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    color: #94a3b8;
+    font-size: 12px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .folder-action-btn.delete-btn {
+    color: #fda4af;
+  }
+
+  .bottom-area {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .search-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .search-wrap {
+    flex: 1;
+    min-width: 220px;
+    position: relative;
+  }
+
+  .search-wrap :global(svg) {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 15px;
+    height: 15px;
+    color: #475569;
+  }
+
+  .search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 9px 14px 9px 36px;
+    font-size: 13px;
+    color: #e2e8f0;
+    outline: none;
+    transition: all 0.2s ease;
+    font-family: inherit;
+  }
+
+  .search-input::placeholder {
+    color: #475569;
+  }
+
+  .search-input:focus {
+    border-color: rgba(59, 130, 246, 0.5);
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  }
+
+  .filter-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .chip {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #64748b;
+  }
+
+  .chip:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #94a3b8;
+  }
+
+  .chip.active {
+    background: rgba(37, 99, 235, 0.2);
+    border-color: rgba(59, 130, 246, 0.4);
+    color: #60a5fa;
+  }
+
+  .docs-panel {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .docs-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .docs-panel-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e2e8f0;
+  }
+
+  .docs-count {
+    font-size: 12px;
+    color: #475569;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 2px 8px;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+
+  .documents-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .documents-table thead {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .documents-table thead th {
+    padding: 12px 14px;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #64748b;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .documents-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    transition: background 0.2s ease;
+  }
+
+  .documents-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .documents-table td {
+    padding: 12px 14px;
+    color: #cbd5e1;
+    vertical-align: middle;
+  }
+
+  .file-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .file-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+  }
+
+  .file-name {
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .file-name-btn {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .file-name-btn:hover .file-name {
+    color: #93c5fd;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .type-badge,
+  .category-badge,
+  .status-badge {
+    display: inline-flex;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 6px;
+  }
+
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    transition: all 0.2s ease;
+  }
+
+  .icon-btn:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #e2e8f0;
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+
+  .icon-btn.delete-btn {
+    color: #fda4af;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 56px 24px;
+    gap: 12px;
+  }
+
+  .empty-icon-wrap {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+    color: #334155;
+  }
+
+  .empty-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: #94a3b8;
+  }
+
+  .empty-sub {
+    font-size: 13px;
+    color: #475569;
+    text-align: center;
+    max-width: 280px;
+  }
+
+  .empty-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .empty-btn {
+    font-size: 12px;
+    padding: 7px 14px;
+  }
+
+  .modal {
+    background: #0f1c2f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+  }
+
+  .modal-header,
+  .modal-footer {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .modal-header h2,
+  .form-group label,
+  .confirmation-content p,
+  .share-email,
+  .shares-list h3 {
+    color: #e2e8f0;
+  }
+
+  .form-group input,
+  .form-group select,
+  .share-link-box input,
+  .copy-btn,
+  .folder-tab,
+  .upload-area,
+  .share-item,
+  .share-form,
+  .empty-shares {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #cbd5e1;
+  }
+
+  .form-group input::placeholder {
+    color: #64748b;
+  }
+
+  .warning-text,
+  .remove-share-btn,
+  .folder-action-btn.delete-btn {
+    color: #fda4af !important;
+  }
+
+  @media (max-width: 720px) {
+    .topbar {
+      padding: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .documents-container {
+      padding: 16px;
+    }
+
+    .stats-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .folders-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .action-bar .btn span {
+      display: none;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .folders-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .stats-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>
