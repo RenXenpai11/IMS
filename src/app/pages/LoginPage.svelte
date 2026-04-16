@@ -1,5 +1,5 @@
 <script>
-	import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-svelte';
+	import { Eye, EyeOff, Loader2, LockKeyhole, Mail } from 'lucide-svelte';
 	import heroImage from '../../assets/hero.png';
 	import { loginWithCredentials } from '../lib/auth.js';
 
@@ -10,6 +10,7 @@
 	let showPassword = false;
 	let message = '';
 	let error = '';
+	let isLoading = false;
 
 	function readPendingRedirectIntent() {
 		let pending = null;
@@ -70,6 +71,7 @@
 	}
 
 	async function handleLogin() {
+		if (isLoading) return;
 		error = '';
 		message = '';
 
@@ -79,6 +81,7 @@
 		}
 
 		try {
+			isLoading = true;
 			const user = await loginWithCredentials(email, password);
 			message = 'Authenticated successfully. Redirecting...';
 			setTimeout(() => {
@@ -86,6 +89,7 @@
 			}, 420);
 		} catch (err) {
 			error = err?.message || 'Invalid credentials. Please try again.';
+			isLoading = false;
 		}
 	}
 
@@ -162,7 +166,14 @@
 				<p class="feedback success">{message}</p>
 			{/if}
 
-			<button class="login-btn" type="submit">Log In</button>
+			<button class="login-btn" type="submit" disabled={isLoading}>
+				{#if isLoading}
+					<span class="spinning-icon"><Loader2 size={18} /></span>
+					<span>Logging in...</span>
+				{:else}
+					<span>Log In</span>
+				{/if}
+			</button>
 
 			<p class="signup-row">
 				Need access?
@@ -223,15 +234,6 @@
 		padding-inline: clamp(0rem, 2vw, 1.6rem);
 	}
 
-	.brand-kicker {
-		margin: 0;
-		font-size: 0.76rem;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #c7d2fe;
-	}
-
 	.brand-panel h1 {
 		margin: 0.8rem 0 0;
 		font-size: clamp(2rem, 5vw, 3.4rem);
@@ -274,15 +276,6 @@
 		margin: 0.38rem 0 0;
 		color: #cbd5e1;
 		font-size: 0.94rem;
-	}
-
-	.product-tag {
-		margin: 0;
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		color: #bfdbfe;
 	}
 
 	.field {
@@ -405,9 +398,31 @@
 		cursor: pointer;
 		transition: transform 140ms ease, box-shadow 170ms ease, filter 170ms ease;
 		box-shadow: 0 18px 38px -20px rgba(79, 70, 229, 0.95);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
 	}
 
-	.login-btn:hover {
+	.login-btn:disabled {
+		opacity: 0.75;
+		cursor: not-allowed;
+		filter: brightness(0.9);
+	}
+
+	.spinning-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.login-btn:hover:not(:disabled) {
 		transform: translateY(-1px);
 		filter: brightness(1.04);
 		box-shadow: 0 22px 44px -24px rgba(124, 58, 237, 0.9);

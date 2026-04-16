@@ -21,8 +21,9 @@ var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
 var REQUESTS_SHEET_ = 'requests';
 var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'created_at'];
-var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
+var USER_SETTINGS_SHEET_ = 'user_settings';
+var USER_SETTINGS_HEADERS_ = ['user_id', 'settings_json', 'updated_at'];
 
 // Default intern work schedule (Monday-Friday, 9am-5pm)
 var DEFAULT_WORK_DAYS_ = [1, 2, 3, 4, 5]; // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
@@ -223,6 +224,23 @@ function dispatchAction_(payload) {
 
   if (action === 'debug_sessions_sheet') {
     return handleDebugSessionsSheet_(payload);
+  }
+
+  // --- Settings & Role Additions ---
+  if (action === 'get_student_supervisor') {
+    return handleGetStudentSupervisor_(payload);
+  }
+
+  if (action === 'get_notification_preferences') {
+    return handleGetNotificationPreferences_(payload);
+  }
+
+  if (action === 'update_notification_preferences') {
+    return handleUpdateNotificationPreferences_(payload);
+  }
+
+  if (action === 'change_password') {
+    return handleChangePassword_(payload);
   }
 
   return { ok: false, error: 'Unknown action: ' + action };
@@ -2838,6 +2856,10 @@ function getNotificationsSheet_() {
   return getOrCreateSheetWithHeaders_(NOTIFICATIONS_SHEET_, NOTIFICATIONS_HEADERS_);
 }
 
+function getUserSettingsSheet_() {
+  return getOrCreateSheetWithHeaders_(USER_SETTINGS_SHEET_, USER_SETTINGS_HEADERS_);
+}
+
 function ensureSheetColumns_(sheet, columnNames) {
   if (!sheet || !columnNames || !columnNames.length) {
     return;
@@ -2987,8 +3009,72 @@ function updateObjectRow_(sheet, rowIndex, obj) {
   sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
 }
 
+/**
+ * Generates a sequential ID (e.g., user_0001, TL_0005) by scanning the corresponding sheet.
+ * Falls back to random ID if sheet scanning fails or prefix is unknown.
+ */
 function createId_(prefix) {
+  var config = {
+    'USR': { sheet: 'users', col: 'user_id', digits: 4, label: 'user' },
+    'TL': { sheet: 'time_logs', col: 'timelog_id', digits: 4, label: 'TL' },
+    'SES': { sheet: 'active_sessions', col: 'session_id', digits: 4, label: 'SES' },
+    'ASG': { sheet: 'supervisor_assignments', col: 'assignment_id', digits: 4, label: 'ASG' },
+    'NOTIF': { sheet: 'notifications', col: 'notification_id', digits: 4, label: 'NOT' },
+    'REQ': { sheet: 'requests', col: 'request_id', digits: 4, label: 'REQ' }
+  };
+
+  var settings = config[prefix];
+  if (settings) {
+    // If the user specifically wanted "user_" prefix, we use it for USR
+    var activePrefix = (prefix === 'USR') ? 'user' : settings.label;
+    return getNextSequenceId_(settings.sheet, activePrefix, settings.col, settings.digits);
+  }
+
+  // Fallback for unknown prefixes
   return prefix + '_' + Utilities.getUuid().split('-')[0] + '_' + new Date().getTime();
+}
+
+/**
+ * Scans a sheet to find the next available sequential ID.
+ */
+function getNextSequenceId_(sheetName, prefix, idColumnName, digits) {
+  try {
+    var sheet = getSheet_(sheetName);
+    var headers = getHeaders_(sheet);
+    var colIndex = findColumnIndex_(headers, idColumnName);
+    if (colIndex === 0) return prefix + '_' + '1'.padStart(digits || 4, '0');
+
+    var values = getSheetValues_(sheet);
+    var maxIdNum = 0;
+    var regex = new RegExp('^' + prefix + '_(\\d+)', 'i');
+
+    for (var i = 1; i < values.length; i++) {
+        var val = values[i][colIndex - 1];
+        if (val === undefined || val === null) continue;
+        var idVal = String(val).trim();
+        var match = idVal.match(regex);
+        if (match) {
+            var num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxIdNum) {
+                maxIdNum = num;
+            }
+        }
+    }
+
+    var nextNum = maxIdNum + 1;
+    // Special case for starting at 000 if the sheet is empty and user requested it
+    // But usually 0001 is safer for loops. 
+    // If user specifically said user_000 first, I will start from 0 if maxIdNum is 0 and sheet is empty.
+    if (maxIdNum === 0 && values.length <= 1 && prefix === 'user') {
+        return 'user_0000';
+    }
+
+    var paddedNum = String(nextNum).padStart(digits || 4, '0');
+    return prefix + '_' + paddedNum;
+  } catch (err) {
+    console.error('Error in getNextSequenceId_:', err);
+    return prefix + '_' + Utilities.getUuid().split('-')[0];
+  }
 }
 
 function findUserRecordByEmail_(email) {
@@ -3764,4 +3850,294 @@ function getUserNamesMap_(userIds) {
   }
 
   return names;
+}
+
+// --- Settings & Role Enhancements ---
+
+function handleGetStudentSupervisor_(payload) {
+  var studentId = String(payload.student_user_id || '').trim();
+  if (!studentId) {
+    return { ok: false, error: 'student_user_id is required.' };
+  }
+
+  var assignments = readSheetObjects_(getSheet_(SUPERVISOR_ASSIGNMENTS_SHEET_));
+  var activeAssignment = null;
+  for (var i = 0; i < assignments.length; i++) {
+    if (String(assignments[i].student_user_id || '').trim() === studentId && String(assignments[i].status || '').trim() !== 'inactive') {
+      activeAssignment = assignments[i];
+      break;
+    }
+  }
+
+  if (!activeAssignment) {
+    return { ok: true, supervisor: null }; // No supervisor assigned
+  }
+
+  var supervisorId = String(activeAssignment.supervisor_user_id || '').trim();
+  var supervisorRecord = findUserRecordByUserId_(supervisorId);
+  if (!supervisorRecord) {
+    return { ok: true, supervisor: null };
+  }
+
+  return {
+    ok: true,
+    supervisor: {
+      user_id: supervisorId,
+      full_name: String(supervisorRecord.user.full_name || ''),
+      email: String(supervisorRecord.user.email || ''),
+      department: String(activeAssignment.department || supervisorRecord.user.department || ''),
+      profile_photo_url: String(supervisorRecord.user.profile_photo_url || '')
+    }
+  };
+}
+
+function handleGetNotificationPreferences_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  var sheet = getUserSettingsSheet_();
+  var settingsRows = readSheetObjects_(sheet);
+  var userSettings = null;
+  for (var i = 0; i < settingsRows.length; i++) {
+    if (String(settingsRows[i].user_id || '').trim() === userId) {
+      try {
+        userSettings = JSON.parse(settingsRows[i].settings_json || '{}');
+      } catch (e) {
+        userSettings = {};
+      }
+      break;
+    }
+  }
+
+  return { ok: true, settings: userSettings || {} };
+}
+
+function handleUpdateNotificationPreferences_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var settingsObj = payload.settings || {};
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  var sheet = getUserSettingsSheet_();
+  var settingsRows = readSheetObjects_(sheet);
+  var rowIndex = -1;
+  for (var i = 0; i < settingsRows.length; i++) {
+    if (String(settingsRows[i].user_id || '').trim() === userId) {
+      rowIndex = i + 2; // +1 for 0-index, +1 for header
+      break;
+    }
+  }
+
+  var rowData = {
+    user_id: userId,
+    settings_json: JSON.stringify(settingsObj),
+    updated_at: isoNow_()
+  };
+
+  if (rowIndex > -1) {
+    updateObjectRow_(sheet, rowIndex, rowData);
+  } else {
+    appendObjectRow_(sheet, rowData);
+  }
+
+  return { ok: true, message: 'Settings updated successfully.' };
+}
+
+function handleChangePassword_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var currentPassword = String(payload.current_password || '');
+  var newPassword = String(payload.new_password || '');
+
+  if (!userId || !currentPassword || !newPassword) {
+    return { ok: false, error: 'user_id, current_password, and new_password are required.' };
+  }
+
+  var record = findUserRecordByUserId_(userId);
+  if (!record) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  if (String(record.user.password_hash || '') !== sha256Hex_(currentPassword)) {
+    return { ok: false, error: 'Incorrect current password.' };
+  }
+
+  if (newPassword.length < 8) {
+    return { ok: false, error: 'New password must be at least 8 characters long.' };
+  }
+
+  updateObjectRow_(record.sheet, record.rowIndex, {
+    password_hash: sha256Hex_(newPassword)
+  });
+
+  return { ok: true, message: 'Password updated successfully.' };
+}
+
+function sendDailyTimeLogReminders() {
+  var todayISOStr = new Date().toISOString().slice(0, 10);
+  
+  var logsSheet = getSheet_(TIME_LOGS_SHEET_);
+  var logs = readSheetObjects_(logsSheet);
+  var incompleteLogsUsers = [];
+  
+  for (var i = 0; i < logs.length; i++) {
+    var logDate = String(logs[i].log_date || '').trim();
+    var timeOut = String(logs[i].time_out || '').trim();
+    if (logDate === todayISOStr && !timeOut && String(logs[i].status || '').trim() !== 'deleted') {
+      var uid = String(logs[i].user_id || '').trim();
+      if (incompleteLogsUsers.indexOf(uid) === -1) {
+        incompleteLogsUsers.push(uid);
+      }
+    }
+  }
+
+  if (incompleteLogsUsers.length === 0) return;
+
+  var usersSheet = getSheet_('users');
+  var usersList = readSheetObjects_(usersSheet);
+  
+  var settingsSheet = getSheet_('user_settings');
+  var settingsRows = readSheetObjects_(settingsSheet);
+  
+  var activeEmailsSent = 0;
+  
+  for (var j = 0; j < incompleteLogsUsers.length; j++) {
+    var uid = incompleteLogsUsers[j];
+    
+    var hasReminderEnabled = false;
+    for (var k = 0; k < settingsRows.length; k++) {
+      if (String(settingsRows[k].user_id || '').trim() === uid) {
+        try {
+          var prefs = JSON.parse(settingsRows[k].settings_json || '{}');
+          if (prefs.time_log_reminder === true) {
+            hasReminderEnabled = true;
+          }
+        } catch(e) {}
+        break;
+      }
+    }
+    
+    if (!hasReminderEnabled) continue;
+    
+    var uRecord = null;
+    for (var l = 0; l < usersList.length; l++) {
+      if (String(usersList[l].user_id || '').trim() === uid) {
+        uRecord = usersList[l];
+        break;
+      }
+    }
+    
+    if (uRecord && uRecord.email) {
+      var subject = "IMS Time Log Reminder";
+      var body = "Hi " + (uRecord.full_name || 'Student') + ",\n\n" +
+                 "This is a reminder that you have not logged your time out yet for today (" + todayISOStr + "). " +
+                 "Please log out as soon as possible to keep your time records accurate.\n\n" +
+                 "— Internship Management System";
+      MailApp.sendEmail(uRecord.email, subject, body);
+      activeEmailsSent++;
+    }
+  }
+}
+
+/**
+ * MIGRATION TOOL:
+ * Converts all existing long UUID-based User IDs to sequential 'user_0000' format.
+ * Updates all related records in all sheets to maintain data integrity.
+ * 
+ * WARNING: This is a destructive operation. Back up your spreadsheet first.
+ * To run: Copy this function into a temporary script or run directly from Apps Script editor.
+ */
+function migrateAllToSequentialIDs() {
+  var usersSheet = getSheet_('users');
+  var usersHeaders = getHeaders_(usersSheet);
+  var userIdCol = findColumnIndex_(usersHeaders, 'user_id');
+  var usersValues = getSheetValues_(usersSheet);
+  
+  if (usersValues.length <= 1) return "No users found to migrate.";
+  
+  var idMap = {};
+  var nextNum = 0;
+  
+  // 1. Generate Mappings
+  for (var r = 1; r < usersValues.length; r++) {
+    var oldId = String(usersValues[r][userIdCol - 1]).trim();
+    if (!oldId) continue;
+    
+    // If already in new format, just track it to avoid collisions but keep it
+    if (/^user_\d+$/i.test(oldId)) {
+      idMap[oldId] = oldId;
+      var num = parseInt(oldId.split('_')[1], 10);
+      if (num >= nextNum) nextNum = num + 1;
+      continue;
+    }
+    
+    var newId = 'user_' + String(nextNum).padStart(4, '0');
+    idMap[oldId] = newId;
+    nextNum++;
+  }
+  
+  console.log('ID Mapping generated:', idMap);
+  
+  // 2. Update Users Sheet
+  for (var r = 1; r < usersValues.length; r++) {
+    var oldIdRow = String(usersValues[r][userIdCol - 1]).trim();
+    if (idMap[oldIdRow]) {
+      usersValues[r][userIdCol - 1] = idMap[oldIdRow];
+    }
+  }
+  usersSheet.getRange(1, 1, usersValues.length, usersValues[0].length).setValues(usersValues);
+  
+  // 3. Update all dependent sheets
+  var targets = [
+    { sheet: 'time_logs', cols: ['user_id'] },
+    { sheet: 'active_sessions', cols: ['user_id'] },
+    { sheet: 'supervisor_assignments', cols: ['supervisor_user_id', 'student_user_id'] },
+    { sheet: 'student_ojt_profile', cols: ['user_id'] },
+    { sheet: 'requests', cols: ['user_id'] },
+    { sheet: 'notifications', cols: ['user_id'] },
+    { sheet: 'activity_logs', cols: ['user_id'] },
+    { sheet: 'tasks', cols: ['user_id'] },
+    { sheet: 'documents', cols: ['user_id', 'created_by'] },
+    { sheet: 'act_attachments', cols: ['user_id', 'uploaded_by'] },
+    { sheet: 'document_folders', cols: ['user_id'] }
+  ];
+  
+  targets.forEach(function(target) {
+    try {
+      var sheet = getSheet_(target.sheet);
+      var headers = getHeaders_(sheet);
+      var values = getSheetValues_(sheet);
+      if (values.length <= 1) return;
+      
+      var colIndices = target.cols.map(function(c) { 
+        return findColumnIndex_(headers, c); 
+      }).filter(function(idx) { 
+        return idx > 0; 
+      });
+      
+      if (colIndices.length === 0) return;
+      
+      var changed = false;
+      for (var r = 1; r < values.length; r++) {
+        colIndices.forEach(function(cIdx) {
+          var valInside = String(values[r][cIdx - 1]).trim();
+          if (idMap[valInside]) {
+            values[r][cIdx - 1] = idMap[valInside];
+            changed = true;
+          }
+        });
+      }
+      
+      if (changed) {
+        sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+        console.log('Updated sheet: ' + target.sheet);
+      }
+    } catch (e) {
+      console.warn('Could not update sheet: ' + target.sheet + ' - ' + e.message);
+    }
+  });
+  
+  return "Migration Complete. Sync your Svelte app to see changes.";
 }

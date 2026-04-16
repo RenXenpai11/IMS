@@ -531,3 +531,34 @@ export async function markAllNotificationsRead(userId) {
 
   return result;
 }
+
+export async function getStudentSupervisor(studentUserId) {
+  const result = await postAction('get_student_supervisor', {
+    student_user_id: String(studentUserId || '').trim(),
+  });
+  return result.supervisor || null;
+}
+
+export async function getNotificationPreferences(userId) {
+  const result = await postAction('get_notification_preferences', {
+    user_id: String(userId || '').trim(),
+  });
+  return result.settings || {};
+}
+
+export async function updateNotificationPreferences(userId, settings) {
+  const result = await postAction('update_notification_preferences', {
+    user_id: String(userId || '').trim(),
+    settings: settings || {},
+  });
+  return result;
+}
+
+export async function changePassword(userId, currentPassword, newPassword) {
+  const result = await postAction('change_password', {
+    user_id: String(userId || '').trim(),
+    current_password: String(currentPassword || ''),
+    new_password: String(newPassword || ''),
+  });
+  return result;
+}

@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount, tick } from 'svelte';
-  import { Calendar, Clock3, FileText, ShieldCheck } from 'lucide-svelte';
+  import { Calendar, Clock3, FileText, ShieldCheck, Loader2 } from 'lucide-svelte';
   import { callApiAction, getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
   import { subscribeToSync } from '../lib/sync.js';
 
@@ -397,7 +397,7 @@
     try {
       const result = await callBackend('create_request', {
         user_id: currentUser.user_id,
-        requester_name: String(currentUser?.full_name || '').trim() || 'Student',
+        requester_name: String(currentUser?.full_name || '').trim() || 'Intern',
         request_type: form.requestType,
         request_date: form.date,
         start_time: form.requestType === 'Overtime' ? form.startTime : '',
@@ -535,9 +535,9 @@
   $: if (isSupervisor && activeTab === 'create-request') {
     activeTab = 'my-requests';
   }
-  $: listTabLabel = isSupervisor ? 'Student Requests' : 'My Requests';
+  $: listTabLabel = isSupervisor ? 'Intern Requests' : 'My Requests';
   $: pageSubtitle = isSupervisor
-    ? 'Review and resolve assigned student requests'
+    ? 'Review and resolve assigned intern requests'
     : 'Submit absence and overtime requests for approval';
   
   // Filter and sort requests based on active filter
@@ -735,11 +735,14 @@
       <div class="mt-5 flex justify-end">
         <button 
           type="button" 
-          class="submit-button rounded-xl px-5 py-2.5 text-sm font-semibold" 
+          class="submit-button inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold" 
           on:click={submitRequest}
           disabled={isSubmitting || !isFormValid}
         >
-          {isSubmitting ? 'Submitting...' : 'Submit Request'}
+          {#if isSubmitting}
+            <span class="spinning-icon"><Loader2 size={16} /></span>
+          {/if}
+          <span>{isSubmitting ? 'Submitting...' : 'Submit Request'}</span>
         </button>
       </div>
     </section>
@@ -955,7 +958,7 @@
             class="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-red-700 active:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-red-700 dark:hover:bg-red-600 dark:active:bg-red-800"
           >
             {#if isDeleting}
-              <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+              <span class="spinning-icon"><Loader2 size={16} /></span>
               <span>Deleting...</span>
             {:else}
               <span>Delete Permanently</span>
@@ -1006,6 +1009,22 @@
     background: var(--rq-surface);
     border-color: var(--rq-border);
     box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
+  }
+
+  .theme-divider {
+    border-color: var(--rq-border);
+  }
+
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .requests-heading {

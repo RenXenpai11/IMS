@@ -10,6 +10,7 @@
     Plus,
     Target,
     Trash2,
+    Loader2
   } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
@@ -609,7 +610,7 @@
           />
         </label>
 
-        <button
+          <button
           class="timelog-submit-btn w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold transition"
           type="button"
           on:click={handleLogin}
@@ -617,7 +618,7 @@
           title={isLoggedIn ? 'Already logged in for today' : !canLogin ? 'Enter date and login time' : 'Submit login time'}
         >
           {#if isLoggingIn}
-            <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+            <span class="spinning-icon"><Loader2 size={15} /></span>
             <span>Logging In...</span>
           {:else}
             <Clock size={15} />
@@ -691,7 +692,7 @@
           title={!canLogout ? 'Complete all fields' : 'Submit logout time'}
         >
           {#if isLoggingOut}
-            <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+            <span class="spinning-icon"><Loader2 size={15} /></span>
             <span>Logging Out...</span>
           {:else}
             <Clock size={15} />
@@ -1410,6 +1411,22 @@
     border-radius: 8px;
     padding: 0.75rem 1rem;
     font-size: 0.95rem;
+  }
+
+  .btn-danger:active {
+    background: #dc2626;
+  }
+  
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .status-active {

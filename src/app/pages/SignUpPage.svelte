@@ -8,6 +8,7 @@
 		EyeOff,
 		GraduationCap,
 		KeyRound,
+		Loader2,
 		LockKeyhole,
 		Mail,
 		School,
@@ -33,13 +34,14 @@
 	let department = '';
 	let course = '';
 	let school = '';
-	let showDepartmentSuggestions = false;
 	let showCourseSuggestions = false;
 	let showSchoolSuggestions = false;
 	let otpCode = '';
 	let verificationEmail = '';
 	let isVerifyingOtp = false;
 	let isResendingOtp = false;
+	let isSubmittingAccount = false;
+	let isSubmittingSignup = false;
 
 	const courseCatalog = [
 		'BS Accountancy',
@@ -143,6 +145,7 @@
 
 		if (role === 'Supervisor') {
 			try {
+				isSubmittingAccount = true;
 				const registration = await registerAccount({
 					name,
 					email,
@@ -152,12 +155,14 @@
 				setVerificationStage(registration?.verification_email || email);
 			} catch (err) {
 				error = err?.message || 'Unable to create account right now.';
+			} finally {
+				isSubmittingAccount = false;
 			}
 			return;
 		}
 
 		stage = 'ojt';
-		info = 'Great. Complete OJT setup to finish your Student signup.';
+		info = 'Great. Complete OJT setup to finish your Intern signup.';
 	}
 
 	async function submitStudentSignup() {
@@ -184,6 +189,7 @@
 		}
 
 		try {
+			isSubmittingSignup = true;
 			const registration = await registerAccount({
 				name,
 				email,
@@ -202,6 +208,8 @@
 			setVerificationStage(registration?.verification_email || email);
 		} catch (err) {
 			error = err?.message || 'Unable to create account right now.';
+		} finally {
+			isSubmittingSignup = false;
 		}
 	}
 
@@ -317,11 +325,6 @@
 		showCourseSuggestions = false;
 	}
 
-	function selectDepartment(value) {
-		department = value;
-		showDepartmentSuggestions = false;
-	}
-
 	function selectSchool(value) {
 		school = value;
 		showSchoolSuggestions = false;
@@ -333,12 +336,6 @@
 		}, 100);
 	}
 
-	function hideDepartmentSuggestions() {
-		setTimeout(() => {
-			showDepartmentSuggestions = false;
-		}, 100);
-	}
-
 	function hideSchoolSuggestions() {
 		setTimeout(() => {
 			showSchoolSuggestions = false;
@@ -346,7 +343,6 @@
 	}
 
 	$: filteredCourses = filterSuggestions(courseCatalog, course);
-	$: filteredDepartments = filterSuggestions(departmentCatalog, department);
 	$: filteredSchools = filterSuggestions(schoolCatalog, school);
 </script>
 
@@ -451,7 +447,7 @@
 							<span class="input-icon"><Shield size={16} strokeWidth={2.2} /></span>
 							<select bind:value={role}>
 								<option value="Supervisor">Supervisor</option>
-								<option value="Student">Student</option>
+								<option value="Student">Intern</option>
 							</select>
 						</div>
 					</label>
@@ -465,8 +461,15 @@
 					{/if}
 
 					<div class="actions">
-						<button class="primary" type="submit">Continue</button>
-						<button class="secondary" type="button" on:click={goBackToLogin}>Back to Login</button>
+						<button class="primary" type="submit" disabled={isSubmittingAccount}>
+							{#if isSubmittingAccount}
+								<span class="spinning-icon"><Loader2 size={18} /></span>
+								<span>Processing...</span>
+							{:else}
+								<span>Continue</span>
+							{/if}
+						</button>
+						<button class="secondary" type="button" on:click={goBackToLogin} disabled={isSubmittingAccount}>Back to Login</button>
 					</div>
 				</form>
 			{/if}
@@ -495,30 +498,14 @@
 
 					<label class="field">
 						<span>Department</span>
-						<div class="typeahead-wrap">
-							<div class="input-wrap">
-								<span class="input-icon"><Building size={16} strokeWidth={2.2} /></span>
-								<input
-									bind:value={department}
-									type="text"
-									autocomplete="off"
-									on:focus={() => (showDepartmentSuggestions = true)}
-									on:blur={hideDepartmentSuggestions}
-									placeholder="Search your department"
-								/>
-							</div>
-
-							{#if showDepartmentSuggestions && department.trim().length > 0 && filteredDepartments.length > 0}
-								<ul class="suggestions" role="listbox" aria-label="Department suggestions">
-									{#each filteredDepartments as item}
-										<li>
-											<button type="button" class="suggestion-item" on:mousedown={() => selectDepartment(item)}>
-												{item}
-											</button>
-										</li>
-									{/each}
-								</ul>
-							{/if}
+						<div class="input-wrap">
+							<span class="input-icon"><Building size={16} strokeWidth={2.2} /></span>
+							<select bind:value={department}>
+								<option value="" disabled selected>Select Department</option>
+								{#each departmentCatalog as item}
+									<option value={item}>{item}</option>
+								{/each}
+							</select>
 						</div>
 					</label>
 
@@ -584,9 +571,16 @@
 					{/if}
 
 					<div class="actions">
-						<button class="primary" type="submit">Complete Signup</button>
-						<button class="secondary" type="button" on:click={goBackToLogin}>Back to Login</button>
-						<button class="text-btn" type="button" on:click={backToAccountStep}>Back to Account Details</button>
+						<button class="primary" type="submit" disabled={isSubmittingSignup}>
+							{#if isSubmittingSignup}
+								<span class="spinning-icon"><Loader2 size={18} /></span>
+								<span>Processing...</span>
+							{:else}
+								<span>Complete Signup</span>
+							{/if}
+						</button>
+						<button class="secondary" type="button" on:click={goBackToLogin} disabled={isSubmittingSignup}>Back to Login</button>
+						<button class="text-btn" type="button" on:click={backToAccountStep} disabled={isSubmittingSignup}>Back to Account Details</button>
 					</div>
 				</form>
 			{/if}
@@ -615,10 +609,20 @@
 
 					<div class="actions">
 						<button class="primary" type="submit" disabled={isVerifyingOtp}>
-							{isVerifyingOtp ? 'Verifying...' : 'Verify OTP'}
+							{#if isVerifyingOtp}
+								<span class="spinning-icon"><Loader2 size={18} /></span>
+								<span>Verifying...</span>
+							{:else}
+								<span>Verify OTP</span>
+							{/if}
 						</button>
-						<button class="secondary" type="button" on:click={resendOtpCode} disabled={isResendingOtp}>
-							{isResendingOtp ? 'Sending...' : 'Resend OTP'}
+						<button class="secondary" type="button" on:click={resendOtpCode} disabled={isResendingOtp || isVerifyingOtp}>
+							{#if isResendingOtp}
+								<span class="spinning-icon"><Loader2 size={18} /></span>
+								<span>Sending...</span>
+							{:else}
+								<span>Resend OTP</span>
+							{/if}
 						</button>
 						<button class="text-btn" type="button" on:click={goBackToLogin}>Back to Login</button>
 					</div>
@@ -908,15 +912,19 @@
 		color: #ffffff;
 		background: linear-gradient(100deg, #0057ff 0%, #4f46e5 52%, #7c3aed 100%);
 		box-shadow: 0 16px 34px -22px rgba(79, 70, 229, 0.96);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
 	}
 
-	.primary:hover {
+	.primary:hover:not(:disabled) {
 		transform: translateY(-1px);
 		filter: brightness(1.04);
 		box-shadow: 0 20px 38px -24px rgba(124, 58, 237, 0.9);
 	}
 
-	.primary:active {
+	.primary:active:not(:disabled) {
 		transform: translateY(1px) scale(0.997);
 	}
 
@@ -924,10 +932,31 @@
 		background: rgba(148, 163, 184, 0.2);
 		color: #e2e8f0;
 		border: 1px solid rgba(203, 213, 225, 0.34);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
 	}
 
-	.secondary:hover {
+	.secondary:hover:not(:disabled) {
 		background: rgba(148, 163, 184, 0.32);
+	}
+
+	button:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+	}
+
+	.spinning-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 
 	.text-btn {

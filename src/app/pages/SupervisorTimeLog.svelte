@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Clock3, ListFilter, RefreshCw, Trash2, UserCircle2, Users } from 'lucide-svelte';
+  import { Clock3, ListFilter, RefreshCw, Trash2, UserCircle2, Users, Loader2 } from 'lucide-svelte';
   import {
     callApiAction,
     deleteSupervisorTimeLog,
@@ -251,7 +251,7 @@
           const student = assignedStudents.find((s) => String(s.user_id) === String(session.user_id));
           return {
             ...session,
-            student_name: student?.full_name || 'Unknown Student',
+            student_name: student?.full_name || 'Unknown Intern',
             student_email: student?.email || '',
           };
         });
@@ -287,7 +287,7 @@
     try {
       await deleteSupervisorTimeLog(supervisorId, studentId, timelogId);
       logs = logs.filter((row) => String(row.timelog_id) !== timelogId);
-      successMessage = 'Student time log deleted successfully.';
+      successMessage = 'Intern time log deleted successfully.';
     } catch (err) {
       errorMessage = err?.message || 'Unable to delete selected time log.';
     } finally {
@@ -347,7 +347,7 @@
           </div>
           <div>
             <h3 class="supervisor-heading text-base font-semibold text-emerald-900 dark:text-emerald-200">Currently Logged In</h3>
-            <p class="supervisor-sub text-xs text-emerald-700 dark:text-emerald-300 mt-1">{activeSessions.length} {activeSessions.length === 1 ? 'student is' : 'students are'} currently logged in today</p>
+            <p class="supervisor-sub text-xs text-emerald-700 dark:text-emerald-300 mt-1">{activeSessions.length} {activeSessions.length === 1 ? 'intern is' : 'interns are'} currently logged in today</p>
           </div>
         </div>
         <div class="space-y-2">
@@ -369,8 +369,8 @@
     <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
       <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h3 class="supervisor-heading text-lg font-semibold">Student Time Logs</h3>
-          <p class="supervisor-sub mt-1 text-sm">View and manage entries of students assigned to you.</p>
+          <h3 class="supervisor-heading text-lg font-semibold">Intern Time Logs</h3>
+          <p class="supervisor-sub mt-1 text-sm">View and manage entries of interns assigned to you.</p>
         </div>
 
         <div class="flex w-full gap-2 lg:w-auto">
@@ -378,9 +378,9 @@
             <ListFilter size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-(--color-muted)" />
             <select bind:value={selectedStudentId} class="supervisor-input w-full rounded-lg border px-3 py-2.5 pl-9 outline-none" on:change={loadLogs}>
               {#if loadingStudents}
-                <option value="">Loading student accounts...</option>
+                <option value="">Loading intern accounts...</option>
               {:else if assignedStudents.length === 0}
-                <option value="">No assigned students</option>
+                <option value="">No assigned interns</option>
               {:else}
                 {#each assignedStudents as student (student.user_id)}
                   <option value={student.user_id}>{student.full_name}</option>
@@ -411,14 +411,14 @@
 
     {#if loadingStudents}
       <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
-        <p class="supervisor-sub text-sm">Loading student accounts...</p>
+        <p class="supervisor-sub text-sm">Loading intern accounts...</p>
       </section>
     {:else if selectedStudent}
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <article class="supervisor-card supervisor-stat stat-primary rounded-2xl border p-5 shadow-md">
           <div class="supervisor-icon icon-blue"><UserCircle2 size={18} /></div>
           <p class="supervisor-value mt-4 text-lg">{selectedStudent.full_name}</p>
-          <p class="supervisor-label mt-1 text-sm">Selected Student</p>
+          <p class="supervisor-label mt-1 text-sm">Selected Intern</p>
         </article>
 
         <article class="supervisor-card supervisor-stat stat-info rounded-2xl border p-5 shadow-md">
@@ -442,12 +442,12 @@
 
       <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
         <h3 class="supervisor-heading text-base font-semibold">Time Log Entries</h3>
-        <p class="supervisor-sub mt-1 text-sm">You can delete invalid entries from your assigned students.</p>
+        <p class="supervisor-sub mt-1 text-sm">You can delete invalid entries from your assigned interns.</p>
 
         {#if loadingLogs}
           <p class="supervisor-sub mt-4 text-sm">Loading entries...</p>
         {:else if logs.length === 0}
-          <p class="supervisor-sub mt-4 text-sm">No time log entries found for this student.</p>
+          <p class="supervisor-sub mt-4 text-sm">No time log entries found for this intern.</p>
         {:else}
           <div class="log-table-wrap mt-4 overflow-auto rounded-lg border">
             <table class="w-full text-left text-sm" style="min-width: 680px;">
@@ -475,9 +475,14 @@
                         class="btn-delete rounded-lg px-2.5 py-2 text-xs font-semibold"
                         on:click={() => handleDelete(row.timelog_id)}
                         disabled={deletingId === row.timelog_id}
+                        style="display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;"
                       >
-                        <Trash2 size={13} />
-                        {deletingId === row.timelog_id ? 'Deleting...' : 'Delete'}
+                        {#if deletingId === row.timelog_id}
+                          <span class="spinning-icon"><Loader2 size={13} /></span>
+                        {:else}
+                          <Trash2 size={13} />
+                        {/if}
+                        <span>{deletingId === row.timelog_id ? 'Deleting...' : 'Delete'}</span>
                       </button>
                     </td>
                   </tr>
@@ -489,7 +494,7 @@
       </section>
     {:else}
       <section class="supervisor-card supervisor-panel rounded-2xl border p-6 shadow-md">
-        <p class="supervisor-sub text-sm">No assigned students yet. Add assignments first in dashboard.</p>
+        <p class="supervisor-sub text-sm">No assigned interns yet. Add assignments first in dashboard.</p>
       </section>
     {/if}
   </section>
@@ -735,6 +740,201 @@
     color: #bfdbfe;
   }
 
+
+
+  .supervisor-stat::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 3px;
+  }
+
+  .stat-primary::before {
+    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
+  }
+
+  .stat-success::before {
+    background: linear-gradient(90deg, #0f766e, #10b981);
+  }
+
+  .stat-info::before {
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+  }
+
+  .stat-forecast::before {
+    background: linear-gradient(90deg, #0f766e, #06b6d4);
+  }
+
+  .supervisor-heading,
+  .supervisor-value {
+    color: var(--sp-heading);
+  }
+
+  .supervisor-label,
+  .supervisor-sub,
+  .table-row {
+    color: var(--sp-text);
+  }
+
+  .supervisor-value {
+    font-size: 1.5rem;
+    line-height: 1;
+    font-weight: 700;
+  }
+
+  .supervisor-input {
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--sp-heading);
+  }
+
+  .supervisor-input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  }
+
+  .btn-light,
+  .btn-delete {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid transparent;
+  }
+
+  .btn-light {
+    background: #edf4fb;
+    border-color: #bed2e8;
+    color: var(--sp-heading);
+  }
+
+  .btn-light:hover:not(:disabled) {
+    background: #e2edf9;
+  }
+
+  .btn-delete {
+    background: linear-gradient(90deg, #dc2626, #f97316);
+    color: #ffffff;
+    border-color: #dc2626;
+  }
+
+  .btn-delete:hover:not(:disabled) {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  .log-table-wrap {
+    border-color: var(--sp-border);
+    background: #f8fbff;
+  }
+
+  .table-head {
+    background: #edf4fb;
+    color: var(--sp-heading);
+  }
+
+  .table-row {
+    border-top: 1px solid var(--sp-border);
+  }
+
+  .table-row:hover {
+    background: #f1f7fd;
+  }
+
+  .supervisor-icon {
+    width: 2.2rem;
+    height: 2.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.8rem;
+  }
+
+  .icon-blue {
+    background: #e0efff;
+    color: #0f6cbd;
+    border: 1px solid #bfdbfe;
+  }
+
+  .icon-violet {
+    background: #dbeafe;
+    color: #1d4ed8;
+    border: 1px solid #93c5fd;
+  }
+
+  .icon-green {
+    background: #dcfce7;
+    color: #0f766e;
+    border: 1px solid #86efac;
+  }
+
+  .icon-cyan {
+    background: #cffafe;
+    color: #0f766e;
+    border: 1px solid #67e8f9;
+  }
+
+  :global(.dark) .supervisor-shell {
+    --sp-surface: #162338;
+    --sp-surface-soft: #1b2a42;
+    --sp-border: #2b3c57;
+    --sp-heading: #e5edf8;
+    --sp-text: #cfdceb;
+  }
+
+  :global(.dark) .supervisor-shell::before {
+    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+  }
+
+  :global(.dark) .supervisor-shell::after {
+    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
+  }
+
+  :global(.dark) .supervisor-card {
+    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+  }
+
+  :global(.dark) .supervisor-panel {
+    background: linear-gradient(150deg, rgba(22, 35, 56, 0.96), rgba(19, 30, 49, 0.98));
+  }
+
+  :global(.dark) .supervisor-input,
+  :global(.dark) .btn-light,
+  :global(.dark) .log-table-wrap,
+  :global(.dark) .table-head,
+  :global(.dark) .table-row:hover {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #dbe7f5;
+  }
+
+  :global(.dark) .supervisor-input:focus {
+    border-color: #7cc3ff;
+    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+  }
+
+  :global(.dark) .btn-light:hover:not(:disabled) {
+    background: #223653;
+  }
+
+  :global(.dark) .btn-delete {
+    background: linear-gradient(90deg, #b91c1c, #ea580c);
+    border-color: #b91c1c;
+  }
+
+  @media (max-width: 768px) {
+    .supervisor-shell {
+      border-radius: 1rem;
+      padding: 0;
+    }
+  }
+
+  :global(.dark) .icon-blue {
+    background: rgba(59, 130, 246, 0.2);
+    color: #bfdbfe;
+  }
+
   :global(.dark) .icon-violet {
     background: rgba(139, 92, 246, 0.2);
     color: #ddd6fe;
@@ -748,5 +948,17 @@
   :global(.dark) .icon-cyan {
     background: rgba(6, 182, 212, 0.2);
     color: #a5f3fc;
+  }
+
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 </style>

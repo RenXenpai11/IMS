@@ -162,6 +162,7 @@ import {
   LayoutGrid,
   FileEdit,
   BookOpen,
+  Loader2
 } from 'lucide-svelte';
 
 // --- Work Log Form State and Handlers ---
@@ -1652,8 +1653,11 @@ let assignedTasksError = '';
             <h4>Add Task</h4>
             <div class="task-view-head-actions">
               <button type="button" class="task-view-action" on:click={cancelAddTask}>Cancel</button>
-              <button type="submit" class="task-view-action primary" disabled={isSavingAddTask}>
-                {isSavingAddTask ? 'Saving...' : 'Save Task'}
+              <button type="submit" class="task-view-action primary" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;" disabled={isSavingAddTask}>
+                {#if isSavingAddTask}
+                  <span class="spinning-icon"><Loader2 size={16} /></span>
+                {/if}
+                <span>{isSavingAddTask ? 'Saving...' : 'Save Task'}</span>
               </button>
             </div>
           </div>
@@ -2102,7 +2106,12 @@ let assignedTasksError = '';
                   </div>
                 {/if}
               </label>
-              <button type="submit" disabled={isSavingWorkLog} style="font-size: 0.97rem; font-weight: 600; color: #fff; background: #0f6cbd; border: none; border-radius: 0.5rem; padding: 0.5rem 1.3rem; cursor: pointer; opacity: {isSavingWorkLog ? 0.6 : 1};">{isSavingWorkLog ? 'Saving...' : 'Submit'}</button>
+              <button type="submit" class="submit-worklog-btn" disabled={isSavingWorkLog}>
+                {#if isSavingWorkLog}
+                  <span class="spinning-icon"><Loader2 size={16} /></span>
+                {/if}
+                <span>{isSavingWorkLog ? 'Saving...' : 'Submit'}</span>
+              </button>
             </form>
         </div>
         <!-- Work Logs Card -->
@@ -2726,7 +2735,40 @@ let assignedTasksError = '';
   .stat-icon {
     width: 2.2rem;
     height: 2.2rem;
-    border: 1px solid transparent;
+    border-bottom: 2px solid transparent;
+  }
+  
+  .submit-worklog-btn {
+    font-size: 0.97rem;
+    font-weight: 600;
+    color: #fff;
+    background: #0f6cbd;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.5rem 1.3rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.2s;
+  }
+  
+  .submit-worklog-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .stat-value {

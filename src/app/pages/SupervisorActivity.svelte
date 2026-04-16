@@ -1,5 +1,4 @@
 <script>
-  export let currentUser = null;
 </script>
 
 <div class="content">

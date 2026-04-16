@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2 } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -760,7 +760,7 @@
 
       <div class="section-header">
         <span class="section-title">Folders</span>
-        <a class="section-link">Manage folders</a>
+        <span class="section-link">Manage folders</span>
       </div>
 
       <div class="folders-grid">
@@ -914,6 +914,8 @@
 
   <!-- Upload Modal -->
   {#if showUploadModal}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showUploadModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -924,7 +926,7 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <label>Select Folder</label>
+            <span class="label-heading">Select Folder</span>
             <div class="folder-tabs">
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
@@ -971,6 +973,8 @@
 
   <!-- Upload Preview Modal -->
   {#if showUploadPreview && pendingFilePreview}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => !isUploading && cancelUpload()}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1013,7 +1017,7 @@
           <button class="btn btn-secondary" on:click={() => cancelUpload()} disabled={isUploading}>Delete</button>
           <button class="btn btn-primary" on:click={() => confirmUpload()} disabled={isUploading}>
             {#if isUploading}
-              <Upload size={18} class="spinning-icon" />
+              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
               <span>Uploading...</span>
             {:else}
               <Check size={18} />
@@ -1027,6 +1031,8 @@
 
   <!-- Link Modal -->
   {#if showLinkModal}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showLinkModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1037,7 +1043,7 @@
         <div class="modal-body">
           <!-- Folder Selection Tabs -->
           <div class="form-group">
-            <label>Select Folder</label>
+            <span class="label-heading">Select Folder</span>
             <div class="folder-tabs">
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
@@ -1082,7 +1088,7 @@
           <button class="btn btn-secondary" on:click={() => (showLinkModal = false)}>Cancel</button>
           <button class="btn btn-primary" on:click={addLink} disabled={!newLinkName.trim() || !newLinkUrl.trim() || isAddingLink}>
             {#if isAddingLink}
-              <Upload size={18} class="spinning-icon" />
+              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
               <span>Adding...</span>
             {:else}
               <Plus size={18} />
@@ -1096,6 +1102,8 @@
 
   <!-- Create Folder Modal -->
   {#if showCreateFolderModal}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => !isCreatingFolder && (showCreateFolderModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1149,7 +1157,7 @@
             }
           }} disabled={!newFolderName.trim() || isCreatingFolder}>
             {#if isCreatingFolder}
-              <Upload size={18} class="spinning-icon" />
+              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
               <span>Creating...</span>
             {:else}
               <Folder size={18} />
@@ -1163,6 +1171,8 @@
 
   <!-- Rename Folder Modal -->
   {#if showRenameFolderModal && folderToRename}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showRenameFolderModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1196,6 +1206,8 @@
 
   <!-- Delete Folder Confirmation Modal -->
   {#if showDeleteFolderConfirm && folderToDelete}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showDeleteFolderConfirm = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1222,6 +1234,8 @@
 
   <!-- Share Modal -->
   {#if showShareModal && selectedDocForShare}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="modal-overlay" on:click={() => (showShareModal = false)}>
       <div class="modal" on:click={(e) => e.stopPropagation()}>
         <div class="modal-header">
@@ -1232,9 +1246,10 @@
         <div class="modal-body">
           <!-- Shareable Link -->
           <div class="form-group">
-            <label>Shareable Link</label>
+            <label for="shareLinkInput">Shareable Link</label>
             <div class="share-link-box">
               <input
+                id="shareLinkInput"
                 type="text"
                 readonly
                 value={`${window.location.origin}/#/documents/${selectedDocForShare.id}`}
@@ -1453,6 +1468,15 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+  
+  .spinning-icon {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
 
   .spinning-icon {
     animation: spin 0.9s linear infinite;
@@ -1486,19 +1510,6 @@
     border: 1px solid var(--doc-border);
     border-radius: 10px;
     color: var(--doc-muted);
-  }
-
-  .search-box input {
-    flex: 1;
-    border: none;
-    background: none;
-    outline: none;
-    font-size: 0.95rem;
-    color: var(--doc-text);
-  }
-
-  .search-box input::placeholder {
-    color: #7c8fa8;
   }
 
   .category-tabs {
@@ -1586,13 +1597,6 @@
     align-items: center;
     padding: 1.5rem;
     border-bottom: 1px solid var(--doc-border);
-  }
-
-  .table-header h2 {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--doc-text);
   }
 
   .doc-count {
@@ -1781,13 +1785,6 @@
     border-radius: 12px;
   }
 
-  .folder-nav > h3 {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: var(--doc-text);
-  }
-
   .folders-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -1830,11 +1827,6 @@
     flex-shrink: 0;
   }
 
-  .folder-item.active .folder-icon {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-  }
-
   .folder-info {
     flex: 1;
   }
@@ -1846,18 +1838,10 @@
     font-size: 0.95rem;
   }
 
-  .folder-item.active .folder-name {
-    color: white;
-  }
-
   .folder-count {
     font-size: 0.85rem;
     color: var(--doc-muted);
     margin: 0.25rem 0 0 0;
-  }
-
-  .folder-item.active .folder-count {
-    color: rgba(255, 255, 255, 0.85);
   }
 
   .folder-item-wrapper {
@@ -1867,19 +1851,11 @@
     width: 100%;
   }
 
-  .folder-item-wrapper .folder-item {
-    flex: 1;
-  }
-
   .folder-actions {
     display: flex;
     gap: 0.4rem;
     opacity: 0;
     transition: opacity 0.2s ease;
-  }
-
-  .folder-item-wrapper:hover .folder-actions {
-    opacity: 1;
   }
 
   .folder-action-btn {
@@ -1935,18 +1911,6 @@
   .empty-state > :nth-child(1) {
     margin-bottom: 1rem;
     opacity: 0.5;
-  }
-
-  .empty-state h3 {
-    margin: 0 0 0.5rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--doc-text);
-  }
-
-  .empty-state p {
-    margin: 0;
-    font-size: 0.95rem;
   }
 
   /* Share Functionality Styles */
@@ -2242,11 +2206,6 @@
     color: var(--doc-text);
   }
 
-  .preview-category-select option {
-    background: #ffffff;
-    color: #0f172a;
-  }
-
   .modal-footer {
     display: flex;
     gap: 0.75rem;
@@ -2322,11 +2281,6 @@
   :global(.dark) .preview-category-select {
     background: #1a2c45;
     border-color: #334b6b;
-    color: #e8f1ff;
-  }
-
-  :global(.dark) .preview-category-select option {
-    background: #1a2c45;
     color: #e8f1ff;
   }
 
@@ -2419,11 +2373,6 @@
     .header-actions {
       width: 100%;
       flex-direction: column;
-    }
-
-    .header-actions .btn {
-      width: 100%;
-      justify-content: center;
     }
 
     .modal {

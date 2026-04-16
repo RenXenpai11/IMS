@@ -8,8 +8,21 @@
     Phone,
     Save,
     User,
+    Shield,
+    BellRing,
+    Settings,
+    Lock,
+    Loader2
   } from 'lucide-svelte';
-  import { subscribeToCurrentUser, updateProfilePhoto, updateUserProfile } from '../lib/auth.js';
+  import {
+    subscribeToCurrentUser,
+    updateProfilePhoto,
+    updateUserProfile,
+    getStudentSupervisor,
+    getNotificationPreferences,
+    updateNotificationPreferences,
+    changePassword
+  } from '../lib/auth.js';
 
   let saved = false;
   let saveTimer;
@@ -34,6 +47,22 @@
     department: '',
   };
 
+  let notifsLoading = false;
+  let notifStatusUpdates = false;
+  let notifDocUploads = false;
+  let notifTimeLog = false;
+  let notifInactiveStudent = false;
+
+  let supervisorLoading = false;
+  let mySupervisor = null;
+
+  let isChangingPassword = false;
+  let currentPassword = '';
+  let newPassword = '';
+  let confirmNewPassword = '';
+  let passwordMessage = '';
+  let passwordError = '';
+
   function toTitleCase(value) {
     const text = String(value || '').trim();
     if (!text) {
@@ -41,6 +70,18 @@
     }
 
     return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+  }
+
+  function normalizeDepartment(dept) {
+    const d = String(dept || '').trim();
+    if (d.toUpperCase() === 'INTERNATIONAL NOC') return 'ISOC';
+    return d;
+  }
+
+  function normalizeRole(role) {
+    const r = String(role || '').trim().toLowerCase();
+    if (r === 'student') return 'Intern';
+    return toTitleCase(r);
   }
 
   function applyCurrentUserProfile(user) {
@@ -57,6 +98,90 @@
       phone: String(user.phone || ''),
       department: String(user.department || ''),
     };
+
+    if (String(user.role || '').toLowerCase() !== 'supervisor') {
+      loadSupervisorData(user.user_id);
+    }
+    loadNotificationPreferences(user.user_id);
+  }
+
+  async function loadSupervisorData(uid) {
+    if (supervisorLoading) return;
+    try {
+      supervisorLoading = true;
+      mySupervisor = await getStudentSupervisor(uid);
+    } catch(e) {
+      console.error(e);
+    } finally {
+      supervisorLoading = false;
+    }
+  }
+
+  async function loadNotificationPreferences(uid) {
+    try {
+      notifsLoading = true;
+      const prefs = await getNotificationPreferences(uid);
+      notifStatusUpdates = Boolean(prefs.request_status_updates);
+      notifDocUploads = Boolean(prefs.document_uploads);
+      notifTimeLog = Boolean(prefs.time_log_reminder);
+      notifInactiveStudent = Boolean(prefs.inactive_student_alert);
+    } catch(e) {
+      console.error(e);
+    } finally {
+      notifsLoading = false;
+    }
+  }
+
+  async function saveNotificationPreferences() {
+    if (!currentUser?.user_id) return;
+    try {
+      notifsLoading = true;
+      await updateNotificationPreferences(currentUser.user_id, {
+        request_status_updates: notifStatusUpdates,
+        document_uploads: notifDocUploads,
+        time_log_reminder: notifTimeLog,
+        inactive_student_alert: notifInactiveStudent
+      });
+    } catch(e) {
+      console.error(e);
+    } finally {
+      notifsLoading = false;
+    }
+  }
+
+  async function handlePasswordSave() {
+    passwordError = '';
+    passwordMessage = '';
+    
+    if (!currentPassword) {
+      passwordError = 'Please enter your current password.';
+      return;
+    }
+    if (newPassword.length < 8) {
+      passwordError = 'New password must be at least 8 characters.';
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      passwordError = 'Passwords do not match.';
+      return;
+    }
+
+    try {
+      isChangingPassword = true;
+      const res = await changePassword(currentUser.user_id, currentPassword, newPassword);
+      if (res.ok) {
+        passwordMessage = 'Password updated successfully.';
+        currentPassword = '';
+        newPassword = '';
+        confirmNewPassword = '';
+      } else {
+        passwordError = res.error || 'Failed to update password.';
+      }
+    } catch (e) {
+      passwordError = e.message || 'Error updating password';
+    } finally {
+      isChangingPassword = false;
+    }
   }
 
   function openPhotoPicker() {
@@ -217,8 +342,8 @@
   $: displayName = String(profile.fullName || '').trim() || 'User';
   $: currentUserRole = String(currentUser?.role || '').trim().toLowerCase();
   $: canViewMainDb = currentUserRole === 'admin' || currentUserRole === 'supervisor';
-  $: roleLabel = toTitleCase(currentUser?.role) || 'Intern';
-  $: displayDepartment = String(profile.department || '').trim();
+  $: roleLabel = normalizeRole(currentUser?.role) || 'Intern';
+  $: displayDepartment = normalizeDepartment(profile.department);
   $: profileSubtitle = [displayDepartment, roleLabel].filter(Boolean).join(' ');
   $: profilePhotoUrl = String(currentUser?.profile_photo_url || '').trim();
   $: profileInitials = (displayName || 'U')
@@ -299,6 +424,154 @@
             </span>
           </label>
         {/each}
+      </div>
+    </div>
+  </section>
+
+  {#if currentUserRole !== 'supervisor'}
+    <section class="theme-section settings-panel rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+      <header class="theme-divider border-b px-6 py-4">
+        <div class="flex items-center gap-2">
+          <Shield size={16} class="text-indigo-600" />
+          <h2 class="theme-heading text-[15px] font-semibold">My Supervisor</h2>
+        </div>
+        <p class="theme-text mt-1 text-[13px]">Your assigned internship supervisor.</p>
+      </header>
+
+      <div class="px-6 py-5">
+        {#if supervisorLoading}
+           <p class="theme-text text-[13px]">Loading supervisor details...</p>
+        {:else if !mySupervisor}
+           <p class="theme-text text-[13px]">No supervisor assigned yet.</p>
+        {:else}
+           <div class="flex items-center gap-4">
+             <div class="flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600">
+               {#if mySupervisor.profile_photo_url}
+                  <img src={mySupervisor.profile_photo_url} alt="Supervisor" class="h-12 w-12 rounded-full object-cover">
+               {:else}
+                  <span class="text-lg font-bold text-white font-medium">{mySupervisor.full_name.charAt(0).toUpperCase()}</span>
+               {/if}
+             </div>
+             <div>
+               <p class="theme-heading text-[15px] font-semibold">{mySupervisor.full_name}</p>
+               <p class="theme-text text-[13px]">{normalizeDepartment(mySupervisor.department)} Supervisor</p>
+               <p class="theme-text text-[13px] opacity-75">{mySupervisor.email}</p>
+             </div>
+           </div>
+        {/if}
+      </div>
+    </section>
+  {/if}
+
+  <section class="theme-section settings-panel rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <header class="theme-divider border-b px-6 py-4">
+      <div class="flex items-center gap-2">
+        <BellRing size={16} class="text-indigo-600" />
+        <h2 class="theme-heading text-[15px] font-semibold">Notification Preferences</h2>
+      </div>
+      <p class="theme-text mt-1 text-[13px]">Manage your email and system notifications.</p>
+    </header>
+
+    <div class="px-6 py-5 space-y-4">
+      <label class="flex items-center justify-between cursor-pointer">
+        <div>
+          <p class="theme-heading text-[14px] font-medium">Request status updates</p>
+          <p class="theme-text text-[12px]">
+            {#if currentUserRole === 'supervisor'}
+              Notify me when a student submits or updates a request.
+            {:else}
+              Notify me when my request is approved or not approved.
+            {/if}
+          </p>
+        </div>
+        <div class="relative">
+          <input type="checkbox" class="sr-only peer" bind:checked={notifStatusUpdates} on:change={saveNotificationPreferences} disabled={notifsLoading}>
+          <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+        </div>
+      </label>
+
+      <label class="flex items-center justify-between cursor-pointer">
+        <div>
+          <p class="theme-heading text-[14px] font-medium">Document uploads</p>
+          <p class="theme-text text-[12px]">
+            {#if currentUserRole === 'supervisor'}
+              Notify me when any of my assigned students uploads a document.
+            {:else}
+              Notify me when a document is uploaded in the Documents tab.
+            {/if}
+          </p>
+        </div>
+        <div class="relative">
+          <input type="checkbox" class="sr-only peer" bind:checked={notifDocUploads} on:change={saveNotificationPreferences} disabled={notifsLoading}>
+          <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+        </div>
+      </label>
+
+      {#if currentUserRole === 'supervisor'}
+        <label class="flex items-center justify-between cursor-pointer">
+          <div>
+            <p class="theme-heading text-[14px] font-medium">Inactive student alert</p>
+            <p class="theme-text text-[12px]">Notify me if any of my assigned students has not logged out by 5:00 PM.</p>
+          </div>
+          <div class="relative">
+            <input type="checkbox" class="sr-only peer" bind:checked={notifInactiveStudent} on:change={saveNotificationPreferences} disabled={notifsLoading}>
+            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+          </div>
+        </label>
+      {:else}
+        <label class="flex items-center justify-between cursor-pointer">
+          <div>
+            <p class="theme-heading text-[14px] font-medium">Time log reminder</p>
+            <p class="theme-text text-[12px]">Send me an email reminder if I have not logged out by 5:00 PM.</p>
+          </div>
+          <div class="relative">
+            <input type="checkbox" class="sr-only peer" bind:checked={notifTimeLog} on:change={saveNotificationPreferences} disabled={notifsLoading}>
+            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+          </div>
+        </label>
+      {/if}
+    </div>
+  </section>
+
+  <section class="theme-section settings-panel rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <header class="theme-divider border-b px-6 py-4">
+      <div class="flex items-center gap-2">
+        <Lock size={16} class="text-indigo-600" />
+        <h2 class="theme-heading text-[15px] font-semibold">Password & Security</h2>
+      </div>
+      <p class="theme-text mt-1 text-[13px]">Update your password to keep your account secure.</p>
+    </header>
+
+    <div class="px-6 py-5">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <label class="block sm:col-span-2">
+          <span class="theme-text mb-1.5 block text-[13px]">Current Password</span>
+          <input type="password" bind:value={currentPassword} class="theme-input w-full rounded-xl border py-2.5 px-3 text-[14px] outline-none transition-colors focus:border-indigo-400" />
+        </label>
+        <label class="block">
+          <span class="theme-text mb-1.5 block text-[13px]">New Password</span>
+          <input type="password" bind:value={newPassword} class="theme-input w-full rounded-xl border py-2.5 px-3 text-[14px] outline-none transition-colors focus:border-indigo-400" />
+        </label>
+        <label class="block">
+          <span class="theme-text mb-1.5 block text-[13px]">Confirm New Password</span>
+          <input type="password" bind:value={confirmNewPassword} class="theme-input w-full rounded-xl border py-2.5 px-3 text-[14px] outline-none transition-colors focus:border-indigo-400" />
+        </label>
+      </div>
+      
+      {#if passwordError}
+        <p class="mt-4 text-[13px] text-rose-600">{passwordError}</p>
+      {/if}
+      {#if passwordMessage}
+        <p class="mt-4 text-[13px] text-emerald-600">{passwordMessage}</p>
+      {/if}
+      
+      <div class="mt-4 flex justify-end">
+        <button type="button" on:click={handlePasswordSave} disabled={isChangingPassword} class="settings-btn settings-btn-primary flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-medium text-white">
+          {#if isChangingPassword}
+            <span class="spinning-icon"><Loader2 size={16} /></span>
+          {/if}
+          <span>{isChangingPassword ? 'Updating...' : 'Change Password'}</span>
+        </button>
       </div>
     </div>
   </section>
@@ -387,8 +660,12 @@
       class:settings-btn-success={saved}
       disabled={isSavingProfile}
     >
-      <Save size={14} />
-      {isSavingProfile ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}
+      {#if isSavingProfile}
+        <span class="spinning-icon"><Loader2 size={14} /></span>
+      {:else}
+        <Save size={14} />
+      {/if}
+      <span>{isSavingProfile ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}</span>
     </button>
   </div>
 
@@ -439,8 +716,7 @@
     display: none;
   }
 
-  .theme-divider,
-  .theme-border {
+  .theme-divider {
     border-color: var(--st-border);
   }
 
@@ -509,16 +785,8 @@
     border-color: #d8e2ef;
   }
 
-  .settings-link {
-    color: #0f6cbd;
-  }
-
   .settings-link:hover {
     color: #0a4f8d;
-  }
-
-  .settings-copy-note {
-    color: #0f766e;
   }
 
   :global(.dark) .settings-shell {
@@ -571,16 +839,8 @@
     border-color: rgba(255, 255, 255, 0.1);
   }
 
-  :global(.dark) .settings-link {
-    color: #7cc3ff;
-  }
-
   :global(.dark) .settings-link:hover {
     color: #a5d8ff;
-  }
-
-  :global(.dark) .settings-copy-note {
-    color: #6ee7b7;
   }
 
   @media (max-width: 768px) {
@@ -588,5 +848,17 @@
       border-radius: 1rem;
       padding: 0;
     }
+  }
+
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 </style>

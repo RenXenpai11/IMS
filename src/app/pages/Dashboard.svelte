@@ -108,6 +108,12 @@
     return `${month} ${day}, ${year}`;
   }
 
+  function normalizeDepartment(dept) {
+    const d = String(dept || '').trim();
+    if (d.toUpperCase() === 'INTERNATIONAL NOC') return 'ISOC';
+    return d;
+  }
+
   function normalizeTimeTo24Hour(value) {
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
       return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
@@ -417,7 +423,7 @@
             <span class="profile-badge">Intern</span>
           {/if}
           {#if readonlyDepartment}
-            <span class="profile-detail">• {readonlyDepartment}</span>
+            <span class="profile-detail">• {normalizeDepartment(readonlyDepartment)}</span>
           {/if}
           {#if readonlyCourse}
             <span class="profile-detail">• {readonlyCourse}</span>
@@ -850,19 +856,6 @@
     padding: 0.75rem 0.85rem;
   }
 
-  .field-display span {
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: #34506e;
-  }
-
-  .field-display p {
-    margin: 0;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--db-heading);
-  }
-
   .empty {
     margin: 0.25rem 0 0;
     color: var(--db-muted);
@@ -1291,10 +1284,6 @@
   :global(.dark) .task-item:hover {
     background: #233652;
     border-color: #49678f;
-  }
-
-  :global(.dark) .field-display span {
-    color: #b7cde8;
   }
 
   :global(.dark) .priority-badge.high {
