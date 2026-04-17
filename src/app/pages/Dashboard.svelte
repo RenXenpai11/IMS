@@ -13,7 +13,7 @@
 
   // Debounce visibility changes to avoid rapid reloads
   let visibilityChangeTimeout = null;
-  const VISIBILITY_RELOAD_DELAY = 200; // ms - short delay for quick responsiveness
+  const VISIBILITY_RELOAD_DELAY = 200;
 
   let currentUser = getCurrentUser();
   let unsubscribeAuth = null;
@@ -87,7 +87,6 @@
   }
 
   function parseIsoDateOnly(value) {
-    // Accepts "YYYY-MM-DD" and returns Date in local time.
     const raw = normalizeDateOnly(value);
     if (!raw) return null;
     const [y, mo, d] = raw.split('-').map((n) => Number(n));
@@ -100,7 +99,6 @@
     if (!dateInput) return '';
     const dt = typeof dateInput === 'string' ? parseIsoDateOnly(dateInput) : dateInput;
     if (!dt) return '';
-    // Format as: "May 25, 2026"
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     const month = monthNames[dt.getMonth()];
     const day = dt.getDate();
@@ -197,14 +195,12 @@
   }
 
   function addWorkingDays(startDate, workingDays) {
-    // workingDays: integer >= 0
     const start = startDate instanceof Date ? new Date(startDate) : parseIsoDateOnly(startDate);
     if (!start || Number.isNaN(start.getTime())) return null;
 
     let remaining = Math.max(0, Math.trunc(Number(workingDays || 0)));
     const cursor = new Date(start);
 
-    // If start lands on weekend, move to next Monday
     while (isWeekend(cursor)) {
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -231,7 +227,6 @@
   }
 
   function sumPendingRequestHours(requests) {
-    // Sum up total_hours from pending Overtime requests
     const rows = Array.isArray(requests) ? requests : [];
     return rows.reduce((acc, req) => {
       if (String(req?.requestType || '').toLowerCase() === 'overtime') {
@@ -247,8 +242,6 @@
   $: effectiveCompletedHours = progressMode === PROGRESS_MODES.ALL ? totalCompletedHours + pendingOvertimeHours : totalCompletedHours;
   $: hoursCompleted = effectiveCompletedHours;
   $: hoursRemaining = Math.max(0, totalOjtHours - hoursCompleted);
-  $: workingDaysNeeded = Math.ceil(hoursRemaining / 8);
-  // Calculate days and remaining hours (e.g., "54 days 4 hours")
   $: daysAndHoursNeeded = (() => {
     const fullDays = Math.floor(hoursRemaining / 8);
     const remainingHoursOnly = Math.round((hoursRemaining % 8) * 10) / 10;
@@ -286,7 +279,6 @@
   function activityWhen(item) {
     const raw = String(item?.created_at || item?.log_date || '').trim();
     if (!raw) return '';
-    // Keep it simple: show ISO date part if present
     const isoDate = raw.slice(0, 10);
     return /^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? formatDateLong(isoDate) : raw;
   }
@@ -305,7 +297,6 @@
       const data = await getStudentDashboard(currentUser.user_id, { limit: 10 });
       profile = data.profile;
       timeLogs = data.time_logs;
-      // Use backend as source of truth, with optional user-scoped cache as a non-decreasing fallback.
       const serverCompletedHours = Number(data.total_completed_hours || 0);
       const storageKey = `ojt_completed_hours_${String(currentUser.user_id || '').trim()}`;
       const cachedHoursRaw = storageKey ? localStorage.getItem(storageKey) : null;
@@ -320,12 +311,10 @@
         localStorage.setItem(storageKey, String(totalCompletedHours));
       }
 
-      // Clean up legacy global cache key to avoid cross-account leakage.
       localStorage.removeItem('ojt_completed_hours');
       tasks = data.tasks;
       pendingRequests = data.pending_requests || [];
 
-      // Create activity items from time logs (Logged In / Logged Out entries)
       const timeLogActivities = [];
       if (Array.isArray(data.time_logs)) {
         for (const log of data.time_logs) {
@@ -333,7 +322,6 @@
           const timeOutLabel = formatTime12Hour(log?.time_out);
           const timeInLabel = formatTime12Hour(log?.time_in);
           
-          // Add "Logged Out" entry if time_out exists
           if (timeOutLabel) {
             timeLogActivities.push({
               id: `logout-${String(log?.timelog_id || '') || `${logDate}-${String(log?.time_out || '').trim()}`}`,
@@ -343,7 +331,6 @@
             });
           }
           
-          // Add "Logged In" entry if time_in exists
           if (timeInLabel) {
             timeLogActivities.push({
               id: `login-${String(log?.timelog_id || '') || `${logDate}-${String(log?.time_in || '').trim()}`}`,
@@ -355,16 +342,14 @@
         }
       }
 
-      // Merge time log activities with regular activity logs and sort by date (most recent first)
       const allActivities = [...timeLogActivities, ...(Array.isArray(data.activity_logs) ? data.activity_logs : [])];
       allActivities.sort((a, b) => {
         const dateA = String(a?.created_at || '').trim();
         const dateB = String(b?.created_at || '').trim();
-        return dateB.localeCompare(dateA); // Most recent first
+        return dateB.localeCompare(dateA);
       });
       activityLogs = allActivities;
 
-      // Initialize form fields (only if empty / first load)
       const rawStartDate = profile?.start_date || currentUser?.ojt?.start_date || currentUser?.first_login_date || '';
       formStartDate = normalizeDateOnly(rawStartDate) || '';
       formTotalOjtHours = Number(profile?.total_ojt_hours || formTotalOjtHours || 0);
@@ -380,9 +365,7 @@
 
   function onVisibilityChange() {
     if (document.visibilityState === 'visible') {
-      // Clear any pending reload
       if (visibilityChangeTimeout) clearTimeout(visibilityChangeTimeout);
-      // Schedule reload with debounce
       visibilityChangeTimeout = setTimeout(() => {
         loadDashboard();
         visibilityChangeTimeout = null;
@@ -399,7 +382,6 @@
     });
 
     document.addEventListener('visibilitychange', onVisibilityChange);
-    // Only load if we already have a current user (avoid double load)
     if (currentUser?.user_id) {
       loadDashboard();
     }
@@ -408,988 +390,791 @@
   onDestroy(() => {
     if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     document.removeEventListener('visibilitychange', onVisibilityChange);
-    // Clean up any pending visibility reload
     if (visibilityChangeTimeout) clearTimeout(visibilityChangeTimeout);
   });
 </script>
 
-<section class="dashboard-page-shell">
-  <div class="dashboard-shell dashboard-container">
-    <div class="welcome-banner">
-      <div>
-        <h2 class="welcome-title">Welcome back{currentUser?.full_name ? `, ${currentUser.full_name}` : ''}!</h2>
-        <p class="welcome-subtitle">
-          {#if currentUser?.role}
-            <span class="profile-badge">Intern</span>
-          {/if}
-          {#if readonlyDepartment}
-            <span class="profile-detail">• {normalizeDepartment(readonlyDepartment)}</span>
-          {/if}
-          {#if readonlyCourse}
-            <span class="profile-detail">• {readonlyCourse}</span>
-          {/if}
-          {#if readonlySchool}
-            <span class="profile-detail">• {readonlySchool}</span>
-          {/if}
-        </p>
-      </div>
-
-      <div class="mode-toggle">
-        <span class="mode-label">View:</span>
-        <button
-          class:active={progressMode === PROGRESS_MODES.APPROVED}
-          type="button"
-          on:click={() => (progressMode = PROGRESS_MODES.APPROVED)}
-          title="Show only approved hours"
-        >
-          Approved
-        </button>
-        <button
-          class:active={progressMode === PROGRESS_MODES.ALL}
-          type="button"
-          on:click={() => (progressMode = PROGRESS_MODES.ALL)}
-          title="Show approved hours + pending overtime requests"
-        >
-          All Requests
-        </button>
-      </div>
-    </div>
-
+<div class="dashboard-root">
+  <div class="body">
     {#if errorMessage}
-      <div class="banner error">{errorMessage}</div>
+      <div class="error-banner">{errorMessage}</div>
     {/if}
     {#if successMessage}
-      <div class="banner success">{successMessage}</div>
+      <div class="success-banner">{successMessage}</div>
     {/if}
 
-    <!-- KPI Row -->
-    <div class="summary-grid" aria-busy={loading}>
-      <div class="summary-card summary-card-hours">
-        <div class="card-header">
-          <h3>Hours Needed</h3>
-          <span class="card-icon">🎯</span>
+    {#if loading}
+      <!-- Skeleton Loading State -->
+      <!-- Welcome Banner Skeleton -->
+      <div class="welcome-card skeleton-welcome">
+        <div>
+          <div class="skeleton skeleton-text" style="width: 200px; height: 24px; margin-bottom: 8px;"></div>
+          <div class="skeleton skeleton-text" style="width: 300px; height: 16px;"></div>
         </div>
-        <div class="card-content">
+        <div class="view-toggle">
+          <div class="skeleton skeleton-text" style="width: 60px; height: 32px; border-radius: 20px;"></div>
+          <div class="skeleton skeleton-text" style="width: 80px; height: 32px; border-radius: 20px;"></div>
+        </div>
+      </div>
+
+      <!-- Stat Cards Skeletons -->
+      <div class="stat-grid">
+        {#each [1,2,3,4] as _}
+          <div class="stat-card skeleton-stat">
+            <div class="skeleton skeleton-text" style="width: 60px; height: 12px; margin-bottom: 12px;"></div>
+            <div class="skeleton skeleton-text" style="width: 50px; height: 32px;"></div>
+            <div class="skeleton skeleton-text" style="width: 80px; height: 12px; margin-top: 8px;"></div>
+          </div>
+        {/each}
+      </div>
+
+      <!-- Mid Card Skeleton -->
+      <div class="mid-card skeleton-mid">
+        <div class="mid-left">
+          <div class="skeleton skeleton-text" style="width: 100px; height: 11px; margin-bottom: 8px;"></div>
+          <div class="skeleton skeleton-text" style="width: 140px; height: 28px; margin-bottom: 6px;"></div>
+          <div class="skeleton skeleton-text" style="width: 250px; height: 14px;"></div>
+        </div>
+        <div class="mid-right mid-divider">
+          <div class="skeleton skeleton-text" style="width: 80px; height: 14px; margin-bottom: 8px;"></div>
+          <div class="skeleton skeleton-text" style="width: 100%; height: 6px; margin-bottom: 8px;"></div>
+          <div class="skeleton skeleton-text" style="width: 50px; height: 28px;"></div>
+        </div>
+      </div>
+
+      <!-- Bottom Grid Skeletons -->
+      <div class="bottom-grid">
+        <div class="bottom-card skeleton-bottom">
+          <div class="bottom-card-header">
+            <div class="skeleton skeleton-text" style="width: 100px; height: 16px;"></div>
+            <div class="skeleton skeleton-text" style="width: 60px; height: 14px;"></div>
+          </div>
+          {#each [1,2,3] as _}
+            <div class="activity-item">
+              <div class="skeleton" style="width: 8px; height: 8px; border-radius: 50%; margin-top: 4px;"></div>
+              <div style="flex: 1;">
+                <div class="skeleton skeleton-text" style="width: 120px; height: 16px; margin-bottom: 4px;"></div>
+                <div class="skeleton skeleton-text" style="width: 80px; height: 12px;"></div>
+              </div>
+            </div>
+          {/each}
+        </div>
+
+        <div class="bottom-card skeleton-bottom">
+          <div class="bottom-card-header">
+            <div class="skeleton skeleton-text" style="width: 100px; height: 16px;"></div>
+            <div class="skeleton skeleton-text" style="width: 60px; height: 14px;"></div>
+          </div>
+          {#each [1,2] as _}
+            <div class="task-item">
+              <div style="flex: 1;">
+                <div class="skeleton skeleton-text" style="width: 140px; height: 16px; margin-bottom: 4px;"></div>
+                <div class="skeleton skeleton-text" style="width: 90px; height: 12px;"></div>
+              </div>
+              <div class="skeleton skeleton-text" style="width: 50px; height: 24px; border-radius: 6px;"></div>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+    {:else}
+      <!-- Actual Content (unchanged) -->
+      <!-- Welcome banner -->
+      <div class="welcome-card">
+        <div>
+          <div class="welcome-name">Welcome back, {currentUser?.full_name || 'Intern'}!</div>
+          <div class="welcome-meta">
+            <span class="badge">Intern</span>
+            {#if readonlyDepartment}
+              <span class="welcome-info">• {normalizeDepartment(readonlyDepartment)}</span>
+            {/if}
+            {#if readonlyCourse}
+              <span class="welcome-info">• {readonlyCourse}</span>
+            {/if}
+            {#if readonlySchool}
+              <span class="welcome-info">• {readonlySchool}</span>
+            {/if}
+          </div>
+        </div>
+        <div class="view-toggle">
+          <span class="view-label">View:</span>
+          <div class="toggle-group">
+            <button
+              class="toggle-btn"
+              class:active={progressMode === PROGRESS_MODES.APPROVED}
+              on:click={() => progressMode = PROGRESS_MODES.APPROVED}
+            >Approved</button>
+            <button
+              class="toggle-btn"
+              class:active={progressMode === PROGRESS_MODES.ALL}
+              on:click={() => progressMode = PROGRESS_MODES.ALL}
+            >All Requests</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stat cards -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-top-bar bar-blue"></div>
+          <div class="stat-label">Hours Needed</div>
+          <div class="stat-icon icon-blue">🎯</div>
           <div class="stat-value">{totalOjtHours || 0}</div>
-          <div class="stat-label">total OJT hours</div>
+          <div class="stat-desc">total OJT hours</div>
         </div>
-      </div>
-
-      <div class="summary-card summary-card-completed">
-        <div class="card-header">
-          <h3>Hours Completed</h3>
-          <span class="card-icon">⏱️</span>
-        </div>
-        <div class="card-content">
+        <div class="stat-card">
+          <div class="stat-top-bar bar-green"></div>
+          <div class="stat-label">Hours Completed</div>
+          <div class="stat-icon icon-green">✅</div>
           <div class="stat-value">{hoursCompleted}</div>
-          <div class="stat-label">all rendered hours</div>
+          <div class="stat-desc">all rendered hours</div>
         </div>
-      </div>
-
-      <div class="summary-card summary-card-remaining">
-        <div class="card-header">
-          <h3>Hours Remaining</h3>
-          <span class="card-icon">🧭</span>
-        </div>
-        <div class="card-content">
+        <div class="stat-card">
+          <div class="stat-top-bar bar-purple"></div>
+          <div class="stat-label">Hours Remaining</div>
+          <div class="stat-icon icon-purple">⏱️</div>
           <div class="stat-value">{hoursRemaining}</div>
-          <div class="stat-label">left to finish</div>
+          <div class="stat-desc">left to finish</div>
         </div>
-      </div>
-
-      <div class="summary-card summary-card-days">
-        <div class="card-header">
-          <h3>Working Days Needed</h3>
-          <span class="card-icon">📅</span>
-        </div>
-        <div class="card-content">
+        <div class="stat-card">
+          <div class="stat-top-bar bar-amber"></div>
+          <div class="stat-label">Working Days Needed</div>
+          <div class="stat-icon icon-amber">📅</div>
           <div class="stat-value">{daysAndHoursNeeded}</div>
-          <div class="stat-label">to complete OJT</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Estimated end date + progress -->
-    <div class="wide-card estimated-end-card">
-      <div class="wide-left">
-        <h3>Estimated End Date</h3>
-        <div class="wide-value date-highlight">{computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : '—'}</div>
-        <div class="wide-meta">
-          Start: {formStartDate ? formatDateLong(formStartDate) : '—'} • Weekdays only (Mon–Fri)
+          <div class="stat-desc">to complete OJT</div>
         </div>
       </div>
 
-      <div class="wide-right">
-        <div class="progress-top">
-          <span class="progress-label">Progress</span>
-          <span class="progress-stats">{hoursCompleted} / {totalOjtHours || 0} hrs</span>
+      <!-- Mid card -->
+      <div class="mid-card">
+        <div class="mid-left">
+          <div class="mid-section-label">Estimated End Date</div>
+          <div class="mid-date">{computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : '—'}</div>
+          <div class="mid-meta">Start: {startDateDisplay} • Weekdays only (Mon–Fri)</div>
         </div>
-        <div class="progress-bar">
-          <div class="progress-fill" style={`width: ${progressPercent}%`}></div>
+        <div class="mid-right mid-divider">
+          <div class="progress-header">
+            <span class="progress-label">Progress</span>
+            <span class="progress-count">{hoursCompleted} / {totalOjtHours || 0} hrs</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: {progressPercent}%;"></div>
+          </div>
+          <div class="progress-pct">{progressPercent}%</div>
         </div>
-        <div class="progress-percent">{progressPercent}%</div>
       </div>
-    </div>
 
-    <!-- Recent Activity, Tasks and other dashboard content -->
-    <div class="content-grid">
-      <div class="card">
-        <div class="card-header-main">
-          <h3>Recent Activity</h3>
-          <a href="/activity" class="view-all">View All →</a>
-        </div>
-
-        <div class="activity-list">
-          {#if Array.isArray(activityLogs) && activityLogs.length}
-            {#each activityLogs as item (item.id || item.activity_id || item.created_at || activityTitle(item))}
-              <div class="activity-item">
-                <div class={`activity-dot ${normalizeActivityDotKind(item)}`}></div>
-                <div class="activity-content">
-                  <p class="activity-title">{activityTitle(item)}</p>
-                  <p class="activity-time">{activityWhen(item)}</p>
+      <!-- Bottom grid -->
+      <div class="bottom-grid">
+        <div class="bottom-card">
+          <div class="bottom-card-header">
+            <span class="bottom-card-title">Recent Activity</span>
+            <a href="/activity" class="view-all">View All →</a>
+          </div>
+          <div class="activity-list">
+            {#if Array.isArray(activityLogs) && activityLogs.length}
+              {#each activityLogs as item (item.id || item.activity_id || item.created_at || activityTitle(item))}
+                <div class="activity-item">
+                  <div class="dot {item.type === 'logout' ? 'dot-green' : 'dot-blue'}"></div>
+                  <div>
+                    <div class="activity-text">{activityTitle(item)}</div>
+                    <div class="activity-date">{activityWhen(item)}</div>
+                  </div>
                 </div>
-              </div>
-            {/each}
-          {:else}
-            <p class="empty">No recent activity yet.</p>
-          {/if}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header-main">
-          <h3>Upcoming Tasks</h3>
-          <a href="/tasks" class="view-all">View All →</a>
+              {/each}
+            {:else}
+              <div class="empty-state">No recent activity yet.</div>
+            {/if}
+          </div>
         </div>
 
-        <div class="tasks-list">
-          {#if Array.isArray(tasks) && tasks.length}
-            {#each tasks as task (task.task_id || task.id || task.due_date || task.title)}
-              <div class="task-item">
-                <div class="task-info">
-                  <p class="task-name">{String(task.title || task.name || 'Task')}</p>
-                  <p class="task-deadline">
-                    {task.due_date ? `Due: ${formatDateLong(String(task.due_date).slice(0, 10))}` : 'No due date'}
-                  </p>
+        <div class="bottom-card">
+          <div class="bottom-card-header">
+            <span class="bottom-card-title">Upcoming Tasks</span>
+            <a href="/tasks" class="view-all">View All →</a>
+          </div>
+          <div class="tasks-list">
+            {#if Array.isArray(tasks) && tasks.length}
+              {#each tasks as task (task.task_id || task.id || task.due_date || task.title)}
+                <div class="task-item">
+                  <div class="task-info">
+                    <div class="task-name">{String(task.title || task.name || 'Task')}</div>
+                    <div class="task-deadline">
+                      {task.due_date ? `Due: ${formatDateLong(String(task.due_date).slice(0, 10))}` : 'No due date'}
+                    </div>
+                  </div>
+                  <span class="priority-badge priority-{String(task.priority || 'medium').toLowerCase()}">
+                    {String(task.priority || 'Medium')}
+                  </span>
                 </div>
-                <span class={`priority-badge ${(String(task.priority || 'medium')).toLowerCase()}`}>
-                  {String(task.priority || 'Medium')}
-                </span>
-              </div>
-            {/each}
-          {:else}
-            <p class="empty">No upcoming tasks yet.</p>
-          {/if}
+              {/each}
+            {:else}
+              <div class="empty-state">No upcoming tasks yet.</div>
+            {/if}
+          </div>
         </div>
       </div>
-    </div>
+    {/if}
   </div>
-</section>
+</div>
 
 <style>
-  .dashboard-page-shell {
-    min-height: 100%;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .dashboard-shell {
-    --db-surface: #ffffff;
-    --db-surface-soft: #f3f8ff;
-    --db-border: #d7e3f1;
-    --db-heading: #0f172a;
-    --db-text: #1f2937;
-    --db-muted: #60748e;
-    position: relative;
-    border-radius: 1.25rem;
-    padding: 0.35rem;
-    isolation: isolate;
-    width: calc(100% + 3rem);
-    min-width: 0;
+  /* Reset and base */
+  * {
     box-sizing: border-box;
-    margin-top: -1.5rem;
-    margin-left: -1.5rem;
-    margin-right: -1.5rem;
-  }
-
-  .dashboard-shell::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -2;
-    border-radius: 1.25rem;
-    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
-  }
-
-  .dashboard-shell::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: 1.25rem;
-    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%);
-    pointer-events: none;
-  }
-
-  .dashboard-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-    min-width: 0;
-  }
-
-  .welcome-banner {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    padding: 1.25rem 1.25rem;
-    border-radius: 12px;
-    border: 1px solid rgba(0, 102, 204, 0.15);
-    background: #0066cc;
-    color: #ffffff;
-    box-shadow: 0 24px 42px -34px rgba(0, 51, 102, 0.88);
-  }
-
-  .welcome-title {
     margin: 0;
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: #ffffff;
-    letter-spacing: 0.2px;
-    font-family: var(--font-sans);
+    padding: 0;
   }
 
-  .welcome-subtitle {
-    margin: 0.25rem 0 0;
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 0.95rem;
+  .dashboard-root {
+    font-family: var(--font-sans, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif);
+    min-height: 100vh;
+    background: #f0f2f8;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  /* Dark mode styles - triggered by parent .dark class */
+  :global(.dark) .dashboard-root {
+    background: #0f1929;
+    color: #e2e8f0;
+  }
+
+  .body {
+    padding: 20px;
+  }
+
+  /* Error / Success banners */
+  .error-banner, .success-banner {
+    padding: 10px 16px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+  .error-banner {
+    background: #fee2e2;
+    border: 0.5px solid #fecaca;
+    color: #991b1b;
+  }
+  .success-banner {
+    background: #e0f2e7;
+    border: 0.5px solid #bbf7d0;
+    color: #166534;
+  }
+  :global(.dark) .error-banner {
+    background: #2d1a1a;
+    border-color: #5c2a2a;
+    color: #fca5a5;
+  }
+  :global(.dark) .success-banner {
+    background: #1a2a1f;
+    border-color: #2a5c3a;
+    color: #86efac;
+  }
+
+  /* Welcome card */
+  .welcome-card {
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
-  }
-
-  .profile-badge {
-    display: inline-block;
-    background: rgba(255, 255, 255, 0.25);
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    background: #2355e8;
     color: #ffffff;
-    padding: 0.3rem 0.7rem;
-    border-radius: 999px;
-    font-weight: 600;
-    font-size: 0.9rem;
-    border: 1px solid rgba(255, 255, 255, 0.4);
+  }
+  :global(.dark) .welcome-card {
+    background: #1a2a5e;
+    color: #e2e8f0;
+    border: 0.5px solid #2a3a6e;
+  }
+  .welcome-name {
+    font-size: 18px;
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+  .welcome-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+  }
+  :global(.dark) .badge {
+    background: rgba(255,255,255,0.1);
+    color: #c9d3e0;
+  }
+  .welcome-info {
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+  }
+  :global(.dark) .welcome-info {
+    color: #8892a4;
+  }
+  .view-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .view-label {
+    font-size: 13px;
+    color: rgba(255,255,255,0.75);
+  }
+  .toggle-group {
+    display: flex;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.3);
+  }
+  :global(.dark) .toggle-group {
+    border-color: #2a3a6e;
+  }
+  .toggle-btn {
+    padding: 5px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    transition: background 0.15s;
+    color: rgba(255,255,255,0.7);
+  }
+  .toggle-btn.active {
+    background: rgba(255,255,255,0.25);
+    color: #fff;
+  }
+  :global(.dark) .toggle-btn {
+    color: #8892a4;
+  }
+  :global(.dark) .toggle-btn.active {
+    background: #2a3a6e;
+    color: #e2e8f0;
   }
 
-  .profile-detail {
-    color: rgba(255, 255, 255, 0.8);
+  /* Stat grid */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .stat-card {
+    border-radius: 12px;
+    padding: 16px;
+    border: 0.5px solid #e2e6f0;
+    background: #ffffff;
+    position: relative;
+    overflow: hidden;
+  }
+  :global(.dark) .stat-card {
+    background: #161b2e;
+    border-color: #2a3050;
+  }
+  .stat-top-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 12px 12px 0 0;
+  }
+  .bar-blue { background: #2355e8; }
+  .bar-green { background: #22c55e; }
+  .bar-purple { background: #8b5cf6; }
+  .bar-amber { background: #f59e0b; }
+  .stat-label {
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 10px;
+    margin-top: 4px;
+    color: #6b7280;
+  }
+  :global(.dark) .stat-label {
+    color: #8892a4;
+  }
+  .stat-icon {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+  }
+  .icon-blue { background: #eff6ff; }
+  .icon-green { background: #f0fdf4; }
+  .icon-purple { background: #faf5ff; }
+  .icon-amber { background: #fffbeb; }
+  :global(.dark) .icon-blue { background: #1e2a4a; }
+  :global(.dark) .icon-green { background: #14291e; }
+  :global(.dark) .icon-purple { background: #1e1a2e; }
+  :global(.dark) .icon-amber { background: #2a2010; }
+  .stat-value {
+    font-size: 26px;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .stat-desc {
+    font-size: 12px;
+    color: #9ca3af;
+  }
+  :global(.dark) .stat-desc {
+    color: #4a5568;
+  }
+
+  /* Mid card */
+  .mid-card {
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    border: 0.5px solid #e2e6f0;
+    background: #ffffff;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  :global(.dark) .mid-card {
+    background: #161b2e;
+    border-color: #2a3050;
+  }
+  .mid-divider {
+    border-left: 0.5px solid #e2e6f0;
+  }
+  :global(.dark) .mid-divider {
+    border-color: #2a3050;
+  }
+  .mid-left {
+    padding-right: 24px;
+  }
+  .mid-right {
+    padding-left: 24px;
+  }
+  .mid-section-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+    color: #9ca3af;
+  }
+  :global(.dark) .mid-section-label {
+    color: #4a5568;
+  }
+  .mid-date {
+    font-size: 22px;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .mid-meta {
+    font-size: 13px;
+    color: #6b7280;
+  }
+  :global(.dark) .mid-meta {
+    color: #8892a4;
+  }
+  .progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .progress-label {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .progress-count {
+    font-size: 13px;
+    color: #6b7280;
+  }
+  :global(.dark) .progress-count {
+    color: #8892a4;
+  }
+  .progress-bar-bg {
+    height: 6px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    background: #e2e6f0;
+  }
+  :global(.dark) .progress-bar-bg {
+    background: #2a3050;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: #2355e8;
+    width: 0%;
+    transition: width 0.2s ease;
+  }
+  .progress-pct {
+    font-size: 22px;
     font-weight: 500;
   }
 
-  .mode-label {
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 0.9rem;
-  }
-
-  .mode-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    background: rgba(15, 23, 42, 0.2);
-    padding: 0.2rem;
-  }
-
-  .mode-toggle button {
-    border: 1px solid transparent;
-    background: transparent;
-    color: #ffffff;
-    padding: 0.45rem 0.75rem;
-    border-radius: 999px;
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 0.9rem;
-    transition: all 0.2s ease;
-  }
-
-  .mode-toggle button:hover {
-    background: rgba(255, 255, 255, 0.12);
-  }
-
-  .mode-toggle button.active {
-    background: rgba(255, 255, 255, 0.92);
-    color: #111827;
-    border-color: rgba(255, 255, 255, 0.92);
-  }
-
-  .banner {
-    padding: 0.75rem 1rem;
-    border-radius: 10px;
-    border: 1px solid #e5e7eb;
-    background: #fff;
-    font-size: 0.95rem;
-  }
-
-  .banner.error {
-    border-color: #fecaca;
-    background: #fef2f2;
-    color: #991b1b;
-  }
-
-  .banner.success {
-    border-color: #bbf7d0;
-    background: #f0fdf4;
-    color: #166534;
-  }
-
-  .wide-card {
+  /* Bottom grid */
+  .bottom-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-    gap: 1.25rem;
-    padding: 1.25rem;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .bottom-card {
     border-radius: 12px;
-    border: 1px solid var(--db-border);
-    background: var(--db-surface);
-    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
+    padding: 18px 20px;
+    border: 0.5px solid #e2e6f0;
+    background: #ffffff;
   }
-
-  .estimated-end-card {
-    background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
-    border: 1px solid #c9dffe;
-    position: relative;
-    overflow: hidden;
+  :global(.dark) .bottom-card {
+    background: #161b2e;
+    border-color: #2a3050;
   }
-
-  .estimated-end-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 300px;
-    height: 300px;
-    background: radial-gradient(circle, rgba(15, 108, 189, 0.08) 0%, transparent 70%);
-    border-radius: 50%;
-    transform: translate(40%, -30%);
-    pointer-events: none;
-  }
-
-  .wide-left h3 {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--db-heading);
-  }
-
-  .wide-left,
-  .wide-right {
-    min-width: 0;
-  }
-
-  .wide-value {
-    margin-top: 0.5rem;
-    font-size: 1.5rem;
-    font-weight: 800;
-    color: var(--db-heading);
-  }
-
-  .date-highlight {
-    color: #000000;
-    display: inline-block;
-    font-size: 1.375rem;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-  }
-
-  .wide-meta {
-    margin-top: 0.35rem;
-    color: var(--db-muted);
-    font-size: 0.9rem;
-    overflow-wrap: anywhere;
-  }
-
-  .progress-top {
+  .bottom-card-header {
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 1rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .progress-label {
-    font-weight: 700;
-    color: var(--db-heading);
-    font-size: 1.1rem;
-  }
-
-  .progress-stats {
-    color: var(--db-muted);
-    font-size: 0.9rem;
-  }
-
-  .progress-percent {
-    margin-top: 0.5rem;
-    font-weight: 700;
-    color: var(--db-heading);
-    font-size: 1.8rem;
-  }
-
-  .muted {
-    color: var(--db-muted);
-    font-size: 0.9rem;
-  }
-
-  .profile-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 0.9rem;
-    margin-top: 1rem;
-  }
-
-  .field-display {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    border: 1px solid #bed2e8;
-    border-radius: 0.85rem;
-    background: #edf4fb;
-    padding: 0.75rem 0.85rem;
-  }
-
-  .empty {
-    margin: 0.25rem 0 0;
-    color: var(--db-muted);
-    font-size: 0.95rem;
-  }
-
-  .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-    gap: 1.5rem;
-    margin-bottom: 0.25rem;
-    min-width: 0;
-  }
-
-  .summary-card {
-    position: relative;
-    overflow: hidden;
-    background: var(--db-surface);
-    border: 1px solid var(--db-border);
-    border-radius: 12px;
-    padding: 1.5rem;
-    color: var(--db-heading);
-    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    min-width: 0;
-  }
-
-  .summary-card::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 3px;
-  }
-
-  .summary-card-hours::before {
-    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
-  }
-
-  .summary-card-completed::before {
-    background: linear-gradient(90deg, #0f766e, #34d399);
-  }
-
-  .summary-card-remaining::before {
-    background: linear-gradient(90deg, #9333ea, #6366f1);
-  }
-
-  .summary-card-days::before {
-    background: linear-gradient(90deg, #d97706, #f59e0b);
-  }
-
-  .summary-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.45);
-  }
-
-  .card-header {
-    display: flex;
-    justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
-  }
-
-  .card-header h3 {
-    font-size: 0.95rem;
-    font-weight: 700;
-    margin: 0;
-    color: var(--db-heading);
-  }
-
-  .card-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.2rem;
-    height: 2.2rem;
-    border-radius: 0.7rem;
-    background: #e8f2fd;
-    color: #0f6cbd;
-    border: 1px solid #bfdbfe;
-    font-size: 1rem;
-  }
-
-  .summary-card-completed .card-icon {
-    background: #ddfbea;
-    color: #0f766e;
-    border-color: #86efac;
-  }
-
-  .summary-card-remaining .card-icon {
-    background: #ede9fe;
-    color: #6d28d9;
-    border-color: #c4b5fd;
-  }
-
-  .summary-card-days .card-icon {
-    background: #fff3dd;
-    color: #b45309;
-    border-color: #fcd34d;
-  }
-
-  .card-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .stat-value {
-    font-size: 2.5rem;
-    font-weight: 700;
-    line-height: 1;
-    color: var(--db-heading);
-  }
-
-  .stat-label {
-    font-size: 0.9rem;
-    color: var(--db-muted);
-  }
-
-  .progress-bar {
-    width: 100%;
-    height: 6px;
-    background: #dbe7f5;
-    border-radius: 3px;
-    overflow: hidden;
-    margin: 0.5rem 0;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
-    border-radius: 3px;
-    transition: width 0.3s ease;
-  }
-
-  .content-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-    gap: 1.5rem;
-    min-width: 0;
-  }
-
-  .card {
-    background: var(--db-surface);
-    border-radius: 12px;
-    padding: 1.5rem;
-    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
-    border: 1px solid var(--db-border);
-    transition: box-shadow 0.3s ease;
-    min-width: 0;
-  }
-
-  .card:hover {
-    box-shadow: 0 18px 36px -26px rgba(15, 23, 42, 0.45);
-  }
-
-  .card-header-main {
-    display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.25rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--db-border);
+    margin-bottom: 16px;
   }
-
-  .card-header-main h3 {
-    font-size: 1.1rem;
-    font-weight: 700;
-    margin: 0;
-    color: var(--db-heading);
+  .bottom-card-title {
+    font-size: 14px;
+    font-weight: 500;
   }
-
   .view-all {
-    color: #0f6cbd;
+    font-size: 13px;
+    color: #2355e8;
+    cursor: pointer;
     text-decoration: none;
-    font-size: 0.9rem;
-    font-weight: 700;
-    transition: color 0.3s ease;
   }
-
-  .view-all:hover {
-    color: #0e7490;
-  }
-
-  .activity-list {
+  .activity-list, .tasks-list {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    max-height: 400px;
-    overflow-y: auto;
-    padding-right: 0.5rem;
+    gap: 0;
   }
-
   .activity-item {
     display: flex;
-    gap: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid #e3eef9;
-    min-width: 0;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 0.5px solid #f3f4f6;
   }
-
+  :global(.dark) .activity-item {
+    border-color: #1e2438;
+  }
   .activity-item:last-child {
     border-bottom: none;
   }
-
-  .activity-dot {
-    width: 12px;
-    height: 12px;
+  .dot {
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    flex-shrink: 0;
     margin-top: 4px;
+    flex-shrink: 0;
   }
-
-  .activity-dot.completed {
-    background: #22c55e;
+  .dot-green { background: #22c55e; }
+  .dot-blue { background: #3b82f6; }
+  .activity-text {
+    font-size: 14px;
+    font-weight: 500;
   }
-
-  .activity-dot.submitted {
-    background: #3b82f6;
+  .activity-date {
+    font-size: 12px;
+    margin-top: 2px;
+    color: #9ca3af;
   }
-
-  .activity-dot.reviewed {
-    background: #f59e0b;
+  :global(.dark) .activity-date {
+    color: #4a5568;
   }
-
-  .activity-dot.assigned {
-    background: #8b5cf6;
-  }
-
-  .activity-content {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .activity-title {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--db-heading);
-    margin: 0 0 0.25rem 0;
-  }
-
-  .activity-time {
-    font-size: 0.85rem;
-    color: var(--db-muted);
-    margin: 0;
-  }
-
-  .tasks-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    max-height: 400px;
-    overflow-y: auto;
-    padding-right: 0.5rem;
-  }
-
   .task-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem;
-    background: #edf4fb;
-    border: 1px solid #bed2e8;
-    border-radius: 8px;
-    transition: background 0.3s ease, border-color 0.3s ease;
-    min-width: 0;
-    gap: 0.75rem;
+    padding: 12px 0;
+    border-bottom: 0.5px solid #f3f4f6;
   }
-
-  .task-item:hover {
-    background: #e7f1fb;
-    border-color: #97badc;
+  :global(.dark) .task-item {
+    border-color: #1e2438;
   }
-
+  .task-item:last-child {
+    border-bottom: none;
+  }
   .task-info {
     flex: 1;
-    min-width: 0;
   }
-
   .task-name {
-    font-weight: 600;
-    color: var(--db-heading);
-    margin: 0 0 0.25rem 0;
-    font-size: 0.95rem;
-    overflow-wrap: anywhere;
+    font-weight: 500;
+    font-size: 14px;
+    margin-bottom: 2px;
   }
-
   .task-deadline {
-    font-size: 0.85rem;
-    color: var(--db-muted);
-    margin: 0;
+    font-size: 12px;
+    color: #9ca3af;
   }
-
+  :global(.dark) .task-deadline {
+    color: #4a5568;
+  }
   .priority-badge {
     display: inline-block;
-    padding: 0.35rem 0.75rem;
+    padding: 4px 8px;
     border-radius: 6px;
-    font-size: 0.8rem;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 500;
     text-transform: capitalize;
   }
-
-  .priority-badge.high {
+  .priority-high {
     background: #ffe4e6;
     color: #be123c;
     border: 1px solid #fecdd3;
   }
-
-  .priority-badge.medium {
+  .priority-medium {
     background: #fff7d6;
     color: #92400e;
     border: 1px solid #fde68a;
   }
-
-  .priority-badge.low {
+  .priority-low {
     background: #dcfce7;
     color: #166534;
     border: 1px solid #86efac;
   }
-
-  :global(.dark) .dashboard-shell {
-    --db-surface: #162338;
-    --db-surface-soft: #1b2a42;
-    --db-border: #2b3c57;
-    --db-heading: #e5edf8;
-    --db-text: #cfdceb;
-    --db-muted: #9ab0cb;
-  }
-
-  :global(.dark) .dashboard-shell::before {
-    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
-  }
-
-  :global(.dark) .dashboard-shell::after {
-    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
-  }
-
-  :global(.dark) .summary-card,
-  :global(.dark) .wide-card,
-  :global(.dark) .card {
-    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
-  }
-
-  :global(.dark) .welcome-banner {
-    background: linear-gradient(115deg, #1a2442 0%, #1e3a5f 52%, #2d5a8c 100%);
-    border-color: rgba(59, 130, 246, 0.25);
-    box-shadow: 0 24px 42px -34px rgba(2, 8, 23, 0.98);
-  }
-
-  :global(.dark) .welcome-title {
-    color: #e5f0ff;
-  }
-
-  :global(.dark) .welcome-subtitle {
-    color: rgba(226, 232, 240, 0.8);
-  }
-
-  :global(.dark) .profile-badge {
-    background: rgba(59, 130, 246, 0.15);
-    border-color: rgba(100, 150, 220, 0.4);
-    color: #93c5fd;
-  }
-
-  :global(.dark) .profile-detail {
-    color: rgba(226, 232, 240, 0.85);
-  }
-
-  :global(.dark) .mode-label {
-    color: rgba(226, 232, 240, 0.85);
-  }
-
-  :global(.dark) .mode-toggle {
-    background: rgba(30, 58, 95, 0.4);
-    border-color: rgba(79, 172, 254, 0.25);
-  }
-
-  :global(.dark) .mode-toggle button.active {
-    background: rgba(59, 130, 246, 0.25);
-    border-color: rgba(59, 130, 246, 0.5);
-  }
-
-  :global(.dark) .estimated-end-card {
-    background: linear-gradient(135deg, #1a2d45 0%, #162338 100%);
-    border: 1px solid #2b4570;
-  }
-
-  :global(.dark) .date-highlight {
-    color: #ffffff;
-  }
-
-  :global(.dark) .card-icon {
-    background: rgba(91, 177, 255, 0.16);
-    color: #93c5fd;
-    border-color: rgba(125, 211, 252, 0.4);
-  }
-
-  :global(.dark) .summary-card-completed .card-icon {
-    background: rgba(16, 185, 129, 0.2);
-    color: #6ee7b7;
-    border-color: rgba(16, 185, 129, 0.45);
-  }
-
-  :global(.dark) .summary-card-remaining .card-icon {
-    background: rgba(167, 139, 250, 0.25);
-    color: #c4b5fd;
-    border-color: rgba(196, 181, 253, 0.45);
-  }
-
-  :global(.dark) .summary-card-days .card-icon {
-    background: rgba(245, 158, 11, 0.2);
-    color: #fcd34d;
-    border-color: rgba(245, 158, 11, 0.45);
-  }
-
-  :global(.dark) .progress-bar {
-    background: #1a2c45;
-  }
-
-  :global(.dark) .task-item,
-  :global(.dark) .field-display {
-    background: #1a2c45;
-    border-color: #334b6b;
-  }
-
-  :global(.dark) .task-item:hover {
-    background: #233652;
-    border-color: #49678f;
-  }
-
-  :global(.dark) .priority-badge.high {
+  :global(.dark) .priority-high {
     background: rgba(251, 113, 133, 0.18);
     color: #fda4af;
     border-color: rgba(251, 113, 133, 0.4);
   }
-
-  :global(.dark) .priority-badge.medium {
+  :global(.dark) .priority-medium {
     background: rgba(250, 204, 21, 0.18);
     color: #fde047;
     border-color: rgba(250, 204, 21, 0.4);
   }
-
-  :global(.dark) .priority-badge.low {
+  :global(.dark) .priority-low {
     background: rgba(34, 197, 94, 0.18);
     color: #86efac;
     border-color: rgba(34, 197, 94, 0.4);
   }
+  .empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 80px;
+    font-size: 14px;
+    color: #9ca3af;
+  }
+  :global(.dark) .empty-state {
+    color: #4a5568;
+  }
 
-  @media (max-width: 768px) {
-    .dashboard-shell {
-      width: 100%;
-      margin-top: 0;
-      margin-left: 0;
-      margin-right: 0;
-      border-radius: 1rem;
-      padding: 0;
+  /* ===== Skeleton Loading Styles ===== */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 4px;
+  }
+  :global(.dark) .skeleton {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.3) 20%,
+      rgba(255, 255, 255, 0.6) 60%,
+      rgba(255, 255, 255, 0)
+    );
+    animation: shimmer 1.5s infinite;
+  }
+  :global(.dark) .skeleton::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.05) 20%,
+      rgba(255, 255, 255, 0.1) 60%,
+      rgba(255, 255, 255, 0)
+    );
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
     }
+  }
 
-    .welcome-banner {
-      flex-direction: column;
-      align-items: flex-start;
+  .skeleton-text {
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 6px;
+    height: 1em;
+  }
+  :global(.dark) .skeleton-text {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .skeleton-welcome {
+    background: #2355e8;
+  }
+  :global(.dark) .skeleton-welcome {
+    background: #1a2a5e;
+    border: 0.5px solid #2a3a6e;
+  }
+
+  .skeleton-stat {
+    background: #ffffff;
+  }
+  :global(.dark) .skeleton-stat {
+    background: #161b2e;
+    border-color: #2a3050;
+  }
+
+  .skeleton-mid {
+    background: #ffffff;
+  }
+  :global(.dark) .skeleton-mid {
+    background: #161b2e;
+    border-color: #2a3050;
+  }
+
+  .skeleton-bottom {
+    background: #ffffff;
+  }
+  :global(.dark) .skeleton-bottom {
+    background: #161b2e;
+    border-color: #2a3050;
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .stat-grid {
+      grid-template-columns: repeat(2, 1fr);
     }
-
-    .mode-toggle {
-      width: 100%;
-      justify-content: center;
-    }
-
-    .wide-card {
+    .mid-card {
       grid-template-columns: 1fr;
     }
-
-    .summary-grid {
+    .bottom-grid {
       grid-template-columns: 1fr;
     }
-
-    .content-grid {
-      grid-template-columns: 1fr;
+    .mid-divider {
+      border-left: none;
+      border-top: 0.5px solid #e2e6f0;
+      padding-top: 16px;
+      padding-left: 0;
+      margin-top: 12px;
     }
-
-    .profile-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .stat-value {
-      font-size: 2rem;
-    }
-  }
-
-  /* Scrollbar styling */
-  .activity-list::-webkit-scrollbar,
-  .tasks-list::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .activity-list::-webkit-scrollbar-track,
-  .tasks-list::-webkit-scrollbar-track {
-    background: #f0f0f0;
-    border-radius: 10px;
-  }
-
-  .activity-list::-webkit-scrollbar-thumb,
-  .tasks-list::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 10px;
-  }
-
-  .activity-list::-webkit-scrollbar-thumb:hover,
-  .tasks-list::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
-  }
-
-  :global(.dark) .activity-list::-webkit-scrollbar-track,
-  :global(.dark) .tasks-list::-webkit-scrollbar-track {
-    background: #1e293b;
-  }
-
-  :global(.dark) .activity-list::-webkit-scrollbar-thumb,
-  :global(.dark) .tasks-list::-webkit-scrollbar-thumb {
-    background: #475569;
-  }
-
-  :global(.dark) .activity-list::-webkit-scrollbar-thumb:hover,
-  :global(.dark) .tasks-list::-webkit-scrollbar-thumb:hover {
-    background: #64748b;
-  }
-
-  @media (max-width: 1100px) {
-    .wide-card {
-      grid-template-columns: 1fr;
-    }
-
-    .content-grid {
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+    :global(.dark) .mid-divider {
+      border-color: #2a3050;
     }
   }
 </style>
