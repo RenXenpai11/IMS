@@ -676,9 +676,9 @@
 
         <!-- Weekend Warning for Absence Requests -->
         {#if form.requestType === 'Absence' && isWeekend && form.date}
-          <div class="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 lg:col-span-2">
+          <div class="weekend-warning flex items-center gap-2 rounded-lg border p-3 lg:col-span-2">
             <span class="text-lg">⚠️</span>
-            <span class="text-sm font-medium text-amber-900">This date is a weekend/day off. Absence requests cannot be submitted for weekends.</span>
+            <span class="text-sm font-medium">This date is a weekend/day off. Absence requests cannot be submitted for weekends.</span>
           </div>
         {/if}
 
@@ -1305,6 +1305,12 @@
     font-weight: 600;
   }
 
+  :global(.dark) .meta-pill {
+    border-color: #334b6b;
+    background: #1f3a52;
+    color: #7cc3ff;
+  }
+
   .meta-pill-secondary {
     display: inline-flex;
     align-items: center;
@@ -1334,6 +1340,11 @@
   .reason-box {
     background: #f1f7fd;
     border-color: #c9d9ec;
+  }
+
+  :global(.dark) .reason-box {
+    background: #1a2c45;
+    border-color: #334b6b;
   }
 
   .status-badge {
@@ -1415,6 +1426,59 @@
   .action-delete:hover {
     filter: brightness(1.06);
     transform: translateY(-1px);
+  }
+
+  :global(.dark) .request-card {
+    position: relative;
+    overflow: hidden;
+  }
+
+  :global(.dark) .request-card-pending,
+  :global(.dark) .request-card-approved,
+  :global(.dark) .request-card-rejected {
+    background: #162338;
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .request-card:hover {
+    box-shadow: 0 18px 36px -26px rgba(0, 0, 0, 0.8);
+  }
+
+  :global(.dark) .request-card-focused {
+    border-color: #0f6cbd;
+    box-shadow: 0 0 0 3px rgba(15, 108, 189, 0.25), 0 18px 36px -24px rgba(0, 0, 0, 0.8);
+  }
+
+  :global(.dark) .request-type-icon {
+    background: rgba(91, 177, 255, 0.16);
+    color: #93c5fd;
+    border-color: rgba(125, 211, 252, 0.4);
+  }
+
+  :global(.dark) .request-copy .requests-heading {
+    color: #e5edf8;
+  }
+
+  :global(.dark) .request-meta {
+    gap: 0.5rem;
+  }
+
+  :global(.dark) .submit-button {
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    color: #ffffff;
+    border-color: #0f6cbd;
+    box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.8);
+  }
+
+  :global(.dark) .submit-button:hover:not(:disabled) {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+    box-shadow: 0 20px 36px -14px rgba(15, 108, 189, 1);
+  }
+
+  :global(.dark) .submit-button:disabled {
+    opacity: 0.5;
+    box-shadow: none;
   }
 
   :global(.dark) .requests-shell {
@@ -1604,18 +1668,50 @@
     transform: translateY(-1px);
   }
 
+  :global(.dark) .request-type-toggle {
+    background: #1a2c45;
+    border-color: #334b6b;
+  }
+
+  :global(.dark) .request-type-btn {
+    background: transparent;
+    color: #9ab0cb;
+  }
+
+  :global(.dark) .request-type-btn:hover {
+    background: rgba(91, 177, 255, 0.15);
+    color: #b8cae0;
+  }
+
+  :global(.dark) .request-type-btn-active {
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+    color: #ffffff;
+    border-color: #0f6cbd;
+    box-shadow: 0 8px 16px -6px rgba(15, 108, 189, 0.6);
+  }
+
+  :global(.dark) .request-type-btn-active:hover {
+    box-shadow: 0 12px 24px -8px rgba(15, 108, 189, 0.7);
+    transform: translateY(-1px);
+  }
+
   /* Filter Buttons */
   .filter-btn {
-    border: 1px solid transparent;
+    border: 1px solid #cbd5e1;
     outline: none;
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    background: hsl(var(--clr-bg-secondary, 210 40% 96%));
-    color: hsl(var(--clr-text-secondary, 210 20% 50%));
+    background: #f3f4f6;
+    color: #6b7280;
+    padding: 0.5rem 1rem;
+    border-radius: 0.6rem;
+    font-weight: 500;
+    font-size: 0.9rem;
   }
 
   .filter-btn:hover {
-    background: hsl(var(--clr-bg-tertiary, 210 35% 90%));
+    background: #e5e7eb;
+    border-color: #9ca3af;
   }
 
   .filter-btn-active {
@@ -1623,6 +1719,7 @@
     color: #ffffff;
     font-weight: 600;
     box-shadow: 0 8px 16px -6px rgba(15, 108, 189, 0.4);
+    border-color: #0f6cbd;
   }
 
   .filter-btn-active:hover {
@@ -1631,25 +1728,28 @@
   }
 
   /* Dark mode support for filter buttons */
-  @media (prefers-color-scheme: dark) {
-    .filter-btn {
-      background: hsl(210 15% 25%);
-      color: hsl(210 15% 80%);
-    }
+  :global(.dark) .filter-btn {
+    background: #2d3748;
+    border-color: #475569;
+    color: #cbd5e0;
+  }
 
-    .filter-btn:hover {
-      background: hsl(210 15% 32%);
-    }
+  :global(.dark) .filter-btn:hover {
+    background: #3a4556;
+    border-color: #64748b;
+    color: #e2e8f0;
+  }
 
-    .filter-btn-active {
-      background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
-      color: #ffffff;
-      box-shadow: 0 8px 16px -6px rgba(15, 108, 189, 0.6);
-    }
+  :global(.dark) .filter-btn-active {
+    background: linear-gradient(135deg, #0f6cbd 0%, #0ea5e9 100%);
+    color: #ffffff;
+    border-color: #0f6cbd;
+    box-shadow: 0 8px 16px -6px rgba(15, 108, 189, 0.6);
+  }
 
-    .filter-btn-active:hover {
-      box-shadow: 0 12px 24px -8px rgba(15, 108, 189, 0.7);
-    }
+  :global(.dark) .filter-btn-active:hover {
+    box-shadow: 0 12px 24px -8px rgba(15, 108, 189, 0.7);
+    transform: translateY(-1px);
   }
 
   /* Format hint text */
@@ -1657,6 +1757,19 @@
     color: #9ca3af;
     font-style: italic;
     margin-top: -0.5rem;
+  }
+
+  /* Weekend Warning Box */
+  .weekend-warning {
+    border-color: #fcd34d;
+    background: #fffbeb;
+    color: #92400e;
+  }
+
+  :global(.dark) .weekend-warning {
+    border-color: rgba(250, 204, 21, 0.45);
+    background: rgba(250, 204, 21, 0.15);
+    color: #fde047;
   }
 
   /* Date and Time Input Styling */
