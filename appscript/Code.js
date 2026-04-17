@@ -124,6 +124,14 @@ function dispatchAction_(payload) {
     return handleListSupervisorAssignedStudents_(payload);
   }
 
+  if (action === 'archive_supervisor_assignment') {
+    return handleArchiveSupervisorAssignment_(payload);
+  }
+
+  if (action === 'restore_supervisor_assignment') {
+    return handleRestoreSupervisorAssignment_(payload);
+  }
+
   if (action === 'list_supervisor_time_logs') {
     return handleListSupervisorTimeLogs_(payload);
   }
@@ -2564,6 +2572,79 @@ function getActiveSupervisorAssignments_(supervisorUserId) {
     var status = String(row.status || 'active').trim().toLowerCase();
     return String(row.supervisor_user_id || '').trim() === targetSupervisorId && status !== 'inactive';
   });
+}
+
+function handleArchiveSupervisorAssignment_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var studentUserId = String(payload.student_user_id || '').trim();
+  if (!supervisorUserId || !studentUserId) {
+    return { ok: false, error: 'supervisor_user_id and student_user_id are required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) return { ok: false, error: 'Supervisor not found.' };
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') return { ok: false, error: 'Only supervisors can archive assignments.' };
+
+  var sheet = getSupervisorAssignmentsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var supCol = findColumnIndex_(headers, 'supervisor_user_id');
+  var stuCol = findColumnIndex_(headers, 'student_user_id');
+  var statusCol = findColumnIndex_(headers, 'status');
+  if (supCol === 0 || stuCol === 0) return { ok: false, error: 'supervisor_assignments sheet missing required columns.' };
+
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][supCol - 1] || '').trim() === supervisorUserId && String(values[i][stuCol - 1] || '').trim() === studentUserId) {
+      var rowIndex = i + 1;
+      var update = {};
+      if (statusCol !== 0) update.status = 'inactive';
+      updateObjectRow_(sheet, rowIndex, update);
+      return { ok: true };
+    }
+  }
+
+  return { ok: false, error: 'Assignment not found.' };
+}
+
+function handleRestoreSupervisorAssignment_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var studentUserId = String(payload.student_user_id || '').trim();
+  if (!supervisorUserId || !studentUserId) {
+    return { ok: false, error: 'supervisor_user_id and student_user_id are required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) return { ok: false, error: 'Supervisor not found.' };
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') return { ok: false, error: 'Only supervisors can restore assignments.' };
+
+  var sheet = getSupervisorAssignmentsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var supCol = findColumnIndex_(headers, 'supervisor_user_id');
+  var stuCol = findColumnIndex_(headers, 'student_user_id');
+  var statusCol = findColumnIndex_(headers, 'status');
+  if (supCol === 0 || stuCol === 0) return { ok: false, error: 'supervisor_assignments sheet missing required columns.' };
+
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][supCol - 1] || '').trim() === supervisorUserId && String(values[i][stuCol - 1] || '').trim() === studentUserId) {
+      var rowIndex = i + 1;
+      var update = {};
+      if (statusCol !== 0) update.status = 'active';
+      updateObjectRow_(sheet, rowIndex, update);
+      return { ok: true };
+    }
+  }
+
+  return { ok: false, error: 'Assignment not found.' };
+}
+
+// Expose simple wrappers callable via google.script.run
+function archiveSupervisorAssignment(payload) {
+  return handleArchiveSupervisorAssignment_(payload);
+}
+
+function restoreSupervisorAssignment(payload) {
+  return handleRestoreSupervisorAssignment_(payload);
 }
 
 function isStudentAssignedToSupervisor_(supervisorUserId, studentUserId) {

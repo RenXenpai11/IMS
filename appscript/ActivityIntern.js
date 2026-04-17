@@ -1,6 +1,8 @@
+var ACTIVITY_WORKLOG_HEADERS_ = ['task_id', 'user_id', 'task', 'notes', 'learnings', 'date', 'status', 'created_at', 'created_by', 'updated_by'];
+
 // Save a worklog to the 'activity_worklogs' sheet
 function addActivityWorklog(payload) {
-	var sheet = getSheet_('activity_worklogs');
+	var sheet = getOrCreateSheetWithHeaders_('activity_worklogs', ACTIVITY_WORKLOG_HEADERS_);
 	var now = new Date();
 	// Generate unique key for task_id if not provided, format WL_0001, WL_0002, ...
 	var uniqueKey = payload.task_id;
@@ -25,7 +27,7 @@ function addActivityWorklog(payload) {
 		payload.date || '',
 		payload.created_at || now.toISOString(),
 		payload.created_by || '',
-		payload.updated_by || '',
+		payload.updated_by || ''
 	];
 	sheet.appendRow(row);
 	return { ok: true, task_id: uniqueKey };
@@ -93,7 +95,7 @@ function addWorklogAttachment(payload) {
 
 function getActivityWorklogs(payload) {
 	var filter = payload || {};
-	var sheet = getSheet_('activity_worklogs');
+	var sheet = getOrCreateSheetWithHeaders_('activity_worklogs', ACTIVITY_WORKLOG_HEADERS_);
 	var rows = readSheetObjects_(sheet);
 	var requestedUserId = String(filter.user_id || '').trim();
 
@@ -114,6 +116,7 @@ function getActivityWorklogs(payload) {
 				notes: String(row.notes || '').trim(),
 				learnings: String(row.learnings || '').trim(),
 				date: String(row.date || '').trim(),
+				status: String(row.status || '').trim() || 'Pending',
 				created_at: String(row.created_at || '').trim(),
 				created_by: String(row.created_by || '').trim(),
 				updated_by: String(row.updated_by || '').trim(),
@@ -246,6 +249,311 @@ function cleanupOldActivities_(maxActivities) {
 		}
 	} catch (err) {
 		// Silently fail - cleanup is not critical
+	}
+}
+
+function updateWorklogStatus(payload) {
+	try {
+		var taskId = String(payload.task_id || '').trim();
+		var status = String(payload.status || '').trim();
+		var updatedBy = String(payload.updated_by || '').trim();
+		if (!taskId || !status) {
+			return { ok: false, error: 'task_id and status are required.' };
+		}
+
+		var sheet = getOrCreateSheetWithHeaders_('activity_worklogs', ACTIVITY_WORKLOG_HEADERS_);
+		var headers = getHeaders_(sheet);
+		var values = getSheetValues_(sheet);
+		var taskIdCol = findColumnIndex_(headers, 'task_id');
+		if (taskIdCol === 0) {
+			return { ok: false, error: 'activity_worklogs must include task_id.' };
+		}
+
+		for (var i = 1; i < values.length; i++) {
+			if (String(values[i][taskIdCol - 1] || '').trim() === taskId) {
+				var rowIndex = i + 1;
+				updateObjectRow_(sheet, rowIndex, {
+					status: status,
+					updated_by: updatedBy
+				});
+				return { ok: true };
+			}
+		}
+
+		return { ok: false, error: 'Work log not found.' };
+	} catch (err) {
+		return { ok: false, error: err.message || String(err) };
+	}
+}
+
+function parseDateForCompare_(value) {
+	if (!value) {
+		return null;
+	}
+	var date = new Date(value);
+	if (!isNaN(date.getTime())) {
+		return date;
+	}
+	return null;
+}
+
+function getSupervisorActivityOverview(payload) {
+	try {
+		var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+		if (!supervisorUserId) {
+			return { ok: false, error: 'supervisor_user_id is required.' };
+		}
+
+		var studentsResult = handleListSupervisorAssignedStudents_({ supervisor_user_id: supervisorUserId });
+		if (!studentsResult || studentsResult.ok !== true) {
+			return { ok: false, error: (studentsResult && studentsResult.error) || 'Unable to load assigned students.' };
+		}
+
+		var students = Array.isArray(studentsResult.students) ? studentsResult.students : [];
+		var studentLookup = {};
+		var studentIds = [];
+		for (var i = 0; i < students.length; i++) {
+			var studentId = String(students[i].user_id || '').trim();
+			if (!studentId) {
+				continue;
+			}
+			studentLookup[studentId] = students[i];
+			studentIds.push(studentId);
+		}
+
+		var worklogsResult = getActivityWorklogs({});
+		var worklogs = worklogsResult && worklogsResult.ok === true ? worklogsResult.worklogs : [];
+		var filteredWorklogs = worklogs.filter(function (log) {
+			return studentLookup[String(log.user_id || '').trim()];
+		}).map(function (log) {
+			var student = studentLookup[String(log.user_id || '').trim()];
+			return {
+				task_id: String(log.task_id || '').trim(),
+				user_id: String(log.user_id || '').trim(),
+				user_name: String(student && student.full_name ? student.full_name : ''),
+				task: String(log.task || '').trim(),
+				notes: String(log.notes || '').trim(),
+				learnings: String(log.learnings || '').trim(),
+				date: String(log.date || '').trim(),
+				created_at: String(log.created_at || '').trim(),
+				status: String(log.status || '').trim() || 'Pending',
+				attachments: Array.isArray(log.attachments) ? log.attachments : []
+			};
+		});
+
+		var today = new Date();
+		today.setHours(0, 0, 0, 0);
+		var todayLogs = filteredWorklogs.filter(function (log) {
+			var dateCandidate = parseDateForCompare_(log.created_at || log.date);
+			if (!dateCandidate) {
+				return false;
+			}
+			var day = new Date(dateCandidate.getTime());
+			day.setHours(0, 0, 0, 0);
+			return day.getTime() === today.getTime();
+		});
+
+		var pendingApprovals = filteredWorklogs.filter(function (log) {
+			return String(log.status || '').toLowerCase() === 'pending';
+		}).length;
+
+		// --- Attendance / absence counts for supervisor KPIs ---
+		try {
+			var todayStr = formatDateValue_(new Date());
+
+			// Approved absence today (unique students)
+			var approvedAbsenceUserSet = {};
+			try {
+				var requestRows = readSheetObjects_(getRequestsSheet_());
+			} catch (reqErr) {
+				requestRows = [];
+			}
+			for (var ri = 0; ri < requestRows.length; ri++) {
+				var rr = requestRows[ri];
+				var rUser = String(rr.user_id || '').trim();
+				if (!studentLookup[rUser]) continue;
+				if (String(rr.request_type || '').toLowerCase() !== 'absence') continue;
+				if (String(rr.status || '').toLowerCase() !== 'approved') continue;
+				if (formatDateValue_(rr.request_date) === todayStr) {
+					approvedAbsenceUserSet[rUser] = true;
+				}
+			}
+
+			var approved_absence_today = Object.keys(approvedAbsenceUserSet).length;
+
+			// Clocked in today (unique students with a time log for today)
+			var clockedInUserSet = {};
+			try {
+				var timeLogRows = readSheetObjects_(getTimeLogsSheet_());
+			} catch (tlErr) {
+				timeLogRows = [];
+			}
+			for (var ti = 0; ti < timeLogRows.length; ti++) {
+				var tl = timeLogRows[ti];
+				var tlUser = String(tl.user_id || '').trim();
+				if (!studentLookup[tlUser]) continue;
+				var tlDate = formatDateValue_(tl.log_date || tl.created_at);
+				if (tlDate === todayStr) {
+					clockedInUserSet[tlUser] = true;
+				}
+			}
+			var clocked_in_today = Object.keys(clockedInUserSet).length;
+
+			// Should be present today: assigned students whose schedule includes today,
+			// who have started and not yet ended, and who do not have an approved absence today.
+			var shouldPresentCount = 0;
+			var dow = new Date().getDay();
+			for (var si = 0; si < studentIds.length; si++) {
+				var sid = studentIds[si];
+				// Skip if today is not a defined workday
+				if (Array.isArray(DEFAULT_WORK_DAYS_) && DEFAULT_WORK_DAYS_.indexOf(dow) === -1) {
+					continue;
+				}
+
+				var profile = getStudentProfileByUserId_(sid);
+				var startDate = profile && profile.start_date ? formatDateValue_(profile.start_date) : '';
+				var endDate = profile && profile.estimated_end_date ? formatDateValue_(profile.estimated_end_date) : '';
+
+				// If start date exists and is in the future, not present
+				if (startDate && startDate > todayStr) {
+					continue;
+				}
+				// If end date exists and is before today, not present
+				if (endDate && endDate < todayStr) {
+					continue;
+				}
+
+				// If student has approved absence today, they're not expected
+				if (approvedAbsenceUserSet[sid]) {
+					continue;
+				}
+
+				shouldPresentCount++;
+			}
+		} catch (kpiErr) {
+			// On error, fallback to zeros
+			var approved_absence_today = 0;
+			var clocked_in_today = 0;
+			var shouldPresentCount = 0;
+		}
+
+		var tasks = [];
+		try {
+			var tasksSheet = getSheet_('tasks');
+			tasks = readSheetObjects_(tasksSheet);
+		} catch (err) {
+			tasks = [];
+		}
+
+		var overdueTasks = tasks.filter(function (task) {
+			var taskUserId = String(task.user_id || '').trim();
+			if (!studentLookup[taskUserId]) {
+				return false;
+			}
+			var status = String(task.status || '').trim().toLowerCase();
+			if (status === 'completed') {
+				return false;
+			}
+			var dueDate = parseDateForCompare_(task.due_date || task.dueDate);
+			if (!dueDate) {
+				return false;
+			}
+			return dueDate.getTime() < today.getTime();
+		}).length;
+
+		var missingNotes = filteredWorklogs.filter(function (log) {
+			return !String(log.notes || '').trim() && !String(log.learnings || '').trim();
+		}).length;
+		var noAttachments = filteredWorklogs.filter(function (log) {
+			return !log.attachments || log.attachments.length === 0;
+		}).length;
+
+		var progress = students.map(function (student) {
+			var required = Number(student.required_hours || 0);
+			var completed = Number(student.completed_hours || 0);
+			var percent = required > 0 ? Math.round((completed / required) * 100) : 0;
+			return {
+				user_id: String(student.user_id || '').trim(),
+				name: String(student.full_name || '').trim(),
+				percent: Math.min(100, Math.max(0, percent)),
+				status: percent >= 80 ? 'On track' : percent >= 50 ? 'Needs review' : 'At risk'
+			};
+		});
+
+		return {
+			ok: true,
+			kpis: {
+				today_logs: todayLogs.length,
+				pending_approvals: pendingApprovals,
+				active_interns: students.length,
+				overdue_tasks: overdueTasks,
+				should_present_today: shouldPresentCount || 0,
+				clocked_in_today: clocked_in_today || 0,
+				approved_absence_today: approved_absence_today || 0
+			},
+			recent_activities: getRecentActivities(),
+			worklogs: filteredWorklogs,
+			progress: progress,
+			alerts: {
+				missing_notes: missingNotes,
+				no_attachments: noAttachments,
+				overdue_tasks: overdueTasks
+			},
+			students: students
+		};
+	} catch (err) {
+		return { ok: false, error: err.message || String(err) };
+	}
+}
+
+function csvEscape_(value) {
+	var text = value === null || typeof value === 'undefined' ? '' : String(value);
+	if (text.indexOf('"') >= 0) {
+		text = text.replace(/"/g, '""');
+	}
+	if (/[",\n]/.test(text)) {
+		return '"' + text + '"';
+	}
+	return text;
+}
+
+function getSupervisorWorklogsCsv(payload) {
+	try {
+		var overview = getSupervisorActivityOverview(payload);
+		if (!overview || overview.ok !== true) {
+			return { ok: false, error: (overview && overview.error) || 'Unable to build CSV.' };
+		}
+
+		var headers = [
+			'Task ID',
+			'Intern',
+			'Task',
+			'Notes',
+			'Learnings',
+			'Date',
+			'Status',
+			'Attachments'
+		];
+
+		var rows = [headers.map(csvEscape_).join(',')];
+		var worklogs = Array.isArray(overview.worklogs) ? overview.worklogs : [];
+		for (var i = 0; i < worklogs.length; i++) {
+			var log = worklogs[i] || {};
+			rows.push([
+				csvEscape_(log.task_id),
+				csvEscape_(log.user_name),
+				csvEscape_(log.task),
+				csvEscape_(log.notes),
+				csvEscape_(log.learnings),
+				csvEscape_(log.date),
+				csvEscape_(log.status),
+				csvEscape_(log.attachments ? log.attachments.length : 0)
+			].join(','));
+		}
+
+		return { ok: true, csv: rows.join('\n') };
+	} catch (err) {
+		return { ok: false, error: err.message || String(err) };
 	}
 }
 

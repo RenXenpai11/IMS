@@ -1858,7 +1858,7 @@ let assignedTasksError = '';
                       <li style="margin-bottom: 0.8rem; display: flex; align-items: flex-start; gap: 0.5rem;">
                         <span style="font-size: 1.1rem; color: var(--color-primary, #0f6cbd); margin-top: 0.1rem;">•</span>
                         <div style="flex: 1;">
-                          <div style="font-size: 0.9rem; font-style: italic; color: var(--color-text); font-family: inherit;">{activity.message}, {formatRelativeTime(activity.timestamp)}.</div>
+                          <div style="font-size: 0.9rem; font-style: italic; color: var(--color-text); font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;">{activity.message}, {formatRelativeTime(activity.timestamp)}.</div>
                         </div>
                       </li>
                     {/each}

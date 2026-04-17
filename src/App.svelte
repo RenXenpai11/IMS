@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
   import { onMount } from 'svelte';
   import Layout from './app/components/Layout.svelte';
   import Dashboard from './app/pages/Dashboard.svelte';
@@ -314,9 +315,9 @@
 </script>
 
 {#if isAuthPage}
-  <svelte:component this={CurrentPage} />
+  <svelte:component this={CurrentPage} {currentUser} />
 {:else}
   <Layout {currentPath} pageMeta={basePageMeta}>
-    <svelte:component this={CurrentPage} />
+    <svelte:component this={CurrentPage} {currentUser} />
   </Layout>
 {/if}

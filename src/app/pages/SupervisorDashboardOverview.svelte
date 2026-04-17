@@ -1,4 +1,5 @@
 <script>
+// @ts-nocheck
   import { CheckCircle, AlertCircle, FileText, Users, Clock3 } from 'lucide-svelte';
   import { subscribeToCurrentUser, listSupervisorAssignedStudents, listSupervisorTimeLogs, listAssignedStudentRequests, listTasksByUser } from '../lib/auth.js';
 
