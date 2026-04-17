@@ -701,7 +701,7 @@
       <div class="tl-progress-header">
         <div>
           <div class="tl-progress-title">Hours Progress</div>
-          <div class="tl-progress-meta">{completedHours} of {requiredHours} required hours completed</div>
+          <div class="tl-progress-meta">{Number(completedHours).toFixed(1)} of {Number(requiredHours).toFixed(1)} required hours completed</div>
           <div class="tl-progress-detail">All logged entries are counted immediately toward your OJT hours.</div>
         </div>
         <span class="tl-progress-badge">{progressPercent}%</span>
@@ -711,8 +711,8 @@
       </div>
       <div class="tl-progress-labels">
         <span>0h</span>
-        <span class="tl-progress-remaining">{remainingHours}h remaining</span>
-        <span>{requiredHours}h</span>
+        <span class="tl-progress-remaining">{Number(remainingHours).toFixed(1)}h remaining</span>
+        <span>{Number(requiredHours).toFixed(1)}h</span>
       </div>
     </div>
 
