@@ -14,6 +14,9 @@
   // Debounce visibility changes to avoid rapid reloads
   let visibilityChangeTimeout = null;
   const VISIBILITY_RELOAD_DELAY = 200;
+  // Cooldown to avoid reloading immediately after every tab focus
+  let lastLoadTime = 0;
+  const RELOAD_COOLDOWN = 5 * 60 * 1000; // 5 minutes
 
   let currentUser = getCurrentUser();
   let unsubscribeAuth = null;
@@ -286,6 +289,13 @@
   async function loadDashboard() {
     clearMessages();
 
+    // update last load timestamp to prevent immediate re-load on quick tab switches
+    try {
+      lastLoadTime = Date.now();
+    } catch (e) {
+      // ignore (defensive)
+    }
+
     if (!currentUser?.user_id) {
       loading = false;
       errorMessage = 'Please sign in to view your dashboard.';
@@ -365,6 +375,11 @@
 
   function onVisibilityChange() {
     if (document.visibilityState === 'visible') {
+      const now = Date.now();
+      // skip reload if within cooldown window
+      if (now - lastLoadTime <= RELOAD_COOLDOWN) {
+        return;
+      }
       if (visibilityChangeTimeout) clearTimeout(visibilityChangeTimeout);
       visibilityChangeTimeout = setTimeout(() => {
         loadDashboard();
