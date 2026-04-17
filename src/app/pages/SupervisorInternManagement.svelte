@@ -74,6 +74,47 @@
     return d;
   }
 
+  function calculateDaysRemaining(estimatedEndDate) {
+    const dateStr = String(estimatedEndDate || '').trim();
+    if (!dateStr) return null;
+    
+    try {
+      // Parse the date - could be ISO string or date-only format
+      let dateToUse;
+      if (dateStr.includes('T')) {
+        dateToUse = new Date(dateStr);
+      } else {
+        dateToUse = new Date(`${dateStr}T00:00:00`);
+      }
+      
+      if (Number.isNaN(dateToUse.getTime())) return null;
+      
+      const today = new Date();
+      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const diffMs = dateToUse.getTime() - todayOnly.getTime();
+      const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      
+      return daysRemaining;
+    } catch {
+      return null;
+    }
+  }
+
+  function formatDaysRemaining(days) {
+    if (days === null) return '-';
+    if (days < 0) return 'Completed';
+    if (days === 0) return 'Today';
+    if (days === 1) return '1 day left';
+    return `${days} days left`;
+  }
+
+  function getDaysStatus(days) {
+    if (days === null) return 'muted';
+    if (days < 0) return 'success';
+    if (days <= 7) return 'warning';
+    return 'info';
+  }
+
   function syncSelectedFromFetched(students, assigned) {
     // No longer needed - removed
   }
@@ -399,6 +440,8 @@
             {@const required = toNumber(student.required_hours)}
             {@const completed = toNumber(student.completed_hours)}
             {@const progress = toPercent(completed, required)}
+            {@const daysLeft = calculateDaysRemaining(student.estimated_end_date)}
+            {@const daysStatus = getDaysStatus(daysLeft)}
             <article class="assigned-card">
               <div class="card-header-row">
                 <div class="assigned-info">
@@ -445,6 +488,11 @@
                   </div>
                 </div>
                 <div class="progress-bar"><div class="progress-fill" style={`width:${progress}%`}></div></div>
+                
+                <div class="days-remaining" class:status-warning={daysStatus === 'warning'} class:status-success={daysStatus === 'success'} class:status-info={daysStatus === 'info'}>
+                  <span class="days-label">OJT Ends In:</span>
+                  <span class="days-value">{formatDaysRemaining(daysLeft)}</span>
+                </div>
               </div>
             </article>
           {/each}
@@ -1367,6 +1415,58 @@
     background: #991b1b;
   }
 
+  :global(.dark) .days-remaining {
+    background: #223653;
+    border-color: #334b6b;
+  }
+
+  :global(.dark) .days-remaining.status-warning {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.3);
+  }
+
+  :global(.dark) .days-remaining.status-warning .days-label {
+    color: #fcd34d;
+  }
+
+  :global(.dark) .days-remaining.status-warning .days-value {
+    color: #fde047;
+  }
+
+  :global(.dark) .days-remaining.status-success {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+
+  :global(.dark) .days-remaining.status-success .days-label {
+    color: #6ee7b7;
+  }
+
+  :global(.dark) .days-remaining.status-success .days-value {
+    color: #6ee7b7;
+  }
+
+  :global(.dark) .days-remaining.status-info {
+    background: rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.3);
+  }
+
+  :global(.dark) .days-remaining.status-info .days-label {
+    color: #a5b4fc;
+  }
+
+  :global(.dark) .days-remaining.status-info .days-value {
+    color: #a5b4fc;
+  }
+
+  :global(.dark) .days-label {
+    color: #9ba3af;
+  }
+
+  :global(.dark) .days-value {
+    color: #e5edf8;
+  }
+
 
   .progress-bar {
     height: 0.5rem;
@@ -1379,6 +1479,70 @@
   .progress-fill {
     height: 100%;
     background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+  }
+
+  .days-remaining {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    margin-top: 0.75rem;
+    background: #eaf3ff;
+    border: 1px solid #bfdbfe;
+  }
+
+  .days-remaining.status-warning {
+    background: #fef3c7;
+    border-color: #fcd34d;
+  }
+
+  .days-remaining.status-success {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+  }
+
+  .days-remaining.status-info {
+    background: #e0e7ff;
+    border-color: #c7d2fe;
+  }
+
+  .days-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .days-value {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .days-remaining.status-warning .days-label {
+    color: #b45309;
+  }
+
+  .days-remaining.status-warning .days-value {
+    color: #92400e;
+  }
+
+  .days-remaining.status-success .days-label {
+    color: #0d9488;
+  }
+
+  .days-remaining.status-success .days-value {
+    color: #047857;
+  }
+
+  .days-remaining.status-info .days-label {
+    color: #4f46e5;
+  }
+
+  .days-remaining.status-info .days-value {
+    color: #4338ca;
   }
 
   .btn {

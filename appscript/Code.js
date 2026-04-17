@@ -20,7 +20,7 @@ var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 's
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
 var REQUESTS_SHEET_ = 'requests';
-var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'created_at'];
+var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'rejection_remarks', 'created_at'];
 var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
 var USER_SETTINGS_SHEET_ = 'user_settings';
@@ -1706,6 +1706,31 @@ function handleListSupervisorAssignedStudents_(payload) {
   var completedHoursLookup = getCompletedHoursLookupByUserIds_(studentIds);
   var students = [];
 
+  // Load intern schedules for all student IDs
+  var scheduleSheet = getInternSchedulesSheet_();
+  var scheduleRows = getSheetValues_(scheduleSheet);
+  var scheduleHeaders = getHeaders_(scheduleSheet);
+  var internIdColIndex = findColumnIndex_(scheduleHeaders, 'intern_id');
+  var supervisorIdColIndex = findColumnIndex_(scheduleHeaders, 'supervisor_id');
+  var shiftStartColIndex = findColumnIndex_(scheduleHeaders, 'shift_start');
+  var shiftEndColIndex = findColumnIndex_(scheduleHeaders, 'shift_end');
+  var daysOffColIndex = findColumnIndex_(scheduleHeaders, 'days_off');
+
+  var schedulesByIntern = {};
+  for (var s = 1; s < scheduleRows.length; s++) {
+    var internId = String(scheduleRows[s][internIdColIndex - 1] || '').trim();
+    var supId = String(scheduleRows[s][supervisorIdColIndex - 1] || '').trim();
+    
+    // Only include schedules for this supervisor
+    if (internId && supId === supervisorUserId) {
+      schedulesByIntern[internId] = {
+        shift_start: String(scheduleRows[s][shiftStartColIndex - 1] || '').trim(),
+        shift_end: String(scheduleRows[s][shiftEndColIndex - 1] || '').trim(),
+        days_off: String(scheduleRows[s][daysOffColIndex - 1] || '').trim(),
+      };
+    }
+  }
+
   for (var k = 0; k < assignments.length; k++) {
     var assignment = assignments[k];
     var assignmentStudentId = String(assignment.student_user_id || '').trim();
@@ -1722,6 +1747,9 @@ function handleListSupervisorAssignedStudents_(payload) {
     var profile = getStudentProfileByUserId_(assignmentStudentId);
     var requiredHours = Number(profile && profile.total_ojt_hours ? profile.total_ojt_hours : 0);
     var completedHours = Number(completedHoursLookup[assignmentStudentId] || 0);
+    
+    // Get schedule data if it exists
+    var scheduleData = schedulesByIntern[assignmentStudentId] || {};
 
     students.push({
       user_id: assignmentStudentId,
@@ -1735,6 +1763,9 @@ function handleListSupervisorAssignedStudents_(payload) {
       remaining_hours: Math.max(0, requiredHours - completedHours),
       estimated_end_date: String((profile && profile.estimated_end_date) || ''),
       assignment_id: String(assignment.assignment_id || ''),
+      shift_start: scheduleData.shift_start || '',
+      shift_end: scheduleData.shift_end || '',
+      days_off: scheduleData.days_off || '',
     });
   }
 
@@ -2155,6 +2186,7 @@ function handleUpdateRequestStatus_(payload) {
   var requestId = String(payload.request_id || '').trim();
   var newStatus = String(payload.status || '').trim();
   var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var rejectionRemarks = String(payload.rejection_remarks || '').trim();
 
   if (!requestId || !newStatus || !supervisorUserId) {
     return { ok: false, error: 'request_id, status, and supervisor_user_id are required.' };
@@ -2174,6 +2206,7 @@ function handleUpdateRequestStatus_(payload) {
   var headers = getHeaders_(sheet);
   var requestIdColIndex = findColumnIndex_(headers, 'request_id');
   var updateColIndex = findColumnIndex_(headers, 'status');
+  var rejectionRemarksColIndex = findColumnIndex_(headers, 'rejection_remarks');
   var userIdColIndex = findColumnIndex_(headers, 'user_id');
   var requestTypeColIndex = findColumnIndex_(headers, 'request_type');
   var requesterNameColIndex = findColumnIndex_(headers, 'requester_name');
@@ -2186,15 +2219,24 @@ function handleUpdateRequestStatus_(payload) {
       }
 
       sheet.getRange(i + 1, updateColIndex, 1, 1).setValue(newStatus);
+      
+      // Store rejection remarks if rejecting
+      if (rejectionRemarksColIndex > 0 && newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
+        sheet.getRange(i + 1, rejectionRemarksColIndex, 1, 1).setValue(rejectionRemarks);
+      }
 
       // Notify the student who created the request
       var requestType = String(rows[i][requestTypeColIndex - 1] || '').trim();
       if (studentUserId) {
         var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
+        var notifMessage = 'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.';
+        if (newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
+          notifMessage += ' Remarks: ' + rejectionRemarks;
+        }
         createNotification_(
           studentUserId,
           requestType + ' Request ' + newStatus,
-          'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.',
+          notifMessage,
           notifType,
           requestId
         );
@@ -2951,6 +2993,10 @@ function getNotificationsSheet_() {
 
 function getUserSettingsSheet_() {
   return getOrCreateSheetWithHeaders_(USER_SETTINGS_SHEET_, USER_SETTINGS_HEADERS_);
+}
+
+function getInternSchedulesSheet_() {
+  return getOrCreateSheetWithHeaders_(INTERN_SCHEDULES_SHEET_, INTERN_SCHEDULES_HEADERS_);
 }
 
 function ensureSheetColumns_(sheet, columnNames) {

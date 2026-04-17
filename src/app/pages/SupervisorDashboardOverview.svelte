@@ -91,6 +91,47 @@
     return todays.some((req) => String(req?.request_type || '').toLowerCase() === 'overtime' && String(req?.status || '').toLowerCase() === 'approved');
   }
 
+  function extractTimeFromDateString(dateString) {
+    // Extract HH:MM from Date object strings like "Sat Dec 30 1899 09:00:00 GMT+0800..."
+    const raw = String(dateString || '').trim();
+    if (!raw) return '';
+    
+    // Try to match HH:MM:SS or HH:MM pattern
+    const timeMatch = raw.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (timeMatch) {
+      const hour = timeMatch[1].padStart(2, '0');
+      const minute = timeMatch[2];
+      return `${hour}:${minute}`;
+    }
+    
+    return '';
+  }
+
+  function getScheduleDisplay(intern) {
+    let shiftStart = String(intern?.shift_start || '').trim();
+    let shiftEnd = String(intern?.shift_end || '').trim();
+    
+    // Extract time from Date object strings
+    if (shiftStart) {
+      shiftStart = extractTimeFromDateString(shiftStart);
+    }
+    if (shiftEnd) {
+      shiftEnd = extractTimeFromDateString(shiftEnd);
+    }
+    
+    if (!shiftStart || !shiftEnd) {
+      return { label: 'No schedule set', tone: 'muted' };
+    }
+    
+    // Check if approved overtime today
+    if (hasApprovedOvertimeToday(intern?.user_id)) {
+      return { label: `${shiftStart} - ${shiftEnd} + OT`, tone: 'warning' };
+    }
+    
+    // Regular shift - no color tone
+    return { label: `${shiftStart} - ${shiftEnd}`, tone: '' };
+  }
+
   function getClockStatus(studentUserId) {
     const row = todayTimelogByStudent[String(studentUserId || '').trim()] || null;
     const timeIn = String(row?.time_in || '').trim();
@@ -285,7 +326,7 @@
           {@const remainingDays = daysUntil(intern?.estimated_end_date)}
           {@const attendance = getAttendanceStatus(intern)}
           {@const clock = getClockStatus(intern?.user_id)}
-          {@const hasOvertime = hasApprovedOvertimeToday(intern?.user_id)}
+          {@const schedule = getScheduleDisplay(intern)}
           {@const pendingTasks = getPendingTaskCount(intern?.user_id)}
 
           <article class="intern-card">
@@ -312,8 +353,8 @@
                 <span class="row-value">{pendingTasks} pending</span>
               </div>
               <div class="intern-row">
-                <span class="row-label">Overtime</span>
-                <span class="row-value">{hasOvertime ? 'Approved today' : '—'}</span>
+                <span class="row-label">Schedule</span>
+                <span class={`row-value tone-${schedule.tone}`}>{schedule.label}</span>
               </div>
             </div>
           </article>
@@ -616,5 +657,85 @@
     --border: #2b3c57;
     --surface: #162338;
     --surface-soft: #1a2c45;
+  }
+
+  :global(.dark) .stat-card {
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  :global(.dark) .stat-value {
+    color: var(--text-primary);
+  }
+
+  :global(.dark) .stat-label {
+    color: var(--text-muted);
+  }
+
+  :global(.dark) .btn-sm {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
+
+  :global(.dark) .btn-sm:hover {
+    background: rgba(59, 130, 246, 0.2);
+  }
+
+  :global(.dark) .pill {
+    color: #7cc3ff;
+  }
+
+  :global(.dark) .tone-success {
+    background: rgba(16, 185, 129, 0.18);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+
+  :global(.dark) .tone-info {
+    background: rgba(99, 102, 241, 0.18);
+    color: #a5b4fc;
+    border-color: rgba(99, 102, 241, 0.3);
+  }
+
+  :global(.dark) .tone-warning {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fcd34d;
+    border-color: rgba(245, 158, 11, 0.3);
+  }
+
+  :global(.dark) .tone-danger {
+    background: rgba(239, 68, 68, 0.18);
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+
+  :global(.dark) .tone-muted {
+    background: rgba(148, 163, 184, 0.12);
+    color: #cbd5e1;
+    border-color: rgba(148, 163, 184, 0.2);
+  }
+
+  :global(.dark) .list-item {
+    background: var(--surface-soft);
+    border-color: var(--border);
+  }
+
+  :global(.dark) .intern-card {
+    background: var(--surface-soft);
+    border-color: var(--border);
+  }
+
+  :global(.dark) .intern-name {
+    color: var(--text-primary);
+  }
+
+  :global(.dark) .row-label {
+    color: var(--text-muted);
+  }
+
+  :global(.dark) .row-value {
+    color: var(--text-secondary);
   }
 </style>

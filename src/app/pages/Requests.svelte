@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount, tick } from 'svelte';
-  import { Calendar, Clock3, FileText, ShieldCheck, Loader2 } from 'lucide-svelte';
+  import { Calendar, Clock3, FileText, ShieldCheck, Loader2, X } from 'lucide-svelte';
   import { callApiAction, getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
   import { subscribeToSync } from '../lib/sync.js';
 
@@ -35,6 +35,12 @@
   let showDeleteModal = false;
   let requestToDelete = null;
   let isDeleting = false;
+
+  // Rejection remarks modal state
+  let showRejectModal = false;
+  let requestToReject = null;
+  let rejectionRemarks = '';
+  let isRejectingRequest = false;
 
   let form = {
     requestType: 'Absence',
@@ -486,7 +492,45 @@
     showDeleteModal = false;
   }
 
-  async function confirmDeleteRequest() {
+  function openRejectModal(request) {
+    requestToReject = request;
+    rejectionRemarks = '';
+    showRejectModal = true;
+  }
+
+  function closeRejectModal() {
+    requestToReject = null;
+    rejectionRemarks = '';
+    showRejectModal = false;
+  }
+
+  async function confirmRejectRequest() {
+    if (!requestToReject) return;
+
+    isRejectingRequest = true;
+    try {
+      // Call the update status with rejection remarks if provided
+      const result = await callBackend('update_request_status', {
+        request_id: requestToReject.id,
+        status: 'Rejected',
+        supervisor_user_id: String(currentUser?.user_id || '').trim(),
+        rejection_remarks: String(rejectionRemarks || '').trim(),
+      });
+
+      if (result && result.ok) {
+        closeRejectModal();
+        await loadRequests();
+      } else {
+        console.error('Failed to reject request:', result?.error);
+      }
+    } catch (err) {
+      console.error('Reject request error:', err);
+    } finally {
+      isRejectingRequest = false;
+    }
+  }
+
+  async function handleRemoveIntern(internId) {
     if (!requestToDelete) return;
 
     isDeleting = true;
@@ -511,6 +555,10 @@
     } finally {
       isDeleting = false;
     }
+  }
+
+  async function confirmDeleteRequest() {
+    return handleRemoveIntern();
   }
 
   onMount(() => {
@@ -863,7 +911,7 @@
                   <button
                     type="button"
                     class="action-button action-reject rounded-lg px-3 py-2 text-xs font-semibold"
-                    on:click={() => updateRequestStatus(request.id, 'Rejected')}
+                    on:click={() => openRejectModal(request)}
                   >
                     Reject
                   </button>
@@ -906,7 +954,7 @@
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div class="relative w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-slate-800 flex flex-col">
         <!-- Modal Header -->
-        <div class="border-b border-red-100 px-6 py-5 dark:border-red-900/40 flex-shrink-0">
+        <div class="border-b border-red-100 px-6 py-5 dark:border-red-900/40 shrink-0">
           <div class="flex items-start justify-between gap-4">
             <div>
               <h2 class="text-lg font-bold text-red-700 dark:text-red-400">Delete Request</h2>
@@ -961,7 +1009,7 @@
         </div>
 
         <!-- Modal Footer -->
-        <div class="flex-shrink-0 flex flex-col-reverse gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-slate-900/50 sm:flex-row">
+        <div class="shrink-0 flex flex-col-reverse gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-slate-900/50 sm:flex-row">
           <button
             type="button"
             on:click={closeDeleteModal}
@@ -981,6 +1029,107 @@
               <span>Deleting...</span>
             {:else}
               <span>Delete Permanently</span>
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Rejection Remarks Modal -->
+  {#if showRejectModal && requestToReject}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div class="relative w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-slate-800 flex flex-col">
+        <!-- Modal Header -->
+        <div class="border-b border-orange-100 px-6 py-5 dark:border-orange-900/40 shrink-0">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 class="text-lg font-bold text-orange-700 dark:text-orange-400">Reject Request</h2>
+              <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                Add optional remarks for rejecting this request.
+              </p>
+            </div>
+            <button 
+              type="button" 
+              on:click={closeRejectModal}
+              class="shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              aria-label="Close dialog"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <!-- Modal Body -->
+        <div class="flex-1 overflow-y-auto px-6 py-5">
+          <p class="mb-4 text-base text-gray-700 dark:text-gray-300">
+            You are about to reject this request. Provide remarks to inform the requester why it was rejected.
+          </p>
+
+          <!-- Request Details -->
+          <div class="mb-6 rounded-xl bg-orange-50 p-4 dark:bg-orange-950/30">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Type:</span>
+                <span class="font-semibold text-gray-900 dark:text-gray-100">
+                  {requestToReject.requestType || requestToReject.request_type}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Date:</span>
+                <span class="font-semibold text-gray-900 dark:text-gray-100">
+                  {new Date(requestToReject.date || requestToReject.request_date).toLocaleDateString()}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Requester:</span>
+                <span class="font-semibold text-gray-900 dark:text-gray-100">
+                  {requestToReject.requester_name || 'Unknown'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Remarks Input -->
+          <div class="mb-4">
+            <label for="rejection-remarks" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+              Remarks <span class="text-gray-500 dark:text-gray-400 font-normal">(optional)</span>
+            </label>
+            <textarea
+              id="rejection-remarks"
+              bind:value={rejectionRemarks}
+              placeholder="Explain why this request is being rejected (e.g., 'Insufficient notice period', 'Conflicting schedules', etc.)"
+              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 px-4 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 dark:focus:ring-orange-900/50 focus:outline-none transition-all duration-200 resize-none"
+              rows="4"
+              disabled={isRejectingRequest}
+            ></textarea>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-500">
+              {rejectionRemarks.length}/500 characters
+            </p>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="shrink-0 flex flex-col-reverse gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-slate-900/50 sm:flex-row">
+          <button
+            type="button"
+            on:click={closeRejectModal}
+            disabled={isRejectingRequest}
+            class="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-all duration-200 hover:bg-gray-100 hover:border-gray-400 active:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-slate-700 dark:text-gray-200 dark:hover:bg-slate-600 dark:hover:border-gray-500"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            on:click={confirmRejectRequest}
+            disabled={isRejectingRequest}
+            class="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-orange-700 active:bg-orange-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-700 dark:hover:bg-orange-600 dark:active:bg-orange-800"
+          >
+            {#if isRejectingRequest}
+              <span class="spinning-icon"><Loader2 size={16} /></span>
+              <span>Rejecting...</span>
+            {:else}
+              <span>Confirm Rejection</span>
             {/if}
           </button>
         </div>
