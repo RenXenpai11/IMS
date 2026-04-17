@@ -5,6 +5,8 @@
     subscribeToCurrentUser,
     getStudentDashboard,
   } from '../lib/auth.js';
+  // Import professional SVG icons
+  import { Target, CheckCircle, Hourglass, CalendarDays } from 'lucide-svelte';
 
   const PROGRESS_MODES = {
     APPROVED: 'APPROVED',
@@ -493,7 +495,6 @@
       </div>
 
     {:else}
-      <!-- Actual Content (unchanged) -->
       <!-- Welcome banner -->
       <div class="welcome-card">
         <div>
@@ -528,33 +529,37 @@
         </div>
       </div>
 
-      <!-- Stat cards -->
+      <!-- Stat cards with colored Lucide icons -->
       <div class="stat-grid">
         <div class="stat-card">
-          <div class="stat-top-bar bar-blue"></div>
           <div class="stat-label">Hours Needed</div>
-          <div class="stat-icon icon-blue">🎯</div>
+          <div class="stat-icon icon-blue">
+            <Target size={18} />
+          </div>
           <div class="stat-value">{totalOjtHours || 0}</div>
           <div class="stat-desc">total OJT hours</div>
         </div>
         <div class="stat-card">
-          <div class="stat-top-bar bar-green"></div>
           <div class="stat-label">Hours Completed</div>
-          <div class="stat-icon icon-green">✅</div>
+          <div class="stat-icon icon-green">
+            <CheckCircle size={18} />
+          </div>
           <div class="stat-value">{hoursCompleted}</div>
           <div class="stat-desc">all rendered hours</div>
         </div>
         <div class="stat-card">
-          <div class="stat-top-bar bar-purple"></div>
           <div class="stat-label">Hours Remaining</div>
-          <div class="stat-icon icon-purple">⏱️</div>
+          <div class="stat-icon icon-purple">
+            <Hourglass size={18} />
+          </div>
           <div class="stat-value">{hoursRemaining}</div>
           <div class="stat-desc">left to finish</div>
         </div>
         <div class="stat-card">
-          <div class="stat-top-bar bar-amber"></div>
           <div class="stat-label">Working Days Needed</div>
-          <div class="stat-icon icon-amber">📅</div>
+          <div class="stat-icon icon-amber">
+            <CalendarDays size={18} />
+          </div>
           <div class="stat-value">{daysAndHoursNeeded}</div>
           <div class="stat-desc">to complete OJT</div>
         </div>
@@ -793,18 +798,6 @@
     background: #161b2e;
     border-color: #2a3050;
   }
-  .stat-top-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    border-radius: 12px 12px 0 0;
-  }
-  .bar-blue { background: #2355e8; }
-  .bar-green { background: #22c55e; }
-  .bar-purple { background: #8b5cf6; }
-  .bar-amber { background: #f59e0b; }
   .stat-label {
     font-size: 12px;
     font-weight: 500;
@@ -825,16 +818,41 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 15px;
+    background: rgba(0,0,0,0.04);
+    transition: background 0.2s ease;
   }
-  .icon-blue { background: #eff6ff; }
-  .icon-green { background: #f0fdf4; }
-  .icon-purple { background: #faf5ff; }
-  .icon-amber { background: #fffbeb; }
-  :global(.dark) .icon-blue { background: #1e2a4a; }
-  :global(.dark) .icon-green { background: #14291e; }
-  :global(.dark) .icon-purple { background: #1e1a2e; }
-  :global(.dark) .icon-amber { background: #2a2010; }
+  :global(.dark) .stat-icon {
+    background: rgba(255,255,255,0.06);
+  }
+  .stat-icon :global(svg) {
+    width: 18px;
+    height: 18px;
+  }
+  /* Colored icons */
+  .icon-blue :global(svg) {
+    color: #2355e8;
+  }
+  .icon-green :global(svg) {
+    color: #22c55e;
+  }
+  .icon-purple :global(svg) {
+    color: #8b5cf6;
+  }
+  .icon-amber :global(svg) {
+    color: #f59e0b;
+  }
+  :global(.dark) .icon-blue :global(svg) {
+    color: #5bb1ff;
+  }
+  :global(.dark) .icon-green :global(svg) {
+    color: #86efac;
+  }
+  :global(.dark) .icon-purple :global(svg) {
+    color: #c4b5fd;
+  }
+  :global(.dark) .icon-amber :global(svg) {
+    color: #fcd34d;
+  }
   .stat-value {
     font-size: 26px;
     font-weight: 500;
