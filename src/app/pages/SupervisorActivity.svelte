@@ -27,11 +27,13 @@
   let searchTerm = '';
   let isLoading = false;
   let loadError = '';
+  let selectedDate = '';
 
   let showAddTask = false;
   let newTaskTitle = '';
   let newTaskDescription = '';
   let newTaskDueDate = '';
+  let newTaskStatus = 'Pending';
   let newTaskAssignees = [];
   let isCreatingTask = false;
 
@@ -44,9 +46,26 @@
   let archivedInterns = [];
   let supervisorTasks = [];
   let archivedSupervisorTasks = [];
+  let showViewTask = false;
+  let viewTask = null;
+  let showEditTask = false;
+  let editTaskForm = null;
+  let editTaskAssignees = [];
+  let isSavingEdit = false;
+  let showEditAssigneeDropdown = false;
+  let editAssigneeSearch = '';
+  let editAssigneeButtonEl;
+  let editAssigneeDropdownEl;
+
 
   let refreshIntervalId;
   let now = new Date();
+
+  // artificial frontend delay (ms) to smooth perceived loading/saving time
+  const ARTIFICIAL_DELAY_MS = 500;
+  let enableArtificialDelay = true;
+  function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+  function maybeDelay() { return enableArtificialDelay ? sleep(ARTIFICIAL_DELAY_MS) : Promise.resolve(); }
 
   function updateNow() {
     now = new Date();
@@ -154,6 +173,17 @@
     });
   }
 
+  function callGetSupervisorTasks(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+      run.withSuccessHandler(resolve).withFailureHandler((error) => reject(new Error(error?.message || String(error)))).getSupervisorTasks(payload);
+    });
+  }
+
   async function refreshOverview() {
     if (!currentUser?.user_id) {
       loadError = 'Unable to load supervisor data.';
@@ -161,6 +191,8 @@
     }
 
     isLoading = true;
+    // small artificial delay to improve perceived responsiveness
+    await maybeDelay();
     loadError = '';
 
     try {
@@ -175,6 +207,28 @@
       progress = Array.isArray(result.progress) ? result.progress : [];
       alerts = result.alerts || alerts;
       students = Array.isArray(result.students) ? result.students : [];
+      // load supervisor-created tasks from server so they persist across refresh/signout
+      try {
+        const tasksRes = await callGetSupervisorTasks({ supervisor_user_id: currentUser.user_id });
+        if (tasksRes && tasksRes.ok && Array.isArray(tasksRes.tasks)) {
+          const mapped = tasksRes.tasks.map(t => ({
+            id: String(t.id || t.sup_taskid || ''),
+            title: String(t.title || t.task || ''),
+            description: String(t.description || ''),
+            due_date: String(t.due_date || ''),
+            status: String(t.status || ''),
+            assigned_student_ids: Array.isArray(t.assigned_student_ids) ? t.assigned_student_ids : []
+          }));
+          supervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() !== 'archived');
+          archivedSupervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() === 'archived');
+        } else {
+          supervisorTasks = supervisorTasks || [];
+          archivedSupervisorTasks = archivedSupervisorTasks || [];
+        }
+      } catch (e) {
+        // non-fatal
+        supervisorTasks = supervisorTasks || [];
+      }
     } catch (error) {
       loadError = error?.message || 'Unable to load supervisor overview.';
     } finally {
@@ -185,6 +239,7 @@
   async function handleWorklogStatus(taskId, status) {
     if (!taskId) return;
     try {
+      await maybeDelay();
       await callUpdateWorklogStatus({
         task_id: taskId,
         status,
@@ -227,7 +282,51 @@
     }
   }
 
-  $: approvedWorkLogs = workLogs.filter((log) => String(log.status || '').toLowerCase() === 'approved');
+  function extractLogDateISO(log) {
+    const candidates = [log?.date, log?.work_date, log?.log_date, log?.created_at, log?.timestamp, log?.activity_date, log?.submitted_at];
+    for (const c of candidates) {
+      if (!c && c !== 0) continue;
+      try {
+        const maybeNum = Number(c);
+        const d = new Date(maybeNum && !Number.isNaN(maybeNum) ? maybeNum : c);
+        if (!Number.isNaN(d.getTime())) {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      const ddmm = /^([0-9]{2})-([0-9]{2})-([0-9]{2,4})$/.exec(String(c));
+      if (ddmm) {
+        let yy = ddmm[3];
+        if (yy.length === 2) yy = '20' + yy;
+        return `${yy}-${ddmm[2]}-${ddmm[1]}`;
+      }
+
+      const mmdd = /^([0-9]{1,2})\/([0-9]{1,2})\/([0-9]{2,4})$/.exec(String(c));
+      if (mmdd) {
+        let yy = mmdd[3];
+        if (yy.length === 2) yy = '20' + yy;
+        const mm = String(mmdd[1]).padStart(2, '0');
+        const dd = String(mmdd[2]).padStart(2, '0');
+        return `${yy}-${mm}-${dd}`;
+      }
+    }
+    return '';
+  }
+
+  $: approvedWorkLogs = workLogs.filter((log) => {
+    const isApproved = String(log.status || '').toLowerCase() === 'approved';
+    if (!isApproved) return false;
+    if (selectedDate) {
+      const logDate = extractLogDateISO(log);
+      if (!logDate || logDate !== selectedDate) return false;
+    }
+    return true;
+  });
 
   $: filteredWorkLogs = workLogs.filter((log) => {
     const isApproved = String(log.status || '').toLowerCase() === 'approved';
@@ -246,6 +345,37 @@
 
   $: selectedIntern = students.find((student) => String(student.user_id || '') === String(selectedInternId || ''));
   $: selectedInternLogs = workLogs.filter((log) => String(log.user_id || '') === String(selectedInternId || ''));
+
+  // tasks assigned to the currently selected intern (or all)
+  $: internTasks = supervisorTasks.filter(t => {
+    if (!t) return false;
+    if (!t.assigned_student_ids || !Array.isArray(t.assigned_student_ids)) return false;
+    // only include tasks assigned to the selected intern (or all)
+    const assignedMatch = selectedStudentId === 'all' || t.assigned_student_ids.includes(selectedStudentId);
+    // if the task includes created_by, ensure it matches current supervisor; otherwise allow (server already scopes tasks)
+    const createdByMatch = t.created_by ? String(t.created_by) === String(currentUser?.user_id || '') : true;
+    return assignedMatch && createdByMatch;
+  });
+
+  function previewText(txt, max = 80) {
+    if (!txt) return '';
+    const s = String(txt || '');
+    if (s.length <= max) return s;
+    return s.slice(0, max - 1) + '…';
+  }
+
+  // map task status to CSS class names matching ActivityIntern.svelte
+  function statusClass(status) {
+    if (!status) return '';
+    const s = String(status).trim();
+    const map = {
+      'Pending': 'status-pending',
+      'In Progress': 'status-progress',
+      'Completed': 'status-completed',
+      'Overdue': 'status-overdue'
+    };
+    return map[s] || '';
+  }
 
   onMount(() => {
     (async () => {
@@ -289,9 +419,14 @@
         title: newTaskTitle.trim(),
         description: newTaskDescription.trim(),
         due_date: formattedDue,
+        status: newTaskStatus,
         supervisor_user_id: currentUser?.user_id || '',
-        assigned_student_ids: Array.isArray(newTaskAssignees) ? newTaskAssignees : (newTaskAssignees ? [newTaskAssignees] : [])
+        assigned_student_ids: Array.isArray(newTaskAssignees) ? newTaskAssignees : (newTaskAssignees ? [newTaskAssignees] : []),
+        created_by: currentUser?.user_id || '',
+        updated_by: currentUser?.user_id || ''
       };
+      // simulate brief save latency
+      await maybeDelay();
       const res = await callCreateSupervisorTasks(payload);
       if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Unable to create tasks.');
       // add to local task list so it appears in List view immediately
@@ -300,6 +435,8 @@
         title: payload.title,
         description: payload.description,
         due_date: payload.due_date,
+        status: payload.status,
+        created_by: payload.created_by,
         assigned_student_ids: Array.isArray(payload.assigned_student_ids) ? payload.assigned_student_ids : []
       };
       supervisorTasks = [savedTask, ...supervisorTasks];
@@ -327,6 +464,173 @@
     else newTaskAssignees = newTaskAssignees.filter(id => id !== userId);
   }
 
+  function openViewTask(task) {
+    viewTask = task || null;
+    showViewTask = true;
+  }
+
+  function closeViewTask() {
+    showViewTask = false;
+    viewTask = null;
+  }
+
+  function formatDateToMMDDYYYY(dateStr) {
+    if (!dateStr) return '';
+    // If stored as dd-mm-yy or dd-mm-yyyy, parse it
+    const ddmmRegex = /^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/;
+    const m = String(dateStr).match(ddmmRegex);
+    if (m) {
+      let dd = parseInt(m[1], 10);
+      let mm = parseInt(m[2], 10);
+      let yy = m[3];
+      if (yy.length === 2) yy = '20' + yy;
+      const yyyy = parseInt(yy, 10);
+      const d = new Date(yyyy, mm - 1, dd);
+      if (!Number.isNaN(d.getTime())) {
+        const mmStr = String(d.getMonth() + 1).padStart(2, '0');
+        const ddStr = String(d.getDate()).padStart(2, '0');
+        const yyyyStr = d.getFullYear();
+        return `${mmStr}-${ddStr}-${yyyyStr}`;
+      }
+      return '';
+    }
+
+    const parsed = new Date(dateStr);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+    const dd = String(parsed.getDate()).padStart(2, '0');
+    const yyyy = parsed.getFullYear();
+    return `${mm}-${dd}-${yyyy}`;
+  }
+
+  function assignedNames(ids) {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) return '';
+    const names = ids.map(id => {
+      const s = students.find(st => String(st.user_id || '') === String(id || ''));
+      return s ? s.full_name : id;
+    });
+    return names.join(', ');
+  }
+
+  function formatDateToDDMMYY(dateStr) {
+    if (!dateStr) return '';
+    // If already in dd-mm-yy or dd-mm-yyyy, normalize to dd-mm-yy (two-digit year)
+    const ddmm = /^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/.exec(String(dateStr));
+    if (ddmm) {
+      let dd = String(ddmm[1]).padStart(2, '0');
+      let mm = String(ddmm[2]).padStart(2, '0');
+      let yy = ddmm[3];
+      if (yy.length === 4) yy = yy.slice(-2);
+      return `${dd}-${mm}-${yy}`;
+    }
+    // try ISO parse
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}-${mm}-${yy}`;
+  }
+
+  function toISOInputDate(dateStr) {
+    if (!dateStr) return '';
+    // handle dd-mm-yy / dd-mm-yyyy
+    const m = String(dateStr).match(/^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/);
+    if (m) {
+      let dd = String(m[1]).padStart(2, '0');
+      let mm = String(m[2]).padStart(2, '0');
+      let yy = m[3];
+      if (yy.length === 2) yy = '20' + yy;
+      return `${yy}-${mm}-${dd}`;
+    }
+    // try Date parse
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function callUpdateSupervisorTask(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+      run.withSuccessHandler(resolve).withFailureHandler((error) => reject(new Error(error?.message || String(error)))).updateSupervisorTask(payload);
+    });
+  }
+
+  function openEditTask(task) {
+    if (!task) return;
+    editTaskForm = {
+      id: task.id,
+      title: task.title || '',
+      description: task.description || '',
+      due_date: toISOInputDate(task.due_date) || '',
+      status: task.status || 'Pending'
+    };
+    editTaskAssignees = Array.isArray(task.assigned_student_ids) ? [...task.assigned_student_ids] : [];
+    showEditTask = true;
+  }
+
+  function toggleEditAssigneeSelection(userId) {
+    const idx = editTaskAssignees.indexOf(userId);
+    if (idx === -1) editTaskAssignees = [...editTaskAssignees, userId];
+    else editTaskAssignees = editTaskAssignees.filter(id => id !== userId);
+  }
+
+  async function saveEditedTask() {
+    if (!editTaskForm || !editTaskForm.title.trim()) return;
+    isSavingEdit = true;
+    try {
+      const formattedDue = formatDateToDDMMYY(editTaskForm.due_date);
+      const payload = {
+        sup_taskid: editTaskForm.id,
+        title: editTaskForm.title.trim(),
+        description: editTaskForm.description.trim(),
+        due_date: formattedDue,
+        status: editTaskForm.status,
+        assigned_student_ids: Array.isArray(editTaskAssignees) ? editTaskAssignees : [],
+        updated_by: currentUser?.user_id || ''
+      };
+      // simulate brief save latency
+      await maybeDelay();
+      const res = await callUpdateSupervisorTask(payload);
+      if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Unable to update task.');
+      // update local list
+      supervisorTasks = supervisorTasks.map(t => {
+        if (String(t.id) === String(editTaskForm.id)) {
+          return {
+            ...t,
+            title: payload.title,
+            description: payload.description,
+            due_date: payload.due_date,
+            status: payload.status,
+            assigned_student_ids: payload.assigned_student_ids
+          };
+        }
+        return t;
+      });
+      
+      // update viewTask if open
+      if (viewTask && String(viewTask.id) === String(editTaskForm.id)) {
+        viewTask = supervisorTasks.find(x => String(x.id) === String(editTaskForm.id)) || viewTask;
+      }
+      showEditTask = false;
+      await refreshOverview();
+    } catch (err) {
+      loadError = err?.message || 'Unable to save changes.';
+    } finally {
+      isSavingEdit = false;
+    }
+  }
+
+  
+
+
   function assigneeLabel() {
     if (!newTaskAssignees || newTaskAssignees.length === 0) return 'Select interns';
     const names = students.filter(s => newTaskAssignees.includes(s.user_id)).map(s => s.full_name);
@@ -338,6 +642,21 @@
     ? students.filter(s => String(s.full_name || '').toLowerCase().includes(assigneeSearch.trim().toLowerCase()))
     : students;
 
+$: filteredEditAssignees = (editAssigneeSearch && editAssigneeSearch.trim())
+    ? students.filter(s => String(s.full_name || '').toLowerCase().includes(editAssigneeSearch.trim().toLowerCase()))
+    : students;
+
+function editAssigneeLabel() {
+  if (!editTaskAssignees || editTaskAssignees.length === 0) return 'Select interns';
+  const names = students.filter(s => editTaskAssignees.includes(s.user_id)).map(s => s.full_name);
+  if (names.length === 1) return names[0];
+  return names.length + ' selected';
+}
+
+function toggleEditAssigneeDropdown() {
+  showEditAssigneeDropdown = !showEditAssigneeDropdown;
+}
+
   $: filteredInterns = (internSearch && internSearch.trim())
     ? students.filter(s => String(s.full_name || '').toLowerCase().includes(internSearch.trim().toLowerCase()))
     : students;
@@ -347,6 +666,11 @@
     if (showAssigneeDropdown) {
       if (!(assigneeDropdownEl && assigneeDropdownEl.contains(target)) && !(assigneeButtonEl && assigneeButtonEl.contains(target))) {
         showAssigneeDropdown = false;
+      }
+    }
+    if (showEditAssigneeDropdown) {
+      if (!(editAssigneeDropdownEl && editAssigneeDropdownEl.contains(target)) && !(editAssigneeButtonEl && editAssigneeButtonEl.contains(target))) {
+        showEditAssigneeDropdown = false;
       }
     }
     // intern dropdown removed; nothing to close here
@@ -420,16 +744,33 @@
     if (!taskId) return;
     const task = supervisorTasks.find(t => String(t.id) === String(taskId));
     if (!task) return;
-    archivedSupervisorTasks = [task, ...archivedSupervisorTasks.filter(t => String(t.id) !== String(taskId))];
-    supervisorTasks = supervisorTasks.filter(t => String(t.id) !== String(taskId));
+    // persist archive status to server
+    (async () => {
+      try {
+        await maybeDelay();
+        await callUpdateSupervisorTask({ sup_taskid: task.id, status: 'Archived', updated_by: currentUser?.user_id || '' });
+      } catch (err) {
+        // non-fatal, continue to update UI
+      }
+      archivedSupervisorTasks = [task, ...archivedSupervisorTasks.filter(t => String(t.id) !== String(taskId))];
+      supervisorTasks = supervisorTasks.filter(t => String(t.id) !== String(taskId));
+    })();
   }
 
   function restoreTask(taskId) {
     if (!taskId) return;
     const task = archivedSupervisorTasks.find(t => String(t.id) === String(taskId));
     if (!task) return;
-    supervisorTasks = [task, ...supervisorTasks.filter(t => String(t.id) !== String(taskId))];
-    archivedSupervisorTasks = archivedSupervisorTasks.filter(t => String(t.id) !== String(taskId));
+    (async () => {
+      try {
+        await maybeDelay();
+        await callUpdateSupervisorTask({ sup_taskid: task.id, status: 'Pending', updated_by: currentUser?.user_id || '' });
+      } catch (err) {
+        // non-fatal
+      }
+      supervisorTasks = [task, ...supervisorTasks.filter(t => String(t.id) !== String(taskId))];
+      archivedSupervisorTasks = archivedSupervisorTasks.filter(t => String(t.id) !== String(taskId));
+    })();
   }
 
   // expandable logs state
@@ -449,6 +790,8 @@
   {:else if isLoading}
     <div class="banner">Loading supervisor overview...</div>
   {/if}
+
+  
 
   <section class="kpi-grid">
     <div class="kpi-card kpi-1">
@@ -507,6 +850,14 @@
       <label for="task-desc">Description</label>
       <textarea id="task-desc" rows="6" bind:value={newTaskDescription}></textarea>
 
+      <label for="task-status">Status</label>
+      <select id="task-status" bind:value={newTaskStatus} style="width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--soft); margin-bottom:0.4rem;">
+        <option value="Pending">Pending</option>
+        <option value="In Progress">In Progress</option>
+        <option value="Overdue">Overdue</option>
+        <option value="Completed">Completed</option>
+      </select>
+
       <label for="task-due">Due Date</label>
       <input id="task-due" type="date" bind:value={newTaskDueDate} />
 
@@ -548,13 +899,15 @@
         <div>
           <h3>Intern work logs</h3>
         </div>
-        <div class="filters">
+        <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
           <select class="small-select" bind:value={selectedStudentId} aria-label="Filter interns">
             <option value="all">All interns</option>
             {#each students as student}
               <option value={student.user_id}>{student.full_name}</option>
             {/each}
           </select>
+
+          
         </div>
         </div>
       
@@ -594,24 +947,31 @@
     <div class="panel">
       <div class="panel-head fullwidth">
         <div>
-          <h3>Progress by intern</h3>
+          <h3>Intern Tasks</h3>
+        </div>
+        <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
+          <select class="small-select" bind:value={selectedStudentId} aria-label="Filter interns">
+            <option value="all">All interns</option>
+            {#each students as student}
+              <option value={student.user_id}>{student.full_name}</option>
+            {/each}
+          </select>
         </div>
       </div>
       <div class="progress-list">
-        {#if progress.length === 0}
-          <p class="empty">No progress data yet.</p>
+        {#if internTasks.length === 0}
+          <p class="empty">No tasks for selected intern.</p>
         {:else}
-          {#each progress as item}
-            <div class="progress-row">
-              <div class="progress-meta">
-                <strong>{item.name}</strong>
-                <span>{item.status}</span>
+          {#each internTasks as item}
+            <button type="button" class="intern-row-button intern-tasks-compact" on:click={() => openViewTask(item)} aria-label={`View ${item.title}`}>
+              <div style="flex:1; min-width:0">
+                <div class="title-text">{item.title}</div>
+                <div style="color:var(--muted); font-size:0.85rem; margin-top:0.25rem">Due: {formatDateToMMDDYYYY(item.due_date) || 'No due date'}</div>
               </div>
-              <div class="progress-bar">
-                <span style={`width: ${item.percent}%`}></span>
+              <div style="display:flex; gap:0.6rem; align-items:center;">
+                <div class={`status-badge ${statusClass(item.status)}`}>{item.status}</div>
               </div>
-              <span class="progress-value">{item.percent}%</span>
-            </div>
+            </button>
           {/each}
         {/if}
       </div>
@@ -629,13 +989,39 @@
           <strong>Restore</strong>
         </div>
       </div>
-      <p class="empty">No archived items yet.</p>
+      <div class="archived-list">
+        {#if archivedSupervisorTasks.length === 0}
+          <p class="empty">No archived items yet.</p>
+        {:else}
+          <ul style="list-style:none; margin:0; padding:0; display:grid; gap:0.6rem;">
+            {#each archivedSupervisorTasks as a}
+              <li style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-radius:0.6rem; background:var(--surface); border:1px solid var(--border);">
+                <div style="min-width:0">
+                  <div style="font-weight:700">{a.title}</div>
+                  <div class="muted" style="font-size:0.9rem">{formatDateToMMDDYYYY(a.due_date) || ''} — {a.status || ''}</div>
+                </div>
+                <div style="display:flex; gap:0.4rem; align-items:center;">
+                  <button class="ghost btn-compact" type="button" on:click={() => restoreTask(a.id)}>Restore</button>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
     </section>
 
     <section class="panel">
       <div class="panel-head fullwidth">
         <div>
           <h3>Worklogs</h3>
+        </div>
+        <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
+          <div style="display:flex; align-items:center; gap:0.4rem;">
+            <input aria-label="Filter by date" class="small-date" type="date" bind:value={selectedDate} />
+            {#if selectedDate}
+              <button type="button" class="ghost btn-compact" on:click={() => selectedDate = ''} aria-label="Clear date">Clear</button>
+            {/if}
+          </div>
         </div>
       </div>
       <div class="log-list">
@@ -675,7 +1061,14 @@
       <div class="panel-head-inner">
         <h3>Tasks</h3>
       </div>
-      <div class="filters"></div>
+      <div class="filters">
+        <div class="tasks-controls-header" aria-hidden="true">
+          <div class="col col-title"></div>
+          <div class="col col-due"><strong>Due Date</strong></div>
+          <div class="col col-status"><strong>Status</strong></div>
+          <div class="col col-actions"><strong>Actions</strong></div>
+        </div>
+      </div>
     </div>
 
       <!-- Tasks list (supervisor-created tasks) -->
@@ -683,42 +1076,151 @@
         {#if supervisorTasks.length === 0}
           <p class="empty">No tasks yet. Add a task to see it here.</p>
         {:else}
-          <ul class="intern-list">
-            {#each supervisorTasks as t}
-              <li class="intern-list-item">
-                <div style="width:100%; display:flex; justify-content:space-between; align-items:center; gap:1rem;">
-                  <div style="text-align:left;">
+          <div class="tasks-table">
+            <!-- header labels moved to panel head for cleaner top alignment -->
+            <ul class="intern-list">
+              {#each supervisorTasks as t}
+                <li class="intern-list-item task-row">
+                  <div class="col col-title" style="text-align:left;">
                     <div style="font-weight:700">{t.title}</div>
-                    <div class="muted" style="font-size:0.9rem">{t.due_date || 'No due date'}</div>
                   </div>
-                  <div style="display:flex; gap:0.5rem; align-items:center;">
-                    <button type="button" class="ghost btn-compact" on:click={(e) => { e.stopPropagation(); archiveTask(t.id); }} aria-label="Archive task">Archive</button>
+                  <div class="col col-due">{formatDateToMMDDYYYY(t.due_date) || 'No due date'}</div>
+                  <div class="col col-status"><div class={`status-badge ${statusClass(t.status)}`}>{t.status || 'Pending'}</div></div>
+                  <div class="col col-actions" style="display:flex; gap:0.5rem; justify-content:center;">
+                    <button class="action-link" type="button" on:click={() => openViewTask(t)}>View</button>
+                    <button type="button" class="action-link" on:click={(e) => { e.stopPropagation(); archiveTask(t.id); }} aria-label="Archive task">Archive</button>
                   </div>
-                </div>
-              </li>
-            {/each}
-          </ul>
+                </li>
+              {/each}
+            </ul>
+          </div>
         {/if}
       </div>
 
-      {#if archivedSupervisorTasks.length > 0}
-        <div class="archived-panel">
-          <h4 style="margin:0 0 0.4rem 0; font-size:0.95rem;">Archived tasks</h4>
-          <ul style="list-style:none; margin:0; padding:0; display:grid; gap:0.4rem;">
-            {#each archivedSupervisorTasks as a}
-              <li style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem; border-radius:0.5rem; background:var(--soft); border:1px solid var(--border);">
-                <span>{a.title}</span>
-                <div style="display:flex; gap:0.4rem; align-items:center;">
-                  <button class="ghost btn-compact" type="button" on:click={() => restoreTask(a.id)}>Restore</button>
-                </div>
-              </li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
+      
 
     </section>
     {/if}
+
+      {#if showViewTask}
+        <div class="task-view-modal-overlay" role="presentation" on:click={closeViewTask}>
+          <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Task details form" on:click|stopPropagation>
+            <div class="task-view-modal-head">
+              <h4>Task Details</h4>
+              <div class="task-view-head-actions">
+                <button type="button" class="task-view-action" on:click={() => { openEditTask(viewTask); }}>Edit Task</button>
+                <button type="button" class="task-view-close" on:click={closeViewTask}>Close</button>
+              </div>
+            </div>
+
+            <div class="task-view-grid">
+              <label>
+                <span>Task Title</span>
+                <input type="text" value={viewTask?.title} readonly />
+              </label>
+
+              <label>
+                <span>Status</span>
+                <input type="text" value={viewTask?.status || 'Pending'} readonly />
+              </label>
+
+              <label>
+                <span>Due Date</span>
+                <input type="text" value={formatDateToMMDDYYYY(viewTask?.due_date) || 'No due date'} readonly />
+              </label>
+
+              <label>
+                <span>Assigned To</span>
+                <input type="text" value={assignedNames(viewTask?.assigned_student_ids) || '—'} readonly />
+              </label>
+            </div>
+
+            <label class="task-view-description">
+              <span>Description</span>
+              <textarea rows="3" readonly>{viewTask?.description || 'No description'}</textarea>
+            </label>
+
+            <div class="task-view-section">
+              <span>Attachments</span>
+              {#if viewTask?.attachments && viewTask.attachments.length > 0}
+                <ul class="attachment-list">
+                  {#each viewTask.attachments as a}
+                    <li><span>{a}</span></li>
+                  {/each}
+                </ul>
+              {:else}
+                <p class="overview-empty-copy">No attachments.</p>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      {#if showEditTask}
+        <div class="task-view-modal-overlay" role="presentation" on:click={() => { showEditTask = false; }}>
+          <div class="task-view-modal" role="dialog" aria-modal="true" aria-label="Edit Task" on:click|stopPropagation>
+            <div class="task-view-modal-head">
+              <h4>Edit Task</h4>
+              <div class="task-view-head-actions">
+                <button type="button" class="task-view-action primary" on:click={saveEditedTask} disabled={isSavingEdit}>{isSavingEdit ? 'Saving...' : 'Save'}</button>
+                <button type="button" class="task-view-close" on:click={() => { showEditTask = false; }}>Cancel</button>
+              </div>
+            </div>
+
+            <div class="task-view-grid">
+              <label>
+                <span>Task Title</span>
+                <input type="text" bind:value={editTaskForm.title} />
+              </label>
+
+              <label>
+                <span>Status</span>
+                <select bind:value={editTaskForm.status}>
+                  <option>Pending</option>
+                  <option>In Progress</option>
+                  <option>Overdue</option>
+                  <option>Completed</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Due Date</span>
+                <input type="date" bind:value={editTaskForm.due_date} />
+              </label>
+
+              <label>
+                <span>Assigned To</span>
+                <div style="position:relative;">
+                  <button bind:this={editAssigneeButtonEl} type="button" class="ghost btn-compact" on:click={toggleEditAssigneeDropdown} aria-haspopup="listbox" aria-expanded={showEditAssigneeDropdown} style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:0.5rem; padding:0.45rem 0.6rem;">
+                    <span>{editAssigneeLabel()}</span>
+                    <span style="opacity:0.7">▾</span>
+                  </button>
+
+                  {#if showEditAssigneeDropdown}
+                    <div bind:this={editAssigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:240px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem; box-shadow: none;">
+                      {#if filteredEditAssignees.length === 0}
+                        <div style="padding:0.5rem; color:var(--muted);">No interns found.</div>
+                      {:else}
+                        {#each filteredEditAssignees as s}
+                          <label class="edit-assignee-item">
+                            <input type="checkbox" checked={editTaskAssignees.indexOf(s.user_id) !== -1} on:change={() => toggleEditAssigneeSelection(s.user_id)} />
+                            <span class="edit-assignee-name">{s.full_name}</span>
+                          </label>
+                        {/each}
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+              </label>
+            </div>
+
+            <label class="task-view-description">
+              <span>Description</span>
+              <textarea rows="4" bind:value={editTaskForm.description}></textarea>
+            </label>
+          </div>
+        </div>
+      {/if}
 
   </div>
 
@@ -1030,6 +1532,8 @@
     background: var(--soft);
   }
 
+  
+
   .log-list {
     display: grid;
     gap: 0.9rem;
@@ -1074,6 +1578,39 @@
     right: 1rem;
     z-index: 10;
   }
+
+  /* status color classes (mirror ActivityIntern.svelte) */
+  .status-progress { color: #2563eb; }
+  .status-pending { color: #d97706; }
+  .status-completed { color: #059669; }
+  .status-overdue { color: #dc2626; }
+
+  /* inline action link used in compact lists */
+  .action-link { background: transparent; border: none; padding: 0; margin: 0; font-size: 0.9rem; color: var(--muted); cursor: pointer }
+  .action-link:hover { color: var(--accent); text-decoration: underline }
+
+  /* slightly smaller compact intern task rows */
+  .intern-tasks-compact { font-size: 0.92rem }
+
+  /* clickable title link in compact intern tasks */
+  .title-link { background: transparent; border: none; padding: 0; margin: 0; font-weight:700; font-size:0.95rem; color: inherit; text-align:left; cursor: pointer }
+  .title-link:hover { color: var(--accent); text-decoration: underline }
+  .title-link:focus { outline: 2px solid rgba(15,108,189,0.18); outline-offset: 2px }
+
+  /* full-row clickable intern task */
+  .intern-row-button {
+    display:flex; align-items:flex-start; gap:0.6rem; width:100%; background:transparent; border:none; text-align:left; padding:0.6rem 0.6rem; border-radius:0.55rem; cursor:pointer
+  }
+  .intern-row-button:hover { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+
+  .title-text { font-weight:700; font-size:0.95rem }
+
+  /* make status-badge match the smaller work-log status-pill styling */
+  .status-badge { padding: 0.18rem 0.6rem; border-radius: 999px; font-weight: 600; font-size: 0.75rem; display:inline-block }
+  .status-badge.status-progress { background: rgba(37,99,235,0.08); color: #2563eb }
+  .status-badge.status-pending { background: rgba(255,243,205,0.7); color: #8b6a00 }
+  .status-badge.status-completed { background: rgba(5,150,105,0.08); color: #059669 }
+  .status-badge.status-overdue { background: rgba(220,38,38,0.08); color: #dc2626 }
 
   .status-pill.pending {
     background: #fff3cd;
@@ -1158,6 +1695,19 @@
   .intern-list-item { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; border-radius:0.6rem; background: var(--surface); border:1px solid var(--border) }
   .intern-list-button { display:block; width:100%; text-align:left; padding:0.75rem 1rem; background:transparent; border:none; cursor:pointer }
   .intern-item-actions { margin-left:0.6rem; position:relative }
+
+  /* tasks table header and columns */
+  .tasks-table { display:block }
+  .tasks-header { display:none }
+  .tasks-controls-header { display:grid; grid-template-columns: 1fr 160px 120px 160px; gap:0.6rem; align-items:center }
+  .tasks-controls-header .col { text-align: center }
+  .task-row { display:grid; grid-template-columns: 1fr 160px 120px 160px; gap:0.6rem; padding:0.65rem 0.8rem; align-items:center }
+  .col { font-size:0.95rem }
+  .task-row .col-due, .task-row .col-status { text-align:center }
+  .task-row .col-actions { text-align:center }
+
+  .col-actions .action-link { background: transparent; border: none; padding: 0; margin: 0 0.4rem; font-size: 0.85rem; color: var(--muted); cursor: pointer }
+  .col-actions .action-link:hover { text-decoration: underline; color: var(--accent) }
 
   .intern-panel .panel-head-inner { padding-left: 1.05rem }
   .intern-panel .filters { padding-right: 1.05rem }
@@ -1248,4 +1798,130 @@
     --surface: #162338;
     --soft: #1c2a44;
   }
+
+  /* small date input used in header filters */
+  .small-date {
+    padding: 0.36rem 0.5rem;
+    border-radius: 0.55rem;
+    border: 1px solid var(--border);
+    background: var(--soft);
+    font-size: 0.95rem;
+  }
+
+  /* Task view / edit modal styles copied from ActivityIntern design */
+  .task-view-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 20, 38, 0.45);
+    display: grid;
+    place-items: center;
+    z-index: 40;
+    padding: 1rem;
+  }
+
+  .task-view-modal {
+    width: min(38rem, 100%);
+    max-height: calc(100vh - 2rem);
+    overflow: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    box-shadow: 0 28px 48px -32px rgba(15, 23, 42, 0.55);
+    padding: 1rem;
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .task-view-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .task-view-head-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .task-view-modal-head h4 {
+    margin: 0;
+    color: var(--ink);
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .task-view-close {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--soft);
+    color: var(--ink);
+    padding: 0.3rem 0.7rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .task-view-action {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--soft);
+    color: var(--ink);
+    padding: 0.3rem 0.65rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .task-view-action.primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .task-view-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .task-view-grid label,
+  .task-view-description {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .task-view-grid label span,
+  .task-view-description span {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+
+  .task-view-grid input,
+  .task-view-grid select,
+  .task-view-description textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 0.55rem;
+    background: var(--soft);
+    color: var(--ink);
+    font-size: 0.82rem;
+    padding: 0.45rem 0.55rem;
+  }
+
+  .task-view-description textarea { resize: vertical }
+
+  .task-view-section { display:grid; gap:0.4rem }
+
+  .attachment-list { margin:0; padding:0; list-style:none; display:grid; gap:0.35rem }
+
+  /* Edit assignee dropdown item styles */
+  .edit-assignee-item { display:flex; align-items:center; gap:0.6rem; padding:0.28rem 0.45rem; cursor:pointer }
+  .edit-assignee-item input[type='checkbox'] { width:1rem; height:1rem; margin:0; flex-shrink:0 }
+  .edit-assignee-name { font-size:0.95rem; line-height:1.1; display:block }
+
 </style>

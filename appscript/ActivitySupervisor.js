@@ -25,6 +25,8 @@ function getAllStudents() {
   }
 }
 
+  
+
 // Create tasks assigned to one or more students by supervisor
 function createSupervisorTasks(payload) {
   try {
@@ -43,12 +45,13 @@ function createSupervisorTasks(payload) {
     // Also record a supervisor-level task record in 'supervisor_task' sheet
     var supRow = null;
     try {
-      var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','assigned_to','created_at','created_by','updated_by']);
+      var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
       supRow = {
         sup_taskid: createId_('SUP'),
         task: title,
         description: description,
         due_date: dueDate,
+        status: String(payload.status || 'Pending').trim(),
         assigned_to: JSON.stringify(assignees || []),
         created_at: now,
         created_by: supervisorId,
@@ -82,7 +85,8 @@ function createSupervisorTasks(payload) {
         due_date: dueDate,
         owner_email: userEmail,
         assigned_by: supervisorId,
-        created_at: now
+        created_at: now,
+        status: String(payload.status || 'Pending').trim()
       };
 
       // create activity task (use internal handler)
@@ -106,12 +110,13 @@ function createSupervisorTasks(payload) {
     // If initial attempt to create the supervisor-level row failed, try once more now
     if ((!supRow || !supRow.sup_taskid) && Array.isArray(assignees) && assignees.length) {
       try {
-        var retrySupSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','assigned_to','created_at','created_by','updated_by']);
+        var retrySupSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
         var retryRow = {
           sup_taskid: createId_('SUP'),
           task: title,
           description: description,
           due_date: dueDate,
+          status: String(payload.status || 'Pending').trim(),
           assigned_to: JSON.stringify(assignees || []),
           created_at: now,
           created_by: supervisorId,
@@ -127,11 +132,12 @@ function createSupervisorTasks(payload) {
 
     if (supRow && supRow.sup_taskid) {
       response.sup_taskid = String(supRow.sup_taskid || '').trim();
-      response.task = {
+        response.task = {
         id: response.sup_taskid,
         title: supRow.task,
         description: supRow.description,
         due_date: supRow.due_date,
+        status: String(supRow.status || '').trim(),
         assigned_student_ids: (function(){ try { return JSON.parse(String(supRow.assigned_to||'[]')) } catch(e){ return []; } })()
       };
     }
@@ -155,7 +161,7 @@ function getSupervisorTasks(payload) {
       supervisorRecord = null;
       supervisorEmail = '';
     }
-    var sheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','assigned_to','created_at','created_by','updated_by']);
+    var sheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
     var rows = readSheetObjects_(sheet) || [];
     var tasks = [];
     for (var i = 0; i < rows.length; i++) {
@@ -171,10 +177,51 @@ function getSupervisorTasks(payload) {
         title: String(r.task || '').trim(),
         description: String(r.description || '').trim(),
         due_date: String(r.due_date || '').trim(),
+        status: String(r.status || '').trim(),
         assigned_student_ids: Array.isArray(assigned) ? assigned : []
       });
     }
     return { ok: true, tasks: tasks };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? String(err.message) : String(err) };
+  }
+}
+
+// Update an existing supervisor task row by sup_taskid
+function updateSupervisorTask(payload) {
+  try {
+    var supTaskId = String(payload.sup_taskid || '').trim();
+    if (!supTaskId) return { ok: false, error: 'sup_taskid is required.' };
+
+    var sheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+    var values = getSheetValues_(sheet) || [];
+    if (values.length <= 1) return { ok: false, error: 'No rows found.' };
+
+    var headers = values[0].map(function(h){ return normalizeHeader_(h); });
+    var idCol = -1;
+    for (var c = 0; c < headers.length; c++) {
+      if (String(headers[c] || '').toLowerCase() === 'sup_taskid') { idCol = c + 1; break; }
+    }
+    if (idCol === -1) return { ok: false, error: 'sup_taskid column not found.' };
+
+    var foundRow = -1;
+    for (var r = 1; r < values.length; r++) {
+      var cell = String(values[r][idCol - 1] || '').trim();
+      if (cell === supTaskId) { foundRow = r + 1; break; }
+    }
+    if (foundRow === -1) return { ok: false, error: 'Task not found.' };
+
+    var obj = {};
+    if (payload.title !== undefined) obj.task = String(payload.title || '');
+    if (payload.description !== undefined) obj.description = String(payload.description || '');
+    if (payload.due_date !== undefined) obj.due_date = String(payload.due_date || '');
+    if (payload.status !== undefined) obj.status = String(payload.status || '');
+    if (payload.assigned_student_ids !== undefined) obj.assigned_to = JSON.stringify(payload.assigned_student_ids || []);
+    if (payload.updated_by !== undefined) obj.updated_by = String(payload.updated_by || '');
+    if (Object.keys(obj).length === 0) return { ok: false, error: 'No fields to update.' };
+
+    updateObjectRow_(sheet, foundRow, obj);
+    return { ok: true };
   } catch (err) {
     return { ok: false, error: err && err.message ? String(err.message) : String(err) };
   }

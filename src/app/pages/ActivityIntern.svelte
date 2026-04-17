@@ -5,6 +5,8 @@ let workLogs = [];
 let isLoadingWorkLogs = false;
 let workLogsError = '';
 
+let allUsers = [];
+
 let expandedWorkLog = null;
 let hoveredWorkLog = null;
 import { onMount, onDestroy } from 'svelte';
@@ -112,6 +114,17 @@ onMount(() => {
   }, 10000);
 });
 
+onMount(async () => {
+  try {
+    const res = await callGetAllStudents();
+    if (res && res.ok && Array.isArray(res.students)) {
+      allUsers = res.students.map(s => ({ user_id: String(s.user_id || ''), full_name: String(s.full_name || ''), email: String(s.email || '') }));
+    }
+  } catch (e) {
+    // ignore
+  }
+});
+
 onMount(() => {
   fetchAssignedTasks();
   fetchWorkLogs();
@@ -146,6 +159,15 @@ function getUpdatedMinutesAgo(dateString) {
   }
   // If more than 24 hours, show the date
   return `Updated ${dateString}`;
+}
+
+function getUserFullName(idOrEmail) {
+  if (!idOrEmail) return '';
+  const byId = allUsers.find(u => String(u.user_id || '') === String(idOrEmail));
+  if (byId) return byId.full_name || byId.user_id || '';
+  const byEmail = allUsers.find(u => String(u.email || '').toLowerCase() === String(idOrEmail).toLowerCase());
+  if (byEmail) return byEmail.full_name || byEmail.email || '';
+  return String(idOrEmail);
 }
 
 import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
@@ -193,6 +215,17 @@ function callGetActivityWorklogs(payload = {}) {
         reject(new Error(error?.message || String(error)));
       })
       .getActivityWorklogs(payload);
+  });
+}
+
+function callGetAllStudents(payload = {}) {
+  return new Promise((resolve, reject) => {
+    const run = globalThis?.google?.script?.run;
+    if (!run) {
+      reject(new Error('Apps Script runtime is not available in this view.'));
+      return;
+    }
+    run.withSuccessHandler(resolve).withFailureHandler((error) => reject(new Error(error?.message || String(error)))).getAllStudents(payload);
   });
 }
 
@@ -2431,7 +2464,7 @@ let assignedTasksError = '';
 
         <label>
           <span>Assigned by</span>
-          <input type="text" value={viewedTask.owner} readonly />
+          <input type="text" value={getUserFullName(viewedTask.owner) || viewedTask.owner} readonly />
         </label>
       </div>
 
