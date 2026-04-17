@@ -690,13 +690,6 @@
 </svelte:head>
 
 <section class="tl-page">
-
-  <!-- Page Heading -->
-  <div class="tl-heading">
-    <h1>Time Log</h1>
-    <p>Track and manage your daily work hours.</p>
-  </div>
-
   <!-- Error banner -->
   {#if logSyncError}
     <div class="tl-error-banner">
@@ -977,7 +970,7 @@
     display: flex;
     flex-direction: column;
     gap: 22px;
-    padding: 28px 32px;
+    padding: 16px 32px 28px;
     min-height: 0;
   }
 
@@ -1004,20 +997,6 @@
     --tl-text3:       #4b5563;
     --tl-shadow-sm:   0 1px 3px rgba(0,0,0,0.18);
     --tl-shadow:      0 8px 20px rgba(0,0,0,0.35);
-  }
-
-  /* ---------- PAGE HEADING ---------- */
-  .tl-heading h1 {
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.4px;
-    color: var(--tl-text);
-    margin: 0;
-  }
-  .tl-heading p {
-    font-size: 13px;
-    color: var(--tl-text2);
-    margin: 3px 0 0;
   }
 
   /* ---------- ERROR BANNER ---------- */
