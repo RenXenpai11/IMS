@@ -12,15 +12,18 @@ var PROFILE_PHOTO_MAX_BYTES_ = 5 * 1024 * 1024;
 var PROFILE_PHOTO_MAX_MB_ = Math.floor(PROFILE_PHOTO_MAX_BYTES_ / (1024 * 1024));
 var PROFILE_PHOTOS_FOLDER_NAME_ = 'IMS Profile Photos';
 var TIME_LOGS_SHEET_ = 'time_logs';
-var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'status', 'notes', 'created_at'];
+var TIME_LOGS_HEADERS_ = ['timelog_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'entry_type', 'status', 'notes', 'created_at'];
+var ACTIVE_SESSIONS_SHEET_ = 'active_sessions';
+var ACTIVE_SESSIONS_HEADERS_ = ['session_id', 'user_id', 'log_date', 'time_in', 'time_out', 'hours_rendered', 'notes', 'created_at'];
 var SUPERVISOR_ASSIGNMENTS_SHEET_ = 'supervisor_assignments';
 var SUPERVISOR_ASSIGNMENTS_HEADERS_ = ['assignment_id', 'supervisor_user_id', 'student_user_id', 'company', 'department', 'status', 'created_at'];
 var STUDENT_OJT_PROFILE_SHEET_ = 'student_ojt_profile';
 var STUDENT_OJT_PROFILE_HEADERS_ = ['user_id', 'total_ojt_hours', 'start_date', 'estimated_end_date', 'course', 'school'];
 var REQUESTS_SHEET_ = 'requests';
 var REQUESTS_HEADERS_ = ['request_id', 'user_id', 'requester_name', 'request_type', 'request_date', 'request_time', 'start_time', 'end_time', 'total_hours', 'reason', 'status', 'created_at'];
-var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
+var USER_SETTINGS_SHEET_ = 'user_settings';
+var USER_SETTINGS_HEADERS_ = ['user_id', 'settings_json', 'updated_at'];
 
 // Default intern work schedule (Monday-Friday, 9am-5pm)
 var DEFAULT_WORK_DAYS_ = [1, 2, 3, 4, 5]; // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
@@ -97,6 +100,18 @@ function dispatchAction_(payload) {
     return handleDeleteTimeLog_(payload);
   }
 
+  if (action === 'start_session') {
+    return handleStartSession_(payload);
+  }
+
+  if (action === 'end_session') {
+    return handleEndSession_(payload);
+  }
+
+  if (action === 'get_active_session') {
+    return handleGetActiveSession_(payload);
+  }
+
   if (action === 'list_students_for_assignment') {
     return handleListStudentsForAssignment_(payload);
   }
@@ -119,6 +134,10 @@ function dispatchAction_(payload) {
 
   if (action === 'list_supervisor_time_logs') {
     return handleListSupervisorTimeLogs_(payload);
+  }
+
+  if (action === 'list_supervisor_active_sessions') {
+    return handleListSupervisorActiveSessions_(payload);
   }
 
   if (action === 'delete_supervisor_time_log') {
@@ -167,6 +186,14 @@ function dispatchAction_(payload) {
     return handleCreateFolder_(payload);
   }
 
+  if (action === 'get_document_folders') {
+    return handleGetDocumentFolders_(payload);
+  }
+
+  if (action === 'get_documents_bootstrap_data') {
+    return handleGetDocumentsBootstrapData_(payload);
+  }
+
   if (action === 'create_request') {
     return handleCreateRequest_(payload);
   }
@@ -183,6 +210,10 @@ function dispatchAction_(payload) {
     return handleUpdateRequestStatus_(payload);
   }
 
+  if (action === 'delete_request') {
+    return handleDeleteRequest_(payload);
+  }
+
   if (action === 'list_notifications') {
     return handleListNotifications_(payload);
   }
@@ -193,6 +224,31 @@ function dispatchAction_(payload) {
 
   if (action === 'mark_all_notifications_read') {
     return handleMarkAllNotificationsRead_(payload);
+  }
+
+  if (action === 'list_assigned_student_documents') {
+    return handleListAssignedStudentDocuments_(payload);
+  }
+
+  if (action === 'debug_sessions_sheet') {
+    return handleDebugSessionsSheet_(payload);
+  }
+
+  // --- Settings & Role Additions ---
+  if (action === 'get_student_supervisor') {
+    return handleGetStudentSupervisor_(payload);
+  }
+
+  if (action === 'get_notification_preferences') {
+    return handleGetNotificationPreferences_(payload);
+  }
+
+  if (action === 'update_notification_preferences') {
+    return handleUpdateNotificationPreferences_(payload);
+  }
+
+  if (action === 'change_password') {
+    return handleChangePassword_(payload);
   }
 
   return { ok: false, error: 'Unknown action: ' + action };
@@ -393,11 +449,15 @@ function handleRegisterAccount_(payload) {
 
   savePendingRegistration_(pendingRecord);
 
-  MailApp.sendEmail({
-    to: email,
-    subject: 'Verify your Internship Management System account',
-    htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_)
-  });
+  MailApp.sendEmail(
+    email,
+    'Verify your Internship Management System account',
+    '',
+    {
+      htmlBody: buildOtpEmailHtml_(fullName, otpCode, OTP_EXPIRY_MINUTES_),
+      name: 'IMS'
+    }
+  );
 
   return {
     ok: true,
@@ -686,11 +746,15 @@ function handleResendEmailOtp_(payload) {
     pending.otp_last_sent_at = isoNow_();
     savePendingRegistration_(pending);
 
-    MailApp.sendEmail({
-      to: email,
-      subject: 'Your new OTP for Internship Management System',
-      htmlBody: buildOtpEmailHtml_(String(pending.full_name || 'User'), pendingOtpCode, OTP_EXPIRY_MINUTES_)
-    });
+    MailApp.sendEmail(
+      email,
+      'Your new OTP for Internship Management System',
+      '',
+      {
+        htmlBody: buildOtpEmailHtml_(String(pending.full_name || 'User'), pendingOtpCode, OTP_EXPIRY_MINUTES_),
+        name: 'IMS'
+      }
+    );
 
     return {
       ok: true,
@@ -726,11 +790,15 @@ function handleResendEmailOtp_(payload) {
   record.user.otp_last_sent_at = isoNow_();
   updateUserRecord_(record);
 
-  MailApp.sendEmail({
-    to: email,
-    subject: 'Your new OTP for Internship Management System',
-    htmlBody: buildOtpEmailHtml_(String(record.user.full_name || 'User'), otpCode, OTP_EXPIRY_MINUTES_)
-  });
+  MailApp.sendEmail(
+    email,
+    'Your new OTP for Internship Management System',
+    '',
+    {
+      htmlBody: buildOtpEmailHtml_(String(record.user.full_name || 'User'), otpCode, OTP_EXPIRY_MINUTES_),
+      name: 'IMS'
+    }
+  );
 
   return { ok: true, message: 'A new OTP has been sent to your email.', verification_email: email };
 }
@@ -912,15 +980,22 @@ function handleCreateTimeLog_(payload) {
   var logDate = String(payload.log_date || '').trim();
   var timeIn = String(payload.time_in || '').trim();
   var timeOut = String(payload.time_out || '').trim();
+  var entryType = String(payload.entry_type || 'login').trim().toLowerCase(); // 'login' or 'logout'
   var hoursRendered = Number(payload.hours_rendered || 0);
   var status = 'recorded';
   var notes = String(payload.notes || '').trim();
   var timelogId = String(payload.timelog_id || createId_('TL'));
   var createdAt = String(payload.created_at || isoNow_());
-  var updateStartDate = payload.updateStartDate === true; // Allow first time log to set start date
+  var updateStartDate = payload.updateStartDate === true;
 
-  if (!userId || !logDate || !timeIn || !timeOut || !hoursRendered) {
-    return { ok: false, error: 'user_id, log_date, time_in, time_out, and hours_rendered are required.' };
+  // Required: user_id, log_date, time_in, entry_type
+  if (!userId || !logDate || !timeIn || !entryType) {
+    return { ok: false, error: 'user_id, log_date, time_in, and entry_type are required.' };
+  }
+
+  // Validate entry_type
+  if (entryType !== 'login' && entryType !== 'logout') {
+    return { ok: false, error: 'entry_type must be either "login" or "logout".' };
   }
 
   var userRecord = findUserRecordByUserId_(userId);
@@ -933,13 +1008,48 @@ function handleCreateTimeLog_(payload) {
   }
 
   var sheet = getTimeLogsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+  var logDateCol = findColumnIndex_(headers, 'log_date');
+  var entryTypeCol = findColumnIndex_(headers, 'entry_type');
+
+  // For logout entries, validate that logout time is provided
+  if (entryType === 'logout') {
+    if (!timeOut) {
+      return { ok: false, error: 'time_out is required for logout entries.' };
+    }
+    // No need to check for previous login - logout entries contain complete data (time_in + time_out)
+  }
+
+  // For login entries, prevent multiple logins without logout
+  if (entryType === 'login') {
+    // Check for existing unpaired login entry for today
+    var hasUnpairedLogin = false;
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(values[i][userIdCol - 1] || '');
+      var rowLogDate = String(values[i][logDateCol - 1] || '');
+      var rowEntryType = String(values[i][entryTypeCol - 1] || 'login').toLowerCase();
+
+      if (rowUserId === userId && rowLogDate === logDate && rowEntryType === 'login') {
+        hasUnpairedLogin = true;
+        break;
+      }
+    }
+
+    if (hasUnpairedLogin) {
+      return { ok: false, error: 'You are already logged in today. Please log out first before logging in again.' };
+    }
+  }
+
   var rowObject = {
     timelog_id: timelogId,
     user_id: userId,
     log_date: logDate,
     time_in: timeIn,
     time_out: timeOut,
-    hours_rendered: hoursRendered,
+    hours_rendered: entryType === 'logout' ? hoursRendered : 0,
+    entry_type: entryType,
     status: status,
     notes: notes,
     created_at: createdAt
@@ -1040,6 +1150,280 @@ function handleDeleteTimeLog_(payload) {
 
   sheet.deleteRow(rowIndex);
   return { ok: true, message: 'Time log deleted.' };
+}
+
+function handleStartSession_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var logDate = String(payload.log_date || '').trim();
+    var timeIn = String(payload.time_in || '').trim();
+
+    Logger.log('DEBUG handleStartSession_ - Input: user_id=' + userId + ', log_date=' + logDate + ', time_in=' + timeIn);
+
+    if (!userId || !logDate || !timeIn) {
+      return { ok: false, error: 'user_id, log_date, and time_in are required.' };
+    }
+
+    var userRecord = findUserRecordByUserId_(userId);
+    if (!userRecord) {
+      return { ok: false, error: 'User not found.' };
+    }
+
+    if (!isEmailVerifiedValue_(userRecord.user.email_verified, userRecord.user)) {
+      return { ok: false, error: 'Please verify your email before creating a time log.' };
+    }
+
+    // Check if user already has active session for this date
+    var sheet = getActiveSessionsSheet_();
+    Logger.log('DEBUG handleStartSession_ - Got active_sessions sheet: ' + sheet.getName());
+    
+    var headers = getHeaders_(sheet);
+    var values = getSheetValues_(sheet);
+    Logger.log('DEBUG handleStartSession_ - Sheet has ' + values.length + ' rows (including header)');
+    
+    var userIdCol = findColumnIndex_(headers, 'user_id');
+    var logDateCol = findColumnIndex_(headers, 'log_date');
+
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(values[i][userIdCol - 1] || '').trim();
+      var rowLogDate = String(values[i][logDateCol - 1] || '').trim();
+      if (rowUserId === userId && rowLogDate === logDate) {
+        // Session already exists for this date
+        return { ok: false, error: 'You already have an active session for today. Please log out first.' };
+      }
+    }
+
+    var sessionId = createId_('SES');
+    var createdAt = isoNow_();
+
+    var sessionRow = {
+      session_id: sessionId,
+      user_id: userId,
+      log_date: logDate,
+      time_in: timeIn,
+      time_out: '',
+      hours_rendered: 0,
+      notes: '',
+      created_at: createdAt
+    };
+
+    Logger.log('DEBUG handleStartSession_ - About to save session: ' + JSON.stringify(sessionRow));
+    appendObjectRow_(sheet, sessionRow);
+    Logger.log('DEBUG handleStartSession_ - Session saved successfully');
+
+    return {
+      ok: true,
+      message: 'Session started successfully.',
+      session: sessionRow
+    };
+  } catch (e) {
+    Logger.log('ERROR in handleStartSession_: ' + e.toString() + ' | Stack: ' + e.stack);
+    return { ok: false, error: 'Error creating session: ' + e.toString() };
+  }
+}
+
+function handleEndSession_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var logDate = String(payload.log_date || '').trim();
+    var timeOut = String(payload.time_out || '').trim();
+    var hours = Number(payload.hours_rendered || 0);
+    var notes = String(payload.notes || '').trim();
+
+    Logger.log('DEBUG handleEndSession_ - Input: user_id=' + userId + ', log_date=' + logDate + ', time_out=' + timeOut);
+
+    if (!userId || !logDate || !timeOut) {
+      return { ok: false, error: 'user_id, log_date, and time_out are required.' };
+    }
+
+    var userRecord = findUserRecordByUserId_(userId);
+    if (!userRecord) {
+      return { ok: false, error: 'User not found.' };
+    }
+
+    if (!isEmailVerifiedValue_(userRecord.user.email_verified, userRecord.user)) {
+      return { ok: false, error: 'Please verify your email before updating a time log.' };
+    }
+
+    // Find active session for this user on this date
+    var sessionsSheet = getActiveSessionsSheet_();
+    Logger.log('DEBUG handleEndSession_ - Got active_sessions sheet: ' + sessionsSheet.getName());
+    
+    var sessHeaders = getHeaders_(sessionsSheet);
+    var sessValues = getSheetValues_(sessionsSheet);
+    Logger.log('DEBUG handleEndSession_ - Sheet has ' + sessValues.length + ' rows (including header)');
+    
+    var userIdCol = findColumnIndex_(sessHeaders, 'user_id');
+    var logDateCol = findColumnIndex_(sessHeaders, 'log_date');
+    var sessionIdCol = findColumnIndex_(sessHeaders, 'session_id');
+    var timeInCol = findColumnIndex_(sessHeaders, 'time_in');
+
+    var sessionRow = -1;
+    var sessionId = '';
+    var timeIn = '';
+
+    Logger.log('DEBUG handleEndSession_ - Looking for: user_id=' + userId + ', log_date=' + logDate);
+    
+    for (var i = 1; i < sessValues.length; i++) {
+      var rowUserId = String(sessValues[i][userIdCol - 1] || '').trim();
+      var rowLogDate = String(sessValues[i][logDateCol - 1] || '').trim();
+      Logger.log('DEBUG handleEndSession_ - Row ' + i + ': user_id=' + rowUserId + ', log_date=' + rowLogDate);
+      
+      if (rowUserId === userId && rowLogDate === logDate) {
+        sessionRow = i + 1;
+        sessionId = String(sessValues[i][sessionIdCol - 1] || '').trim();
+        timeIn = String(sessValues[i][timeInCol - 1] || '').trim();
+        Logger.log('DEBUG handleEndSession_ - Found session! Row=' + sessionRow + ', session_id=' + sessionId + ', time_in=' + timeIn);
+        break;
+      }
+    }
+
+    if (sessionRow <= 0) {
+      Logger.log('DEBUG handleEndSession_ - No session found for user=' + userId + ', date=' + logDate);
+      return { ok: false, error: 'No active session found. Please log in first.' };
+    }
+
+    // Create time log entry with both times
+    var timelogId = createId_('TL');
+    var createdAt = isoNow_();
+
+    var timelogRow = {
+      timelog_id: timelogId,
+      user_id: userId,
+      log_date: logDate,
+      time_in: timeIn,
+      time_out: timeOut,
+      hours_rendered: hours,
+      entry_type: 'entry',
+      status: 'recorded',
+      notes: notes,
+      created_at: createdAt
+    };
+
+    // Add to time_logs
+    var logsSheet = getTimeLogsSheet_();
+    Logger.log('DEBUG handleEndSession_ - About to save timelog: ' + JSON.stringify(timelogRow));
+    appendObjectRow_(logsSheet, timelogRow);
+    Logger.log('DEBUG handleEndSession_ - Timelog saved');
+
+    // Delete from active_sessions
+    Logger.log('DEBUG handleEndSession_ - Deleting session row ' + sessionRow);
+    sessionsSheet.deleteRow(sessionRow);
+    Logger.log('DEBUG handleEndSession_ - Session deleted');
+
+    return {
+      ok: true,
+      message: 'Session ended successfully.',
+      timelog: timelogRow
+    };
+  } catch (e) {
+    Logger.log('ERROR in handleEndSession_: ' + e.toString() + ' | Stack: ' + e.stack);
+    return { ok: false, error: 'Error ending session: ' + e.toString() };
+  }
+}
+
+function handleGetActiveSession_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    var logDate = String(payload.log_date || '').trim();
+
+    Logger.log('DEBUG handleGetActiveSession_ - Input: user_id=' + userId + ', log_date=' + logDate);
+
+    if (!userId || !logDate) {
+      return { ok: false, error: 'user_id and log_date are required.' };
+    }
+
+    var sheet = getActiveSessionsSheet_();
+    var headers = getHeaders_(sheet);
+    var values = getSheetValues_(sheet);
+
+    var userIdCol = findColumnIndex_(headers, 'user_id');
+    var logDateCol = findColumnIndex_(headers, 'log_date');
+
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(values[i][userIdCol - 1] || '').trim();
+      var rowLogDate = String(values[i][logDateCol - 1] || '').trim();
+      
+      if (rowUserId === userId && rowLogDate === logDate) {
+        // Found active session for this user on this date
+        // Build object from row data using headers
+        var sessionObj = {};
+        for (var j = 0; j < headers.length; j++) {
+          sessionObj[headers[j]] = values[i][j] || '';
+        }
+        
+        Logger.log('DEBUG handleGetActiveSession_ - Found session: ' + JSON.stringify(sessionObj));
+        
+        return {
+          ok: true,
+          session: sessionObj
+        };
+      }
+    }
+
+    // No active session found
+    Logger.log('DEBUG handleGetActiveSession_ - No active session found for user=' + userId + ', date=' + logDate);
+    return {
+      ok: true,
+      session: null
+    };
+  } catch (e) {
+    Logger.log('ERROR in handleGetActiveSession_: ' + e.toString() + ' | Stack: ' + e.stack);
+    return { ok: false, error: 'Error retrieving active session: ' + e.toString() };
+  }
+}
+
+function handleDebugSessionsSheet_(payload) {
+  try {
+    // Get active_sessions sheet
+    var activeSessions = getActiveSessionsSheet_();
+    var activeHeaders = getHeaders_(activeSessions);
+    var activeValues = getSheetValues_(activeSessions);
+    
+    // Get time_logs sheet
+    var timeLogs = getTimeLogsSheet_();
+    var timeHeaders = getHeaders_(timeLogs);
+    var timeValues = getSheetValues_(timeLogs);
+    
+    // Format the data for display
+    var activeSessionsData = [];
+    for (var i = 1; i < activeValues.length; i++) {
+      var row = {};
+      for (var j = 0; j < activeHeaders.length; j++) {
+        row[activeHeaders[j]] = activeValues[i][j];
+      }
+      activeSessionsData.push(row);
+    }
+    
+    var timeLogsData = [];
+    for (var i = 1; i < timeValues.length; i++) {
+      var row = {};
+      for (var j = 0; j < timeHeaders.length; j++) {
+        row[timeHeaders[j]] = timeValues[i][j];
+      }
+      timeLogsData.push(row);
+    }
+    
+    return {
+      ok: true,
+      message: 'Sheet debugging info',
+      active_sessions: {
+        sheet_name: activeSessions.getName(),
+        headers: activeHeaders,
+        row_count: activeValues.length - 1,
+        data: activeSessionsData
+      },
+      time_logs: {
+        sheet_name: timeLogs.getName(),
+        headers: timeHeaders,
+        row_count: timeValues.length - 1,
+        data: timeLogsData.slice(0, 10)
+      }
+    };
+  } catch (e) {
+    Logger.log('ERROR in handleDebugSessionsSheet_: ' + e.toString());
+    return { ok: false, error: 'Debug error: ' + e.toString() };
+  }
 }
 
 function handleListStudentsForAssignment_(payload) {
@@ -1309,6 +1693,49 @@ function handleListSupervisorTimeLogs_(payload) {
   return { ok: true, logs: rows };
 }
 
+function handleListSupervisorActiveSessions_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+
+  if (!supervisorUserId) {
+    return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+    return { ok: false, error: 'Only supervisors can view active sessions.' };
+  }
+
+  // Get all students assigned to this supervisor
+  var assignmentsSheet = getSheet_('supervisor_student_assignments');
+  var assignmentRows = readSheetObjects_(assignmentsSheet);
+  var assignedStudentIds = assignmentRows
+    .filter(function (row) {
+      return String(row.supervisor_user_id || '').trim() === supervisorUserId;
+    })
+    .map(function (row) {
+      return String(row.student_user_id || '').trim();
+    });
+
+  // Get active sessions for these students (today's date)
+  var todayDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var sessionsSheet = getActiveSessionsSheet_();
+  var sessionRows = readSheetObjects_(sessionsSheet)
+    .filter(function (row) {
+      var studentId = String(row.user_id || '').trim();
+      var logDate = String(row.log_date || '').trim();
+      return assignedStudentIds.indexOf(studentId) >= 0 && logDate === todayDate && !row.time_out;
+    })
+    .map(function (row) {
+      return sanitizeObjectForClient_(row);
+    });
+
+  return { ok: true, active_sessions: sessionRows };
+}
+
 function handleDeleteSupervisorTimeLog_(payload) {
   var supervisorUserId = String(payload.supervisor_user_id || '').trim();
   var studentUserId = String(payload.student_user_id || '').trim();
@@ -1433,6 +1860,20 @@ function handleCreateRequest_(payload) {
     return { ok: false, error: 'Missing required fields: user_id, request_type, request_date, reason' };
   }
 
+  var requesterRecord = findUserRecordByUserId_(userId);
+  if (!requesterRecord) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  var requesterRole = String(requesterRecord.user.role || '').trim().toLowerCase();
+  if (requesterRole === 'supervisor') {
+    return { ok: false, error: 'Supervisor accounts cannot create requests.' };
+  }
+
+  if (!requesterName) {
+    requesterName = String(requesterRecord.user.full_name || '').trim() || 'Student';
+  }
+
   // Overtime-specific validation
   if (requestType === 'Overtime') {
     if (!startTime || !endTime) {
@@ -1504,6 +1945,21 @@ function handleCreateRequest_(payload) {
       'request',
       requestId
     );
+
+    try {
+      sendSupervisorRequestEmail_(supervisorUserId, {
+        requestId: requestId,
+        requesterName: requesterName,
+        requestType: requestType,
+        requestDate: requestDate,
+        reason: reason,
+        startTime: startTime,
+        endTime: endTime,
+        totalHours: totalHours,
+      });
+    } catch (mailErr) {
+      Logger.log('Unable to send supervisor request email: ' + (mailErr && mailErr.message ? mailErr.message : String(mailErr)));
+    }
   }
 
   return {
@@ -1548,6 +2004,7 @@ function handleListRequestsByUser_(payload) {
         reason: String(row.reason || ''),
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
+        created_at: String(row.created_at || ''),
       });
     }
   }
@@ -1560,6 +2017,15 @@ function handleListAssignedStudentRequests_(payload) {
 
   if (!supervisorUserId) {
     return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim().toLowerCase() !== 'supervisor') {
+    return { ok: false, error: 'Only supervisors can view assigned student requests.' };
   }
 
   var assignmentSheet = getSupervisorAssignmentsSheet_();
@@ -1592,6 +2058,7 @@ function handleListAssignedStudentRequests_(payload) {
         reason: String(row.reason || ''),
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
+        created_at: String(row.created_at || ''),
       });
     }
   }
@@ -1602,9 +2069,19 @@ function handleListAssignedStudentRequests_(payload) {
 function handleUpdateRequestStatus_(payload) {
   var requestId = String(payload.request_id || '').trim();
   var newStatus = String(payload.status || '').trim();
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
 
-  if (!requestId || !newStatus) {
-    return { ok: false, error: 'request_id and status are required.' };
+  if (!requestId || !newStatus || !supervisorUserId) {
+    return { ok: false, error: 'request_id, status, and supervisor_user_id are required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim().toLowerCase() !== 'supervisor') {
+    return { ok: false, error: 'Only supervisors can update request status.' };
   }
 
   var sheet = getRequestsSheet_();
@@ -1618,10 +2095,14 @@ function handleUpdateRequestStatus_(payload) {
 
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
+      var studentUserId = String(rows[i][userIdColIndex - 1] || '').trim();
+      if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
+        return { ok: false, error: 'You are not assigned to this student request.' };
+      }
+
       sheet.getRange(i + 1, updateColIndex, 1, 1).setValue(newStatus);
 
       // Notify the student who created the request
-      var studentUserId = String(rows[i][userIdColIndex - 1] || '').trim();
       var requestType = String(rows[i][requestTypeColIndex - 1] || '').trim();
       if (studentUserId) {
         var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
@@ -1639,6 +2120,85 @@ function handleUpdateRequestStatus_(payload) {
   }
 
   return { ok: false, error: 'Request not found.' };
+}
+
+function handleDeleteRequest_(payload) {
+  var requestId = String(payload.request_id || '').trim();
+
+  if (!requestId) {
+    return { ok: false, error: 'request_id is required.' };
+  }
+
+  try {
+    var sheet = getRequestsSheet_();
+    var rows = getSheetValues_(sheet);
+    var headers = getHeaders_(sheet);
+    var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+
+    // Find the row with matching request_id
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
+        // Delete the row (row numbers are 1-indexed)
+        sheet.deleteRow(i + 1);
+        return { ok: true, message: 'Request deleted permanently.' };
+      }
+    }
+
+    return { ok: false, error: 'Request not found.' };
+  } catch (e) {
+    Logger.log('ERROR in handleDeleteRequest_: ' + e.toString());
+    return { ok: false, error: 'Error deleting request: ' + e.toString() };
+  }
+  var userId = String(payload.user_id || '').trim();
+
+  if (!requestId || !userId) {
+    return { ok: false, error: 'request_id and user_id are required.' };
+  }
+
+  var requesterRecord = findUserRecordByUserId_(userId);
+  if (!requesterRecord) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  if (String(requesterRecord.user.role || '').trim().toLowerCase() === 'supervisor') {
+    return { ok: false, error: 'Supervisor accounts cannot delete requests.' };
+  }
+
+  var sheet = getRequestsSheet_();
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+  var userIdColIndex = findColumnIndex_(headers, 'user_id');
+  var statusColIndex = findColumnIndex_(headers, 'status');
+
+  if (requestIdColIndex === 0 || userIdColIndex === 0 || statusColIndex === 0) {
+    throw new Error('requests sheet must include request_id, user_id, and status columns.');
+  }
+
+  var rowIndex = -1;
+  var requestStatus = '';
+
+  for (var i = 1; i < values.length; i++) {
+    var rowRequestId = String(values[i][requestIdColIndex - 1] || '').trim();
+    var rowUserId = String(values[i][userIdColIndex - 1] || '').trim();
+
+    if (rowRequestId === requestId && rowUserId === userId) {
+      rowIndex = i + 1;
+      requestStatus = String(values[i][statusColIndex - 1] || '').trim();
+      break;
+    }
+  }
+
+  if (rowIndex <= 0) {
+    return { ok: false, error: 'Request not found.' };
+  }
+
+  if (requestStatus.toLowerCase() !== 'pending') {
+    return { ok: false, error: 'Only pending requests can be deleted.' };
+  }
+
+  sheet.deleteRow(rowIndex);
+  return { ok: true, message: 'Request deleted successfully.' };
 }
 
 // --- Notification handlers ---
@@ -1748,6 +2308,124 @@ function createNotification_(userId, title, description, type, relatedId) {
     is_read: 'false',
     created_at: isoNow_()
   });
+}
+
+function getAppBaseUrl_() {
+  var configured = String(PropertiesService.getScriptProperties().getProperty('APP_BASE_URL') || '').trim();
+  if (configured) {
+    return configured;
+  }
+
+  try {
+    var serviceUrl = String(ScriptApp.getService().getUrl() || '').trim();
+    if (serviceUrl) {
+      return serviceUrl;
+    }
+  } catch (err) {
+    // Ignore and use empty fallback.
+  }
+
+  return '';
+}
+
+function buildRequestDeepLinkUrl_(requestId) {
+  var baseUrl = getAppBaseUrl_();
+  if (!baseUrl) {
+    return '';
+  }
+
+  var params = ['page=requests'];
+  var cleanRequestId = String(requestId || '').trim();
+  if (cleanRequestId) {
+    params.push('requestId=' + encodeURIComponent(cleanRequestId));
+  }
+
+  var separator = baseUrl.indexOf('?') === -1 ? '?' : '&';
+  return baseUrl + separator + params.join('&');
+}
+
+function buildRequestEmailText_(requestDetails, deepLinkUrl) {
+  var lines = [
+    'A new request has been submitted.',
+    '',
+    'Student: ' + String(requestDetails.requesterName || 'Student'),
+    'Request Type: ' + String(requestDetails.requestType || ''),
+    'Date: ' + String(requestDetails.requestDate || ''),
+    'Reason/Notes: ' + String(requestDetails.reason || ''),
+  ];
+
+  var requestType = String(requestDetails.requestType || '').trim().toLowerCase();
+  if (requestType === 'overtime') {
+    lines.push('Start Time: ' + String(requestDetails.startTime || '-'));
+    lines.push('End Time: ' + String(requestDetails.endTime || '-'));
+    lines.push('Total Hours: ' + String(requestDetails.totalHours || 0));
+  }
+
+  if (deepLinkUrl) {
+    lines.push('');
+    lines.push('View Request: ' + deepLinkUrl);
+  }
+
+  return lines.join('\n');
+}
+
+function buildRequestEmailHtml_(requestDetails, deepLinkUrl) {
+  var requestType = String(requestDetails.requestType || '').trim();
+  var reasonHtml = escapeHtml_(String(requestDetails.reason || '')).replace(/\n/g, '<br>');
+  var overtimeRows = '';
+
+  if (requestType.toLowerCase() === 'overtime') {
+    overtimeRows = [
+      '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Start Time</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.startTime || '-') + '</td></tr>',
+      '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">End Time</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.endTime || '-') + '</td></tr>',
+      '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Total Hours</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(String(requestDetails.totalHours || 0)) + '</td></tr>',
+    ].join('');
+  }
+
+  var actionBlock = deepLinkUrl
+    ? '<a href="' + deepLinkUrl + '" style="display:inline-block;margin-top:14px;padding:10px 16px;background:#0f6cbd;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">View Request</a>'
+    : '<p style="margin:14px 0 0;color:#64748b;font-size:13px;">Request link unavailable. Open the IMS app and go to Requests.</p>';
+
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 12px;">A new request has been submitted and is waiting for your review.</p>',
+    '<table style="border-collapse:collapse;min-width:320px;">',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Student</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.requesterName || 'Student') + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Request Type</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestType) + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Date</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.requestDate || '') + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;vertical-align:top;">Reason/Notes</td><td style="padding:6px 0;color:#0f172a;">' + reasonHtml + '</td></tr>',
+    overtimeRows,
+    '</table>',
+    actionBlock,
+    '<p style="margin:14px 0 0;color:#64748b;font-size:12px;">If you are not logged in, you will be redirected to login first, then back to Requests.</p>',
+    '</div>',
+  ].join('');
+}
+
+function sendSupervisorRequestEmail_(supervisorUserId, requestDetails) {
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return;
+  }
+
+  var supervisorEmail = normalizeEmail_(supervisorRecord.user.email);
+  if (!supervisorEmail) {
+    return;
+  }
+
+  var deepLinkUrl = buildRequestDeepLinkUrl_(requestDetails.requestId);
+  var subject = 'New ' + String(requestDetails.requestType || 'Request') + ' Request - ' + String(requestDetails.requesterName || 'Student');
+
+  MailApp.sendEmail(
+    supervisorEmail,
+    subject,
+    buildRequestEmailText_(requestDetails, deepLinkUrl),
+    {
+      htmlBody: buildRequestEmailHtml_(requestDetails, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
 }
 
 // Validates that overtime doesn't overlap with default work schedule (Mon-Fri, 9am-5pm)
@@ -2239,6 +2917,10 @@ function getTimeLogsSheet_() {
   return getOrCreateSheetWithHeaders_(TIME_LOGS_SHEET_, TIME_LOGS_HEADERS_);
 }
 
+function getActiveSessionsSheet_() {
+  return getOrCreateSheetWithHeaders_(ACTIVE_SESSIONS_SHEET_, ACTIVE_SESSIONS_HEADERS_);
+}
+
 function getSupervisorAssignmentsSheet_() {
   return getOrCreateSheetWithHeaders_(SUPERVISOR_ASSIGNMENTS_SHEET_, SUPERVISOR_ASSIGNMENTS_HEADERS_);
 }
@@ -2253,6 +2935,10 @@ function getRequestsSheet_() {
 
 function getNotificationsSheet_() {
   return getOrCreateSheetWithHeaders_(NOTIFICATIONS_SHEET_, NOTIFICATIONS_HEADERS_);
+}
+
+function getUserSettingsSheet_() {
+  return getOrCreateSheetWithHeaders_(USER_SETTINGS_SHEET_, USER_SETTINGS_HEADERS_);
 }
 
 function ensureSheetColumns_(sheet, columnNames) {
@@ -2404,8 +3090,72 @@ function updateObjectRow_(sheet, rowIndex, obj) {
   sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
 }
 
+/**
+ * Generates a sequential ID (e.g., user_0001, TL_0005) by scanning the corresponding sheet.
+ * Falls back to random ID if sheet scanning fails or prefix is unknown.
+ */
 function createId_(prefix) {
+  var config = {
+    'USR': { sheet: 'users', col: 'user_id', digits: 4, label: 'user' },
+    'TL': { sheet: 'time_logs', col: 'timelog_id', digits: 4, label: 'TL' },
+    'SES': { sheet: 'active_sessions', col: 'session_id', digits: 4, label: 'SES' },
+    'ASG': { sheet: 'supervisor_assignments', col: 'assignment_id', digits: 4, label: 'ASG' },
+    'NOTIF': { sheet: 'notifications', col: 'notification_id', digits: 4, label: 'NOT' },
+    'REQ': { sheet: 'requests', col: 'request_id', digits: 4, label: 'REQ' }
+  };
+
+  var settings = config[prefix];
+  if (settings) {
+    // If the user specifically wanted "user_" prefix, we use it for USR
+    var activePrefix = (prefix === 'USR') ? 'user' : settings.label;
+    return getNextSequenceId_(settings.sheet, activePrefix, settings.col, settings.digits);
+  }
+
+  // Fallback for unknown prefixes
   return prefix + '_' + Utilities.getUuid().split('-')[0] + '_' + new Date().getTime();
+}
+
+/**
+ * Scans a sheet to find the next available sequential ID.
+ */
+function getNextSequenceId_(sheetName, prefix, idColumnName, digits) {
+  try {
+    var sheet = getSheet_(sheetName);
+    var headers = getHeaders_(sheet);
+    var colIndex = findColumnIndex_(headers, idColumnName);
+    if (colIndex === 0) return prefix + '_' + '1'.padStart(digits || 4, '0');
+
+    var values = getSheetValues_(sheet);
+    var maxIdNum = 0;
+    var regex = new RegExp('^' + prefix + '_(\\d+)', 'i');
+
+    for (var i = 1; i < values.length; i++) {
+        var val = values[i][colIndex - 1];
+        if (val === undefined || val === null) continue;
+        var idVal = String(val).trim();
+        var match = idVal.match(regex);
+        if (match) {
+            var num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxIdNum) {
+                maxIdNum = num;
+            }
+        }
+    }
+
+    var nextNum = maxIdNum + 1;
+    // Special case for starting at 000 if the sheet is empty and user requested it
+    // But usually 0001 is safer for loops. 
+    // If user specifically said user_000 first, I will start from 0 if maxIdNum is 0 and sheet is empty.
+    if (maxIdNum === 0 && values.length <= 1 && prefix === 'user') {
+        return 'user_0000';
+    }
+
+    var paddedNum = String(nextNum).padStart(digits || 4, '0');
+    return prefix + '_' + paddedNum;
+  } catch (err) {
+    console.error('Error in getNextSequenceId_:', err);
+    return prefix + '_' + Utilities.getUuid().split('-')[0];
+  }
 }
 
 function findUserRecordByEmail_(email) {
@@ -2634,9 +3384,11 @@ function jsonResponse_(obj) {
 
 // Document Management Functions
 var DOCUMENTS_SHEET_ = 'documents';
-var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'category', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
+var DOCUMENTS_HEADERS_ = ['id', 'user_id', 'name', 'folder', 'type', 'size', 'url', 'is_link', 'uploaded_date', 'access_level', 'shared_with', 'created_by', 'created_date'];
 var ACT_ATTACHMENTS_SHEET_ = 'act_attachments';
 var ACT_ATTACHMENTS_HEADERS_ = ['id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
+var DOCUMENT_FOLDERS_SHEET_ = 'document_folders';
+var DOCUMENT_FOLDERS_HEADERS_ = ['id', 'user_id', 'folder_name', 'path', 'created_date', 'is_default'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
 
 // Add a new attachment to act_attachments with sequential ATT_0001 IDs
@@ -2710,41 +3462,58 @@ function handleGetAllDocuments_(payload) {
       return { ok: false, error: 'Missing user_id.' };
     }
 
+    var groupMemberIds = getGroupMemberIds_(userId);
+    
     var sheet = getOrCreateSheetWithHeaders_(DOCUMENTS_SHEET_, DOCUMENTS_HEADERS_);
+    var rows = readSheetObjects_(sheet);
+    var filteredDocs = [];
+    var authorIds = [];
 
-    var data = sheet.getDataRange().getValues();
-    var documents = [];
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var docUserId = String(row.user_id || '').trim();
+      
+      // If the document belongs to anyone in the group
+      if (groupMemberIds.indexOf(docUserId) !== -1) {
+        filteredDocs.push(row);
+        var createdById = String(row.created_by || '').trim();
+        if (createdById && authorIds.indexOf(createdById) === -1) {
+          authorIds.push(createdById);
+        }
+      }
+    }
 
-    for (var i = 1; i < data.length; i++) {
-      var row = data[i];
-      var doc = {
-        id: String(row[0] || '').trim(),
-        user_id: String(row[1] || '').trim(),
-        name: String(row[2] || '').trim(),
-        folder: String(row[3] || '/').trim() || '/',
-        category: String(row[4] || 'Other').trim() || 'Other',
-        type: String(row[5] || 'file').trim() || 'file',
-        size: String(row[6] || '').trim(),
-        url: String(row[7] || '').trim(),
-        is_link: String(row[8] || '').trim(),
-        uploaded_date: String(row[9] || '').trim(),
-        access_level: String(row[10] || 'private').trim() || 'private',
+    // Combined user names map (group members + anyone who authored a doc)
+    var allIdsToLookup = groupMemberIds.concat(authorIds).filter(function(id, idx, self) {
+      return self.indexOf(id) === idx;
+    });
+    var userNamesMap = getUserNamesMap_(allIdsToLookup);
+
+    var documents = filteredDocs.map(function(row) {
+      return {
+        id: String(row.id || '').trim(),
+        user_id: String(row.user_id || '').trim(),
+        name: String(row.name || '').trim(),
+        folder: String(row.folder || '/').trim() || '/',
+        type: String(row.type || 'file').trim() || 'file',
+        size: String(row.size || '').trim(),
+        url: String(row.url || '').trim(),
+        is_link: String(row.is_link || '').trim(),
+        uploaded_date: String(row.uploaded_date || '').trim(),
+        access_level: String(row.access_level || 'private').trim() || 'private',
         shared_with: (function() {
-          if (!row[11]) return [];
+          if (!row.shared_with) return [];
           try {
-            return JSON.parse(String(row[11]));
+            return JSON.parse(String(row.shared_with));
           } catch (e) {
             return [];
           }
         })(),
-        created_by: String(row[12] || '').trim(),
-        created_date: String(row[13] || '').trim()
+        created_by: String(row.created_by || '').trim(),
+        created_date: String(row.created_date || '').trim(),
+        created_by_name: userNamesMap[String(row.created_by || '').trim()] || 'Unknown'
       };
-
-      if (doc.user_id === userId) {
-        documents.push(doc);
-      }
-    }
+    });
 
     return { ok: true, documents: documents };
   } catch (err) {
@@ -2757,7 +3526,6 @@ function handleUploadDocument_(payload) {
     var userId = String(payload.user_id || '').trim();
     var name = String(payload.name || '').trim();
     var folder = String(payload.folder || '/').trim();
-    var category = String(payload.category || 'Other').trim();
     var type = String(payload.type || 'file').trim().toLowerCase();
     var size = String(payload.size || '').trim();
     var url = String(payload.url || '#').trim();
@@ -2810,7 +3578,6 @@ function handleUploadDocument_(payload) {
       userId,
       name,
       folder,
-      category,
       type,
       size,
       url,
@@ -2824,17 +3591,6 @@ function handleUploadDocument_(payload) {
 
     sheet.appendRow(newRow);
 
-    if (isLink) {
-      var attachmentsSheet = getOrCreateSheetWithHeaders_(ACT_ATTACHMENTS_SHEET_, ACT_ATTACHMENTS_HEADERS_);
-      attachmentsSheet.appendRow([
-        docId,
-        userId,
-        url,
-        new Date().toISOString(),
-        userId
-      ]);
-    }
-
     return {
       ok: true,
       document: {
@@ -2842,7 +3598,6 @@ function handleUploadDocument_(payload) {
         user_id: userId,
         name: name,
         folder: folder,
-        category: category,
         type: type,
         size: size,
         url: url,
@@ -2999,17 +3754,113 @@ function handleCreateFolder_(payload) {
       return { ok: false, error: 'Missing user_id or folder_name.' };
     }
 
-    // For now, folders are managed in the frontend
-    // This is a placeholder for future backend folder management
+    var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
+    var rows = readSheetObjects_(sheet);
+    var normalizedFolderName = folderName.toLowerCase();
+
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (String(row.user_id || '').trim() !== userId) {
+        continue;
+      }
+
+      var existingName = String(row.folder_name || '').trim().toLowerCase();
+      if (existingName === normalizedFolderName) {
+        return { ok: false, error: 'Folder already exists.' };
+      }
+    }
+
+    var folderId = 'fld_' + Date.now();
+    var folderPath = '/' + folderName;
+    var createdDate = new Date().toISOString().split('T')[0];
+
+    sheet.appendRow([
+      folderId,
+      userId,
+      folderName,
+      folderPath,
+      createdDate,
+      'false'
+    ]);
+
     return {
       ok: true,
       folder: {
+        id: folderId,
         name: folderName,
         user_id: userId,
-        path: '/' + folderName,
-        created_date: new Date().toISOString().split('T')[0],
+        path: folderPath,
+        created_date: createdDate,
         is_default: false
       }
+    };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function handleGetDocumentFolders_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    if (!userId) {
+      return { ok: false, error: 'Missing user_id.' };
+    }
+
+    var groupMemberIds = getGroupMemberIds_(userId);
+    return { ok: true, folders: getFoldersByGroupMemberIds_(groupMemberIds) };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
+
+function getFoldersByGroupMemberIds_(groupMemberIds) {
+  var sheet = getOrCreateSheetWithHeaders_(DOCUMENT_FOLDERS_SHEET_, DOCUMENT_FOLDERS_HEADERS_);
+  var rows = readSheetObjects_(sheet);
+  var folders = [];
+  var seen = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var folderUserId = String(row.user_id || '').trim();
+    
+    if (groupMemberIds.indexOf(folderUserId) === -1) {
+      continue;
+    }
+
+    var name = String(row.folder_name || '').trim();
+    if (!name) {
+      continue;
+    }
+
+    var key = name.toLowerCase();
+    if (seen[key]) {
+      continue;
+    }
+    seen[key] = true;
+    folders.push(name);
+  }
+  return folders;
+}
+
+function handleGetDocumentsBootstrapData_(payload) {
+  try {
+    var userId = String(payload.user_id || '').trim();
+    if (!userId) {
+      return { ok: false, error: 'Missing user_id.' };
+    }
+
+    var groupMemberIds = getGroupMemberIds_(userId);
+    
+    // Get Folders
+    var folders = getFoldersByGroupMemberIds_(groupMemberIds);
+    
+    // Get Documents (Reuse logic from handleGetAllDocuments_)
+    var docResponse = handleGetAllDocuments_(payload);
+    
+    return {
+      ok: true,
+      folders: folders,
+      documents: docResponse.ok ? docResponse.documents : []
     };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
@@ -3029,4 +3880,345 @@ function authorizeImsScopes() {
 }
 
 
+function getGroupMemberIds_(userId) {
+  var targetUserId = String(userId || '').trim();
+  if (!targetUserId) return [];
 
+  var userRecord = findUserRecordByUserId_(targetUserId);
+  if (!userRecord) return [targetUserId];
+
+  var role = String(userRecord.user.role || '').trim();
+  var supervisorId = null;
+
+  if (role === 'Supervisor') {
+    supervisorId = targetUserId;
+  } else {
+    supervisorId = findSupervisorForStudent_(targetUserId);
+  }
+
+  if (!supervisorId) {
+    return [targetUserId];
+  }
+
+  var assignments = getActiveSupervisorAssignments_(supervisorId);
+  var memberIds = assignments.map(function (a) {
+    return String(a.student_user_id || '').trim();
+  });
+  memberIds.push(supervisorId);
+
+  return memberIds.filter(function (id, index, self) {
+    return id && self.indexOf(id) === index;
+  });
+}
+
+function getUserNamesMap_(userIds) {
+  var names = {};
+  if (!userIds || !userIds.length) return names;
+
+  var sheet = getSheet_('users');
+  var headers = getHeaders_(sheet);
+  var values = getSheetValues_(sheet);
+  var userIdCol = findColumnIndex_(headers, 'user_id');
+  var nameCol = findColumnIndex_(headers, 'full_name');
+
+  if (userIdCol === 0 || nameCol === 0) return names;
+
+  for (var i = 1; i < values.length; i++) {
+    var uid = String(values[i][userIdCol - 1] || '').trim();
+    if (userIds.indexOf(uid) !== -1) {
+      names[uid] = String(values[i][nameCol - 1] || '').trim();
+    }
+  }
+
+  return names;
+}
+
+// --- Settings & Role Enhancements ---
+
+function handleGetStudentSupervisor_(payload) {
+  var studentId = String(payload.student_user_id || '').trim();
+  if (!studentId) {
+    return { ok: false, error: 'student_user_id is required.' };
+  }
+
+  var assignments = readSheetObjects_(getSheet_(SUPERVISOR_ASSIGNMENTS_SHEET_));
+  var activeAssignment = null;
+  for (var i = 0; i < assignments.length; i++) {
+    if (String(assignments[i].student_user_id || '').trim() === studentId && String(assignments[i].status || '').trim() !== 'inactive') {
+      activeAssignment = assignments[i];
+      break;
+    }
+  }
+
+  if (!activeAssignment) {
+    return { ok: true, supervisor: null }; // No supervisor assigned
+  }
+
+  var supervisorId = String(activeAssignment.supervisor_user_id || '').trim();
+  var supervisorRecord = findUserRecordByUserId_(supervisorId);
+  if (!supervisorRecord) {
+    return { ok: true, supervisor: null };
+  }
+
+  return {
+    ok: true,
+    supervisor: {
+      user_id: supervisorId,
+      full_name: String(supervisorRecord.user.full_name || ''),
+      email: String(supervisorRecord.user.email || ''),
+      department: String(activeAssignment.department || supervisorRecord.user.department || ''),
+      profile_photo_url: String(supervisorRecord.user.profile_photo_url || '')
+    }
+  };
+}
+
+function handleGetNotificationPreferences_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  var sheet = getUserSettingsSheet_();
+  var settingsRows = readSheetObjects_(sheet);
+  var userSettings = null;
+  for (var i = 0; i < settingsRows.length; i++) {
+    if (String(settingsRows[i].user_id || '').trim() === userId) {
+      try {
+        userSettings = JSON.parse(settingsRows[i].settings_json || '{}');
+      } catch (e) {
+        userSettings = {};
+      }
+      break;
+    }
+  }
+
+  return { ok: true, settings: userSettings || {} };
+}
+
+function handleUpdateNotificationPreferences_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var settingsObj = payload.settings || {};
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  var sheet = getUserSettingsSheet_();
+  var settingsRows = readSheetObjects_(sheet);
+  var rowIndex = -1;
+  for (var i = 0; i < settingsRows.length; i++) {
+    if (String(settingsRows[i].user_id || '').trim() === userId) {
+      rowIndex = i + 2; // +1 for 0-index, +1 for header
+      break;
+    }
+  }
+
+  var rowData = {
+    user_id: userId,
+    settings_json: JSON.stringify(settingsObj),
+    updated_at: isoNow_()
+  };
+
+  if (rowIndex > -1) {
+    updateObjectRow_(sheet, rowIndex, rowData);
+  } else {
+    appendObjectRow_(sheet, rowData);
+  }
+
+  return { ok: true, message: 'Settings updated successfully.' };
+}
+
+function handleChangePassword_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var currentPassword = String(payload.current_password || '');
+  var newPassword = String(payload.new_password || '');
+
+  if (!userId || !currentPassword || !newPassword) {
+    return { ok: false, error: 'user_id, current_password, and new_password are required.' };
+  }
+
+  var record = findUserRecordByUserId_(userId);
+  if (!record) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  if (String(record.user.password_hash || '') !== sha256Hex_(currentPassword)) {
+    return { ok: false, error: 'Incorrect current password.' };
+  }
+
+  if (newPassword.length < 8) {
+    return { ok: false, error: 'New password must be at least 8 characters long.' };
+  }
+
+  updateObjectRow_(record.sheet, record.rowIndex, {
+    password_hash: sha256Hex_(newPassword)
+  });
+
+  return { ok: true, message: 'Password updated successfully.' };
+}
+
+function sendDailyTimeLogReminders() {
+  var todayISOStr = new Date().toISOString().slice(0, 10);
+  
+  var logsSheet = getSheet_(TIME_LOGS_SHEET_);
+  var logs = readSheetObjects_(logsSheet);
+  var incompleteLogsUsers = [];
+  
+  for (var i = 0; i < logs.length; i++) {
+    var logDate = String(logs[i].log_date || '').trim();
+    var timeOut = String(logs[i].time_out || '').trim();
+    if (logDate === todayISOStr && !timeOut && String(logs[i].status || '').trim() !== 'deleted') {
+      var uid = String(logs[i].user_id || '').trim();
+      if (incompleteLogsUsers.indexOf(uid) === -1) {
+        incompleteLogsUsers.push(uid);
+      }
+    }
+  }
+
+  if (incompleteLogsUsers.length === 0) return;
+
+  var usersSheet = getSheet_('users');
+  var usersList = readSheetObjects_(usersSheet);
+  
+  var settingsSheet = getSheet_('user_settings');
+  var settingsRows = readSheetObjects_(settingsSheet);
+  
+  var activeEmailsSent = 0;
+  
+  for (var j = 0; j < incompleteLogsUsers.length; j++) {
+    var uid = incompleteLogsUsers[j];
+    
+    var hasReminderEnabled = false;
+    for (var k = 0; k < settingsRows.length; k++) {
+      if (String(settingsRows[k].user_id || '').trim() === uid) {
+        try {
+          var prefs = JSON.parse(settingsRows[k].settings_json || '{}');
+          if (prefs.time_log_reminder === true) {
+            hasReminderEnabled = true;
+          }
+        } catch(e) {}
+        break;
+      }
+    }
+    
+    if (!hasReminderEnabled) continue;
+    
+    var uRecord = null;
+    for (var l = 0; l < usersList.length; l++) {
+      if (String(usersList[l].user_id || '').trim() === uid) {
+        uRecord = usersList[l];
+        break;
+      }
+    }
+    
+    if (uRecord && uRecord.email) {
+      var subject = "IMS Time Log Reminder";
+      var body = "Hi " + (uRecord.full_name || 'Student') + ",\n\n" +
+                 "This is a reminder that you have not logged your time out yet for today (" + todayISOStr + "). " +
+                 "Please log out as soon as possible to keep your time records accurate.\n\n" +
+                 "— Internship Management System";
+      MailApp.sendEmail(uRecord.email, subject, body);
+      activeEmailsSent++;
+    }
+  }
+}
+
+/**
+ * MIGRATION TOOL:
+ * Converts all existing long UUID-based User IDs to sequential 'user_0000' format.
+ * Updates all related records in all sheets to maintain data integrity.
+ * 
+ * WARNING: This is a destructive operation. Back up your spreadsheet first.
+ * To run: Copy this function into a temporary script or run directly from Apps Script editor.
+ */
+function migrateAllToSequentialIDs() {
+  var usersSheet = getSheet_('users');
+  var usersHeaders = getHeaders_(usersSheet);
+  var userIdCol = findColumnIndex_(usersHeaders, 'user_id');
+  var usersValues = getSheetValues_(usersSheet);
+  
+  if (usersValues.length <= 1) return "No users found to migrate.";
+  
+  var idMap = {};
+  var nextNum = 0;
+  
+  // 1. Generate Mappings
+  for (var r = 1; r < usersValues.length; r++) {
+    var oldId = String(usersValues[r][userIdCol - 1]).trim();
+    if (!oldId) continue;
+    
+    // If already in new format, just track it to avoid collisions but keep it
+    if (/^user_\d+$/i.test(oldId)) {
+      idMap[oldId] = oldId;
+      var num = parseInt(oldId.split('_')[1], 10);
+      if (num >= nextNum) nextNum = num + 1;
+      continue;
+    }
+    
+    var newId = 'user_' + String(nextNum).padStart(4, '0');
+    idMap[oldId] = newId;
+    nextNum++;
+  }
+  
+  console.log('ID Mapping generated:', idMap);
+  
+  // 2. Update Users Sheet
+  for (var r = 1; r < usersValues.length; r++) {
+    var oldIdRow = String(usersValues[r][userIdCol - 1]).trim();
+    if (idMap[oldIdRow]) {
+      usersValues[r][userIdCol - 1] = idMap[oldIdRow];
+    }
+  }
+  usersSheet.getRange(1, 1, usersValues.length, usersValues[0].length).setValues(usersValues);
+  
+  // 3. Update all dependent sheets
+  var targets = [
+    { sheet: 'time_logs', cols: ['user_id'] },
+    { sheet: 'active_sessions', cols: ['user_id'] },
+    { sheet: 'supervisor_assignments', cols: ['supervisor_user_id', 'student_user_id'] },
+    { sheet: 'student_ojt_profile', cols: ['user_id'] },
+    { sheet: 'requests', cols: ['user_id'] },
+    { sheet: 'notifications', cols: ['user_id'] },
+    { sheet: 'activity_logs', cols: ['user_id'] },
+    { sheet: 'tasks', cols: ['user_id'] },
+    { sheet: 'documents', cols: ['user_id', 'created_by'] },
+    { sheet: 'act_attachments', cols: ['user_id', 'uploaded_by'] },
+    { sheet: 'document_folders', cols: ['user_id'] }
+  ];
+  
+  targets.forEach(function(target) {
+    try {
+      var sheet = getSheet_(target.sheet);
+      var headers = getHeaders_(sheet);
+      var values = getSheetValues_(sheet);
+      if (values.length <= 1) return;
+      
+      var colIndices = target.cols.map(function(c) { 
+        return findColumnIndex_(headers, c); 
+      }).filter(function(idx) { 
+        return idx > 0; 
+      });
+      
+      if (colIndices.length === 0) return;
+      
+      var changed = false;
+      for (var r = 1; r < values.length; r++) {
+        colIndices.forEach(function(cIdx) {
+          var valInside = String(values[r][cIdx - 1]).trim();
+          if (idMap[valInside]) {
+            values[r][cIdx - 1] = idMap[valInside];
+            changed = true;
+          }
+        });
+      }
+      
+      if (changed) {
+        sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+        console.log('Updated sheet: ' + target.sheet);
+      }
+    } catch (e) {
+      console.warn('Could not update sheet: ' + target.sheet + ' - ' + e.message);
+    }
+  });
+  
+  return "Migration Complete. Sync your Svelte app to see changes.";
+}

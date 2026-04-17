@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Bell, Check, Moon, RefreshCw, Search, Sun } from 'lucide-svelte';
+  import { Bell, Check, Moon, RefreshCw, Sun } from 'lucide-svelte';
   import {
     subscribeToCurrentUser,
     listNotifications,
@@ -160,11 +160,6 @@
     {#if pageDescription}
       <p>{pageDescription}</p>
     {/if}
-  </div>
-
-  <div class="search-shell">
-    <Search size={14} />
-    <input type="text" placeholder="Search..." />
   </div>
 
   <div class="header-actions">

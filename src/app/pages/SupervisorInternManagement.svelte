@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Check, RefreshCw, Save, Search, Users, X } from 'lucide-svelte';
+  import { Check, RefreshCw, Save, Search, Users, X, Loader2 } from 'lucide-svelte';
   import {
     assignStudentsToSupervisor,
     getCurrentUser,
@@ -54,6 +54,12 @@
       day: 'numeric',
       year: 'numeric',
     }).format(parsed);
+  }
+
+  function normalizeDepartment(dept) {
+    const d = String(dept || '').trim();
+    if (d.toUpperCase() === 'INTERNATIONAL NOC') return 'ISOC';
+    return d;
   }
 
   function syncSelectedFromFetched(students, assigned) {
@@ -144,10 +150,10 @@
 
     try {
       await assignStudentsToSupervisor(supervisorId, selectedStudentIds);
-      successMessage = 'Assigned students updated successfully.';
+      successMessage = 'Assigned interns updated successfully.';
       await loadData();
     } catch (err) {
-      errorMessage = err?.message || 'Unable to save assigned students.';
+      errorMessage = err?.message || 'Unable to save assigned interns.';
     } finally {
       saving = false;
     }
@@ -203,7 +209,7 @@
       <div class="stat-card stat-blue">
         <div class="stat-icon"><Users size={18} /></div>
         <p class="stat-value">{totalAssigned}</p>
-        <p class="stat-label">Assigned Students</p>
+        <p class="stat-label">Assigned Interns</p>
       </div>
 
       <div class="stat-card stat-success">
@@ -228,16 +234,21 @@
     <div class="card">
       <div class="card-header">
         <div>
-          <h3 class="card-title">Assign Students</h3>
-          <p class="text-muted text-sm">Display all students and select who will be assigned to your account.</p>
+          <h3 class="card-title">Assign Interns</h3>
+          <p class="text-muted text-sm">Display all interns and select who will be assigned to your account.</p>
         </div>
 
         <div class="btn-group">
           <button class="btn btn-secondary" type="button" on:click={loadData} disabled={loading || saving}>
             <RefreshCw size={15} />Refresh
           </button>
-          <button class="btn btn-primary" type="button" on:click={handleSaveAssignments} disabled={saving}>
-            <Save size={15} />{saving ? 'Saving...' : 'Save Assignment'}
+          <button class="btn btn-primary" type="button" on:click={handleSaveAssignments} disabled={saving} style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            {#if saving}
+              <span class="spinning-icon"><Loader2 size={15} /></span>
+            {:else}
+              <Save size={15} />
+            {/if}
+            <span>{saving ? 'Saving...' : 'Save Assignment'}</span>
           </button>
         </div>
       </div>
@@ -256,7 +267,7 @@
             bind:value={studentSearch}
             type="text"
             class="search-input"
-            placeholder="Search students by name, email, department, or company"
+            placeholder="Search interns by name, email, department, or company"
           />
         </label>
 
@@ -282,11 +293,11 @@
       </div>
 
       {#if loading}
-        <p class="text-muted">Loading student accounts...</p>
+        <p class="text-muted">Loading intern accounts...</p>
       {:else if availableStudents.length === 0}
-        <p class="text-muted">No student accounts found in the spreadsheet yet.</p>
+        <p class="text-muted">No intern accounts found in the spreadsheet yet.</p>
       {:else if filteredStudents.length === 0}
-        <p class="text-muted">No students match your search.</p>
+        <p class="text-muted">No interns match your search.</p>
       {:else}
         <div class="pick-grid">
           {#each filteredStudents as student (student.user_id)}
@@ -308,7 +319,7 @@
                 <div class="student-copy">
                   <p class="font-semibold text-sm truncate">{student.full_name}</p>
                   <p class="text-xs text-muted truncate">{student.email}</p>
-                  <p class="text-xs text-muted mt-1">{student.company || '-'} • {student.department || '-'}</p>
+                  <p class="text-xs text-muted mt-1">{student.company || '-'} • {normalizeDepartment(student.department) || '-'}</p>
                 </div>
                 <span class="pick-indicator">{isSelected ? 'Selected' : 'Select'}</span>
               </div>
@@ -319,7 +330,7 @@
 
       {#if selectedStudentsPreview.length > 0}
         <div class="selected-preview">
-          <p class="selected-title">Selected Students</p>
+          <p class="selected-title">Selected Interns</p>
           <div class="selected-pills">
             {#each selectedStudentsPreview as student (student.user_id)}
               <button class="selected-pill" type="button" on:click={() => removeSelectedStudent(student.user_id)}>
@@ -333,9 +344,9 @@
     </div>
 
     <div class="card">
-      <h3 class="card-title">Assigned Student Progress</h3>
+      <h3 class="card-title">Assigned Intern Progress</h3>
       {#if assignedStudents.length === 0}
-        <p class="text-muted">No students assigned yet.</p>
+        <p class="text-muted">No interns assigned yet.</p>
       {:else}
         <div class="assigned-list">
           {#each assignedStudents as student (student.user_id)}
@@ -346,7 +357,7 @@
               <div class="assigned-head">
                 <div>
                   <p class="font-semibold text-sm">{student.full_name}</p>
-                  <p class="text-xs text-muted">{student.department || '-'} • ETA {normalizeDate(student.estimated_end_date)}</p>
+                  <p class="text-xs text-muted">{normalizeDepartment(student.department) || '-'} • ETA {normalizeDate(student.estimated_end_date)}</p>
                 </div>
                 <p class="text-xs font-semibold text-muted">{completed}h / {required || '-'}h</p>
               </div>
@@ -767,6 +778,20 @@
 
   .text-xs {
     font-size: 0.75rem;
+  }
+
+
+  
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .mt-1 {

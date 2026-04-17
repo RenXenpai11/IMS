@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Home } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2 } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -8,7 +8,7 @@
     root: {
       name: 'My Documents',
       path: '/',
-      subfolders: ['Legal', 'Meetings', 'Work', 'Reference'],
+      subfolders: [],
     },
   };
 
@@ -17,7 +17,6 @@
   let userId = null;
 
   let searchQuery = '';
-  let selectedCategory = 'All';
   let currentFolder = '/';
   let showUploadModal = false;
   let showLinkModal = false;
@@ -31,6 +30,7 @@
   let copiedId = null;
   let uploadToFolder = '/';
   let newFolderName = '';
+  let isCreatingFolder = false;
   let showRenameFolderModal = false;
   let folderToRename = null;
   let renameFolderInputValue = '';
@@ -39,19 +39,23 @@
   let showUploadPreview = false;
   let pendingFile = null;
   let pendingFilePreview = null;
+  let isUploading = false;
   let actionMessage = '';
   let actionMessageType = 'success';
   let actionMessageTimer = null;
+  let isAddingLink = false;
+  
+  // Group Workspace State
+  let currentUser = null;
+  let isSupervisor = false;
+  let isGroupView = true;
 
   const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
-  const categories = ['All', 'Legal', 'Reference', 'Meetings', 'Work', 'Other'];
-
   $: filteredDocuments = documents.filter((doc) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'All' || doc.category === selectedCategory;
     const matchesFolder = currentFolder === '/' || doc.folder === currentFolder;
-    return matchesSearch && matchesCategory && matchesFolder;
+    return matchesSearch && matchesFolder;
   });
 
   $: folderDocuments = documents.filter(doc => doc.folder === currentFolder);
@@ -106,7 +110,6 @@
       user_id: String(doc.user_id || doc.userId || ''),
       name: String(doc.name || ''),
       folder: String(doc.folder || '/'),
-      category: String(doc.category || 'Other'),
       type: String(doc.type || (isLink ? 'link' : 'file')),
       size: String(doc.size || ''),
       url: String(doc.url || ''),
@@ -155,6 +158,35 @@
     }, 3200);
   }
 
+  function getDefaultUploadFolder_() {
+    const firstFolder = folderStructure.root.subfolders[0];
+    return firstFolder ? '/' + firstFolder : '/';
+  }
+
+  function openUploadModal_() {
+    if (folderStructure.root.subfolders.length === 0) {
+      showActionMessage_('Create a folder first before uploading.');
+      showCreateFolderModal = true;
+      return;
+    }
+    if (!uploadToFolder || uploadToFolder === '/') {
+      uploadToFolder = getDefaultUploadFolder_();
+    }
+    showUploadModal = true;
+  }
+
+  function openLinkModal_() {
+    if (folderStructure.root.subfolders.length === 0) {
+      showActionMessage_('Create a folder first before adding links.');
+      showCreateFolderModal = true;
+      return;
+    }
+    if (!uploadToFolder || uploadToFolder === '/') {
+      uploadToFolder = getDefaultUploadFolder_();
+    }
+    showLinkModal = true;
+  }
+
   // API Call helper
   function callBackend_(action, payload) {
     return new Promise((resolve, reject) => {
@@ -194,6 +226,51 @@
     }
   }
 
+  async function loadFolders_() {
+    try {
+      const response = await callBackend_('get_document_folders', { user_id: userId });
+      if (response?.ok && Array.isArray(response.folders) && response.folders.length > 0) {
+        folderStructure.root.subfolders = [...response.folders];
+      } else {
+        folderStructure.root.subfolders = [...folderStructure.root.subfolders];
+      }
+    } catch (err) {
+      console.error('Error loading folders:', err);
+    } finally {
+      if (!uploadToFolder || uploadToFolder === '/') {
+        uploadToFolder = getDefaultUploadFolder_();
+      }
+    }
+  }
+
+  async function loadInitialData_() {
+    try {
+      isLoading = true;
+      const response = await callBackend_('get_documents_bootstrap_data', { user_id: userId });
+      
+      if (response?.ok) {
+        // Update folders
+        if (Array.isArray(response.folders)) {
+          folderStructure.root.subfolders = [...response.folders];
+        }
+        
+        // Update documents
+        documents = Array.isArray(response.documents)
+          ? response.documents.map(mapDocumentFromApi_)
+          : [];
+      } else {
+        console.error('Failed to load initial docs data:', response?.error);
+      }
+    } catch (err) {
+      console.error('Error in bootstrap loading:', err);
+    } finally {
+      isLoading = false;
+      if (!uploadToFolder || uploadToFolder === '/') {
+        uploadToFolder = getDefaultUploadFolder_();
+      }
+    }
+  }
+
   async function handleFileUpload(event) {
     const files = event.target.files;
     if (files && files.length > 0) {
@@ -206,7 +283,6 @@
       // Create preview without saving to database yet
       pendingFile = {
         name: file.name,
-        category: 'Other',
         type: file.type.includes('pdf') ? 'pdf' : 'file',
         size: (file.size / 1024 / 1024).toFixed(1) + ' MB',
         folder: uploadToFolder,
@@ -220,19 +296,28 @@
       };
       
       showUploadPreview = true;
+      showUploadModal = false;
     }
   }
 
   async function confirmUpload() {
-    if (!pendingFile) return;
+    if (!pendingFile || isUploading) return;
+    if (folderStructure.root.subfolders.length === 0) {
+      alert('Please create a folder first before uploading.');
+      return;
+    }
+    if (folderStructure.root.subfolders.length > 0 && uploadToFolder === '/') {
+      alert('Please select a folder before uploading.');
+      return;
+    }
     
     try {
+      isUploading = true;
       const fileDataBase64 = await fileToBase64_(pendingFile.rawFile);
 
       const response = await callBackend_('upload_document', {
         user_id: userId,
         name: pendingFile.name,
-        category: pendingFile.category,
         type: pendingFile.type,
         size: pendingFile.size,
         folder: pendingFile.folder,
@@ -247,7 +332,7 @@
         await loadDocuments_();
         showUploadModal = false;
         showUploadPreview = false;
-        uploadToFolder = '/';
+        uploadToFolder = getDefaultUploadFolder_();
         pendingFile = null;
         pendingFilePreview = null;
         showActionMessage_('Document uploaded and saved to database.');
@@ -259,17 +344,32 @@
       console.error('Upload error:', err);
       showActionMessage_('Upload failed. Please try again.', 'error');
       alert('Error uploading document');
+    } finally {
+      isUploading = false;
     }
   }
 
   function cancelUpload() {
+    if (isUploading) return;
     showUploadPreview = false;
+    showUploadModal = true;
     pendingFile = null;
     pendingFilePreview = null;
   }
 
   async function addLink() {
     if (newLinkName.trim() && newLinkUrl.trim()) {
+      if (isAddingLink) return;
+
+      if (folderStructure.root.subfolders.length === 0) {
+        alert('Please create a folder first before adding a link.');
+        return;
+      }
+      if (folderStructure.root.subfolders.length > 0 && uploadToFolder === '/') {
+        alert('Please select a folder before adding a link.');
+        return;
+      }
+
       let normalizedUrl = '';
       try {
         normalizedUrl = new URL(newLinkUrl.trim()).toString();
@@ -279,10 +379,10 @@
       }
 
       try {
+        isAddingLink = true;
         const response = await callBackend_('upload_document', {
           user_id: userId,
           name: newLinkName.trim(),
-          category: 'Meetings',
           type: 'link',
           url: normalizedUrl,
           folder: uploadToFolder,
@@ -295,7 +395,7 @@
           newLinkName = '';
           newLinkUrl = '';
           showLinkModal = false;
-          uploadToFolder = '/';
+          uploadToFolder = getDefaultUploadFolder_();
           showActionMessage_('Link uploaded and saved to database.');
         } else {
           showActionMessage_('Add link failed: ' + (response.error || 'Unknown error.'), 'error');
@@ -305,6 +405,8 @@
         console.error('Link error:', err);
         showActionMessage_('Add link failed. Please try again.', 'error');
         alert('Error adding link');
+      } finally {
+        isAddingLink = false;
       }
     }
   }
@@ -422,6 +524,52 @@
     }, 2000);
   }
 
+  function resolveDocumentUrl_(doc) {
+    if (!doc || typeof doc !== 'object') {
+      return '';
+    }
+
+    const candidates = [
+      doc.url,
+      doc.link,
+      doc.file_url,
+      doc.fileUrl,
+      doc.document_url,
+      doc.documentUrl,
+      doc.web_view_link,
+      doc.webViewLink,
+      doc.preview_url,
+      doc.previewUrl,
+    ];
+
+    for (const candidate of candidates) {
+      const value = String(candidate || '').trim();
+      if (value && value !== '#') {
+        return value;
+      }
+    }
+
+    return '';
+  }
+
+  function openDocument(doc, event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    
+    const targetUrl = resolveDocumentUrl_(doc);
+    if (!targetUrl) {
+      showActionMessage_('This document has no preview link yet.', 'error');
+      return;
+    }
+
+    const openedWindow = window.open(targetUrl, '_blank');
+    if (!openedWindow) {
+      showActionMessage_('Popup blocked. Please allow popups for this site.', 'error');
+    }
+  }
+
   async function deleteDocument(id) {
     try {
       const response = await callBackend_('delete_document', {
@@ -518,15 +666,20 @@
   onMount(async () => {
     // Resolve authenticated user id first to keep document records consistent.
     try {
+      const authUser = authApi.getCurrentUser() || (await authApi.restoreAuthSession());
+      currentUser = authUser;
       userId = resolveCurrentUserId_();
+      
       if (!userId) {
         console.error('Unable to resolve authenticated user id for documents.');
         isLoading = false;
         return;
       }
 
-      // Load documents from backend
-      await loadDocuments_();
+      isSupervisor = currentUser?.role === 'Supervisor';
+
+      // Load group-based data in a single optimized bootstrap trip
+      await loadInitialData_();
     } catch (err) {
       console.error('Error initializing documents:', err);
       showActionMessage_('Unable to load documents. Please refresh.', 'error');
@@ -535,53 +688,96 @@
 </script>
 
 <section class="page-shell">
-  <div class="documents-container">
-    <!-- Header -->
-    <div class="documents-header">
-      <div>
-        <h1 class="page-title">Documents</h1>
-        <p class="page-subtitle">Upload documents, add links, and organize your important files</p>
+  <div class="topbar">
+    <div class="page-title-group">
+      <div class="page-title">
+        <FileText size={20} />
+        Documents
       </div>
-      <div class="header-actions">
-        <button class="btn btn-primary" on:click={() => (showUploadModal = true)}>
-          <Upload size={18} />
-          <span>Upload Document</span>
-        </button>
-        <button class="btn btn-secondary" on:click={() => (showLinkModal = true)}>
-          <Link2 size={18} />
-          <span>Add Link</span>
-        </button>
-        <button class="btn btn-secondary" on:click={() => (showCreateFolderModal = true)}>
-          <Folder size={18} />
-          <span>Create Folder</span>
-        </button>
-      </div>
+      <div class="page-subtitle">Upload and manage your important documents, records, and links</div>
     </div>
+    <div class="action-bar">
+      <button class="btn btn-ghost" on:click={openLinkModal_}>
+        <Link2 size={14} />
+        <span>Add Link</span>
+      </button>
+      <button class="btn btn-ghost" on:click={() => (showCreateFolderModal = true)}>
+        <Folder size={14} />
+        <span>Create Folder</span>
+      </button>
+      <button class="btn btn-primary" on:click={openUploadModal_}>
+        <Upload size={14} />
+        <span>Upload Document</span>
+      </button>
+    </div>
+  </div>
 
+  <div class="documents-container">
     {#if actionMessage}
       <div class={`action-message ${actionMessageType === 'error' ? 'action-message-error' : 'action-message-success'}`}>
         <span>{actionMessage}</span>
       </div>
     {/if}
 
-    <!-- Folder Navigation -->
-    <div class="folder-nav">
-      <h3>Folders</h3>
+    {#if isLoading}
+      <!-- Skeleton Stats -->
+      <div class="skeleton-stats">
+        <div class="skeleton skeleton-stat-card"></div>
+        <div class="skeleton skeleton-stat-card"></div>
+        <div class="skeleton skeleton-stat-card"></div>
+        <div class="skeleton skeleton-stat-card"></div>
+      </div>
+
+      <div class="section-header" style="margin-top: 32px;">
+        <span class="section-title">Folders</span>
+      </div>
+      <div class="skeleton-folders">
+        <div class="skeleton skeleton-folder-card"></div>
+        <div class="skeleton skeleton-folder-card"></div>
+        <div class="skeleton skeleton-folder-card"></div>
+      </div>
+
+      <div class="skeleton skeleton-table-panel"></div>
+    {:else}
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Group Folders</div>
+          <div class="stat-value">{folderStructure.root.subfolders.length}</div>
+          <div class="stat-sub">Organized categories</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Group Documents</div>
+          <div class="stat-value">{documents.filter((doc) => !doc.isLink).length}</div>
+          <div class="stat-sub">Files uploaded</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Group Links</div>
+          <div class="stat-value">{documents.filter((doc) => doc.isLink).length}</div>
+          <div class="stat-sub">External references</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Items</div>
+          <div class="stat-value">{documents.length}</div>
+          <div class="stat-sub">Across all group folders</div>
+        </div>
+      </div>
+
+      <div class="section-header">
+        <span class="section-title">Folders</span>
+        <span class="section-link">Manage folders</span>
+      </div>
+
       <div class="folders-grid">
         {#each folderStructure.root.subfolders as folder (folder)}
           {@const folderPath = '/' + folder}
-          {@const docCount = documents.filter(d => d.folder === folderPath).length}
-          <div class="folder-item-wrapper">
-            <button 
-              class="folder-item"
-              class:active={currentFolder === folderPath}
-              on:click={() => currentFolder = folderPath}
-            >
-              <div class="folder-icon">
+          {@const docCount = documents.filter((d) => d.folder === folderPath).length}
+          <div class="folder-card-wrap">
+            <button class="folder-card" class:active={currentFolder === folderPath} on:click={() => (currentFolder = folderPath)}>
+              <div class="folder-icon-wrap">
                 {#if currentFolder === folderPath}
-                  <FolderOpen size={24} />
+                  <FolderOpen size={18} />
                 {:else}
-                  <Folder size={24} />
+                  <Folder size={18} />
                 {/if}
               </div>
               <div class="folder-info">
@@ -589,158 +785,136 @@
                 <div class="folder-count">{docCount} items</div>
               </div>
             </button>
-            <div class="folder-actions">
-              <button 
-                class="folder-action-btn rename-btn"
-                title="Rename folder"
-                on:click={() => openRenameFolderModal(folder)}
-              >
-                ✎
-              </button>
-              <button 
-                class="folder-action-btn delete-btn"
-                title="Delete folder"
-                on:click={() => {
-                  folderToDelete = folder;
-                  showDeleteFolderConfirm = true;
-                }}
-              >
-                🗑
-              </button>
-            </div>
+            {#if isSupervisor}
+              <div class="folder-actions">
+                <button class="folder-action-btn rename-btn" title="Rename folder" on:click={() => openRenameFolderModal(folder)}>✎</button>
+                <button
+                  class="folder-action-btn delete-btn"
+                  title="Delete folder"
+                  on:click={() => {
+                    folderToDelete = folder;
+                    showDeleteFolderConfirm = true;
+                  }}
+                >
+                  🗑
+                </button>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
-    </div>
 
-    <!-- Search and Filter -->
-    <div class="search-filter-container">
-      <div class="search-box">
-        <Search size={18} />
-        <input
-          type="text"
-          placeholder="Search documents..."
-          bind:value={searchQuery}
-        />
-      </div>
+      <div class="bottom-area">
+        <div>
+          <div class="search-filter-bar">
+            <div class="search-wrap">
+              <Search size={15} />
+              <input class="search-input" type="text" placeholder="Search documents..." bind:value={searchQuery} />
+            </div>
+          </div>
 
-      <div class="category-tabs">
-        {#each categories as category (category)}
-          <button
-            class="category-tab"
-            class:active={selectedCategory === category}
-            on:click={() => (selectedCategory = category)}
-          >
-            {category}
-          </button>
-        {/each}
-      </div>
-    </div>
+          <div class="docs-panel">
+            <div class="docs-panel-header">
+              <span class="docs-panel-title">Group Shared Documents</span>
+              <span class="docs-count">{filteredDocuments.length} items</span>
+            </div>
 
-    <!-- Documents Table -->
-    <div class="documents-table-container">
-      <div class="table-header">
-        <h2>Your Documents</h2>
-        <span class="doc-count">{filteredDocuments.length} items</span>
-      </div>
-
-      {#if filteredDocuments.length > 0}
-        <div class="table-wrapper">
-          <table class="documents-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Category</th>
-                <th>Size</th>
-                <th>Uploaded</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each filteredDocuments as doc (doc.id)}
-                <tr class="table-row">
-                  <td class="col-name">
-                    <div class="file-info">
-                      <div class="file-icon">
-                        {#if doc.isLink}
-                          <Link2 size={18} />
-                        {:else}
-                          <Folder size={18} />
-                        {/if}
-                      </div>
-                      <span class="file-name">{doc.name}</span>
-                    </div>
-                  </td>
-                  <td class="col-type">
-                    <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
-                  </td>
-                  <td class="col-category">
-                    <span class="category-badge">{doc.category}</span>
-                  </td>
-                  <td class="col-size">
-                    {#if doc.size}
-                      {doc.size}
-                    {:else}
-                      —
-                    {/if}
-                  </td>
-                  <td class="col-date">{formatDate(doc.uploadedDate)}</td>
-                  <td class="col-status">
-                    <span 
-                      class="status-badge" 
-                      style={`background-color: ${getAccessBadgeColor(doc.accessLevel)}20; color: ${getAccessBadgeColor(doc.accessLevel)}`}
-                    >
-                      {doc.accessLevel === 'private' ? '🔒 Private' : doc.accessLevel === 'shared' ? '👥 Shared' : '⚠️ Restricted'}
-                    </span>
-                  </td>
-                  <td class="col-actions">
-                    <div class="action-buttons">
-                      <button
-                        class="icon-btn"
-                        title="View/Download"
-                        on:click={() => {
-                          if (doc.isLink) {
-                            window.open(doc.url, '_blank');
-                          }
-                        }}
-                      >
-                        {#if doc.isLink}
-                          <Eye size={16} />
-                        {:else}
-                          <Download size={16} />
-                        {/if}
-                      </button>
-                      <button
-                        class="icon-btn share-btn"
-                        title="Share"
-                        on:click={() => openShareModal(doc)}
-                      >
-                        <Share2 size={16} />
-                      </button>
-                      <button
-                        class="icon-btn delete-btn"
-                        title="Delete"
-                        on:click={() => deleteDocument(doc.id)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+            {#if filteredDocuments.length > 0}
+              <div class="table-wrapper">
+                <table class="documents-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Uploaded By</th>
+                      <th>Type</th>
+                      <th>Size</th>
+                      <th>Uploaded</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each filteredDocuments as doc (doc.id)}
+                      <tr class="table-row">
+                        <td class="col-name">
+                          <div class="file-info">
+                            <div class="file-icon">
+                              {#if doc.isLink}
+                                <Link2 size={16} />
+                              {:else}
+                                <FileText size={16} />
+                              {/if}
+                            </div>
+                            <button type="button" class="file-name-btn" title="Open document" on:click={(e) => openDocument(doc, e)}>
+                              <span class="file-name">{doc.name}</span>
+                            </button>
+                          </div>
+                        </td>
+                        <td class="col-uploader">
+                          <span class="uploader-name">{doc.created_by_name || '—'}</span>
+                        </td>
+                        <td class="col-type">
+                          <span class="type-badge">{doc.isLink ? 'Link' : 'File'}</span>
+                        </td>
+                        <td class="col-size">
+                          {#if doc.size}
+                            {doc.size}
+                          {:else}
+                            —
+                          {/if}
+                        </td>
+                        <td class="col-date">{formatDate(doc.uploadedDate)}</td>
+                        <td class="col-actions">
+                          <div class="action-buttons">
+                            <button
+                              type="button"
+                              class="icon-btn"
+                              title="View/Download"
+                              on:click={(e) => openDocument(doc, e)}
+                            >
+                              {#if doc.isLink}
+                                <Eye size={14} />
+                              {:else}
+                                <Download size={14} />
+                              {/if}
+                            </button>
+                            {#if currentUser?.role === 'Supervisor' || currentUser?.user_id === doc.created_by}
+                              <button class="icon-btn share-btn" title="Share" on:click={() => openShareModal(doc)}>
+                                <Share2 size={14} />
+                              </button>
+                              <button class="icon-btn delete-btn" title="Delete" on:click={() => deleteDocument(doc.id)}>
+                                <Trash2 size={14} />
+                              </button>
+                            {/if}
+                          </div>
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {:else}
+              <div class="empty-state">
+                <div class="empty-icon-wrap">
+                  <FileText size={28} />
+                </div>
+                <div class="empty-title">No documents yet</div>
+                <div class="empty-sub">Start by uploading a document or adding a link to an external resource</div>
+                <div class="empty-actions">
+                  <button class="btn btn-ghost empty-btn" on:click={() => (showLinkModal = true)}>
+                    <Link2 size={13} />
+                    Add Link
+                  </button>
+                  <button class="btn btn-primary empty-btn" on:click={openUploadModal_}>
+                    <Upload size={13} />
+                    Upload Document
+                  </button>
+                </div>
+              </div>
+            {/if}
+          </div>
         </div>
-      {:else}
-        <div class="empty-state">
-          <Folder size={48} />
-          <h3>No documents found</h3>
-          <p>Start by uploading a document or adding a link</p>
-        </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
   </div>
 
   <!-- Upload Modal -->
@@ -757,25 +931,21 @@
           <div class="form-group">
             <div class="form-label">Select Folder</div>
             <div class="folder-tabs">
-              <button
-                class="folder-tab"
-                class:active={uploadToFolder === '/'}
-                on:click={() => (uploadToFolder = '/')}
-              >
-                <Home size={16} />
-                <span>All Documents</span>
-              </button>
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
+                  type="button"
                   class="folder-tab"
                   class:active={uploadToFolder === folderPath}
-                  on:click={() => (uploadToFolder = folderPath)}
+                  on:click|stopPropagation={() => (uploadToFolder = folderPath)}
                 >
                   <Folder size={16} />
                   <span>{folder}</span>
                 </button>
               {/each}
+            </div>
+            <div class="selected-folder-text">
+              Selected: {uploadToFolder.substring(1)}
             </div>
           </div>
 
@@ -810,7 +980,7 @@
       <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? cancelUpload() : null}>
         <div class="modal-header">
           <h2>Review Document</h2>
-          <button class="close-btn" on:click={() => cancelUpload()}>×</button>
+          <button class="close-btn" on:click={() => cancelUpload()} disabled={isUploading}>×</button>
         </div>
 
         <div class="modal-body">
@@ -837,33 +1007,23 @@
               <div class="preview-section">
                 <div class="form-label">Upload Folder</div>
                 <p class="preview-value" id="preview-folder">
-                  {#if pendingFilePreview.folder === '/'}
-                    All Documents
-                  {:else}
-                    {pendingFilePreview.folder.substring(1)}
-                  {/if}
+                  {pendingFilePreview.folder.substring(1)}
                 </p>
-              </div>
-
-              <div class="preview-section">
-                <label for="preview-category">Category</label>
-                <select id="preview-category" bind:value={pendingFile.category} style="width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid var(--doc-border); background: #eef5fc; color: var(--doc-text);">
-                  <option value="Other">Other</option>
-                  <option value="Legal">Legal</option>
-                  <option value="Reference">Reference</option>
-                  <option value="Meetings">Meetings</option>
-                  <option value="Work">Work</option>
-                </select>
               </div>
             </div>
           </div>
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => cancelUpload()}>Delete</button>
-          <button class="btn btn-primary" on:click={() => confirmUpload()}>
-            <Check size={18} />
-            <span>Save Document</span>
+          <button class="btn btn-secondary" on:click={() => cancelUpload()} disabled={isUploading}>Delete</button>
+          <button class="btn btn-primary" on:click={() => confirmUpload()} disabled={isUploading}>
+            {#if isUploading}
+              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
+              <span>Uploading...</span>
+            {:else}
+              <Check size={18} />
+              <span>Save Document</span>
+            {/if}
           </button>
         </div>
       </div>
@@ -884,25 +1044,21 @@
           <div class="form-group">
             <div class="form-label">Select Folder</div>
             <div class="folder-tabs">
-              <button
-                class="folder-tab"
-                class:active={uploadToFolder === '/'}
-                on:click={() => (uploadToFolder = '/')}
-              >
-                <Home size={16} />
-                <span>All Documents</span>
-              </button>
               {#each folderStructure.root.subfolders as folder (folder)}
                 {@const folderPath = '/' + folder}
                 <button
+                  type="button"
                   class="folder-tab"
                   class:active={uploadToFolder === folderPath}
-                  on:click={() => (uploadToFolder = folderPath)}
+                  on:click|stopPropagation={() => (uploadToFolder = folderPath)}
                 >
                   <Folder size={16} />
                   <span>{folder}</span>
                 </button>
               {/each}
+            </div>
+            <div class="selected-folder-text">
+              Selected: {uploadToFolder.substring(1)}
             </div>
           </div>
 
@@ -929,9 +1085,14 @@
 
         <div class="modal-footer">
           <button class="btn btn-secondary" on:click={() => (showLinkModal = false)}>Cancel</button>
-          <button class="btn btn-primary" on:click={addLink} disabled={!newLinkName.trim() || !newLinkUrl.trim()}>
-            <Plus size={18} />
-            <span>Add Link</span>
+          <button class="btn btn-primary" on:click={addLink} disabled={!newLinkName.trim() || !newLinkUrl.trim() || isAddingLink}>
+            {#if isAddingLink}
+              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
+              <span>Adding...</span>
+            {:else}
+              <Plus size={18} />
+              <span>Add Link</span>
+            {/if}
           </button>
         </div>
       </div>
@@ -944,7 +1105,7 @@
       <div class="modal" role="dialog" aria-modal="true" tabindex="-1" on:click={(e) => e.stopPropagation()} on:keydown={(e) => e.key === 'Escape' ? (showCreateFolderModal = false) : null}>
         <div class="modal-header">
           <h2>Create Folder</h2>
-          <button class="close-btn" on:click={() => (showCreateFolderModal = false)}>×</button>
+          <button class="close-btn" on:click={() => (showCreateFolderModal = false)} disabled={isCreatingFolder}>×</button>
         </div>
 
         <div class="modal-body">
@@ -955,21 +1116,50 @@
               type="text"
               placeholder="e.g., Important Documents"
               bind:value={newFolderName}
+              disabled={isCreatingFolder}
             />
           </div>
         </div>
 
         <div class="modal-footer">
-          <button class="btn btn-secondary" on:click={() => (showCreateFolderModal = false)}>Cancel</button>
-          <button class="btn btn-primary" on:click={() => {
-            if (newFolderName.trim()) {
-              folderStructure.root.subfolders = [...folderStructure.root.subfolders, newFolderName];
+          <button class="btn btn-secondary" on:click={() => (showCreateFolderModal = false)} disabled={isCreatingFolder}>Cancel</button>
+          <button class="btn btn-primary" on:click={async () => {
+            const folderName = String(newFolderName || '').trim();
+            if (!folderName || isCreatingFolder) {
+              return;
+            }
+
+            try {
+              isCreatingFolder = true;
+              const response = await callBackend_('create_folder', {
+                user_id: userId,
+                folder_name: folderName,
+              });
+
+              if (!response?.ok) {
+                alert(response?.error || 'Unable to create folder.');
+                return;
+              }
+
+              await loadFolders_();
+              uploadToFolder = '/' + folderName;
               newFolderName = '';
               showCreateFolderModal = false;
+              showActionMessage_('Folder created.');
+            } catch (err) {
+              console.error('Create folder error:', err);
+              alert('Unable to create folder.');
+            } finally {
+              isCreatingFolder = false;
             }
-          }} disabled={!newFolderName.trim()}>
-            <Folder size={18} />
-            <span>Create Folder</span>
+          }} disabled={!newFolderName.trim() || isCreatingFolder}>
+            {#if isCreatingFolder}
+              <span class="spinning-icon" style="margin-right: 0.4rem; display: inline-flex;"><Loader2 size={16} /></span>
+              <span>Creating...</span>
+            {:else}
+              <Folder size={18} />
+              <span>Create Folder</span>
+            {/if}
           </button>
         </div>
       </div>
@@ -1050,6 +1240,7 @@
             <div class="form-label">Shareable Link</div>
             <div class="share-link-box">
               <input
+                id="shareLinkInput"
                 type="text"
                 readonly
                 value={`${window.location.origin}/#/documents/${selectedDocForShare.id}`}
@@ -1268,6 +1459,28 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+  
+  .spinning-icon {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .spinning-icon {
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
 
   .search-filter-container {
     display: flex;
@@ -1288,19 +1501,6 @@
     border: 1px solid var(--doc-border);
     border-radius: 10px;
     color: var(--doc-muted);
-  }
-
-  .search-box input {
-    flex: 1;
-    border: none;
-    background: none;
-    outline: none;
-    font-size: 0.95rem;
-    color: var(--doc-text);
-  }
-
-  .search-box input::placeholder {
-    color: #7c8fa8;
   }
 
   .category-tabs {
@@ -1367,6 +1567,13 @@
     border-color: transparent;
   }
 
+  .selected-folder-text {
+    margin-top: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--doc-muted);
+  }
+
   /* Table Styles */
   .documents-table-container {
     background: var(--doc-surface);
@@ -1381,13 +1588,6 @@
     align-items: center;
     padding: 1.5rem;
     border-bottom: 1px solid var(--doc-border);
-  }
-
-  .table-header h2 {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--doc-text);
   }
 
   .doc-count {
@@ -1576,13 +1776,6 @@
     border-radius: 12px;
   }
 
-  .folder-nav > h3 {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: var(--doc-text);
-  }
-
   .folders-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -1625,11 +1818,6 @@
     flex-shrink: 0;
   }
 
-  .folder-item.active .folder-icon {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-  }
-
   .folder-info {
     flex: 1;
   }
@@ -1641,18 +1829,10 @@
     font-size: 0.95rem;
   }
 
-  .folder-item.active .folder-name {
-    color: white;
-  }
-
   .folder-count {
     font-size: 0.85rem;
     color: var(--doc-muted);
     margin: 0.25rem 0 0 0;
-  }
-
-  .folder-item.active .folder-count {
-    color: rgba(255, 255, 255, 0.85);
   }
 
   .folder-item-wrapper {
@@ -1662,19 +1842,11 @@
     width: 100%;
   }
 
-  .folder-item-wrapper .folder-item {
-    flex: 1;
-  }
-
   .folder-actions {
     display: flex;
     gap: 0.4rem;
     opacity: 0;
     transition: opacity 0.2s ease;
-  }
-
-  .folder-item-wrapper:hover .folder-actions {
-    opacity: 1;
   }
 
   .folder-action-btn {
@@ -1730,18 +1902,6 @@
   .empty-state > :nth-child(1) {
     margin-bottom: 1rem;
     opacity: 0.5;
-  }
-
-  .empty-state h3 {
-    margin: 0 0 0.5rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--doc-text);
-  }
-
-  .empty-state p {
-    margin: 0;
-    font-size: 0.95rem;
   }
 
   /* Share Functionality Styles */
@@ -1998,6 +2158,45 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
   }
 
+  .preview-content {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .preview-details {
+    flex: 1;
+  }
+
+  .preview-section {
+    margin-bottom: 0.75rem;
+  }
+
+  .preview-section label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--doc-muted);
+    margin-bottom: 0.2rem;
+  }
+
+  .preview-value {
+    margin: 0;
+    color: var(--doc-text);
+    font-size: 0.92rem;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+
+  .preview-category-select {
+    width: 100%;
+    padding: 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--doc-border);
+    background: #eef5fc;
+    color: var(--doc-text);
+  }
+
   .modal-footer {
     display: flex;
     gap: 0.75rem;
@@ -2062,6 +2261,20 @@
     box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
   }
 
+  :global(.dark) .preview-section label {
+    color: #b7c8dd;
+  }
+
+  :global(.dark) .preview-value {
+    color: #e8f1ff;
+  }
+
+  :global(.dark) .preview-category-select {
+    background: #1a2c45;
+    border-color: #334b6b;
+    color: #e8f1ff;
+  }
+
   :global(.dark) .btn-primary {
     background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
     box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
@@ -2117,12 +2330,6 @@
     border: 1px solid rgba(16, 185, 129, 0.45);
   }
 
-  :global(.dark) .category-badge {
-    background: rgba(59, 130, 246, 0.18);
-    color: #93c5fd;
-    border: 1px solid rgba(147, 197, 253, 0.4);
-  }
-
   :global(.dark) .upload-area {
     border-color: #426389;
     background: rgba(15, 23, 42, 0.35);
@@ -2159,13 +2366,850 @@
       flex-direction: column;
     }
 
-    .header-actions .btn {
-      width: 100%;
-      justify-content: center;
-    }
-
     .modal {
       width: 95%;
     }
+  }
+
+  /* Exact enterprise layout overrides */
+  .page-shell {
+    background: #0f1929;
+    min-height: 100%;
+    color: #e2e8f0;
+    border-radius: 0;
+    padding: 0;
+  }
+
+  .page-shell::before,
+  .page-shell::after,
+  :global(.dark) .page-shell::before,
+  :global(.dark) .page-shell::after {
+    display: none;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    gap: 12px;
+  }
+
+  .page-title-group {
+    min-width: 0;
+  }
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: #f1f5f9;
+    letter-spacing: -0.3px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+  }
+
+  .page-title :global(svg) {
+    color: #60a5fa;
+  }
+
+  .uploader-name {
+    font-size: 12px;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .action-bar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .documents-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 28px 32px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    line-height: 1;
+  }
+
+  .btn :global(svg) {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .btn-ghost,
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    color: #94a3b8;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .btn-ghost:hover,
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #e2e8f0;
+    border-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(0);
+    box-shadow: none;
+  }
+
+  /* Skeleton Shimmer */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.03) 20%,
+      rgba(255, 255, 255, 0.06) 60%,
+      rgba(255, 255, 255, 0)
+    );
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* Light mode skeleton overrides */
+  :global(html:not(.dark)) .skeleton {
+    background: rgba(15, 23, 42, 0.05); /* Slight dark on light */
+  }
+
+  :global(html:not(.dark)) .skeleton::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.4) 20%,
+      rgba(255, 255, 255, 0.7) 60%,
+      rgba(255, 255, 255, 0)
+    );
+  }
+
+  .skeleton-stats {
+    display: flex;
+    gap: 20px;
+  }
+
+  .skeleton-stat-card {
+    flex: 1;
+    height: 100px;
+    border-radius: 12px;
+  }
+
+  .skeleton-folders {
+    display: flex;
+    gap: 16px;
+    margin-top: 15px;
+  }
+
+  .skeleton-folder-card {
+    width: 260px;
+    height: 70px;
+    border-radius: 12px;
+  }
+
+  .skeleton-table-panel {
+    border-radius: 12px;
+    height: 400px;
+    margin-top: 24px;
+  }
+
+  .btn-primary {
+    background: #2563eb;
+    color: #fff;
+    border: 1px solid #3b82f6;
+  }
+
+  .btn-primary:hover {
+    background: #1d4ed8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  .action-message {
+    margin-bottom: 16px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .action-message-success {
+    background: rgba(22, 163, 74, 0.16);
+    border-color: rgba(34, 197, 94, 0.35);
+    color: #86efac;
+  }
+
+  .action-message-error {
+    background: rgba(220, 38, 38, 0.16);
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fca5a5;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+
+  .stat-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 16px 20px;
+    transition: background 0.2s ease;
+  }
+
+  .stat-card:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+
+  .stat-value {
+    font-size: 22px;
+    font-weight: 600;
+    color: #f1f5f9;
+    line-height: 1.1;
+  }
+
+  .stat-sub {
+    font-size: 12px;
+    color: #475569;
+    margin-top: 3px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+
+  .section-link {
+    font-size: 12px;
+    color: #3b82f6;
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .section-link:hover {
+    color: #60a5fa;
+  }
+
+  .folders-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .folder-card-wrap {
+    position: relative;
+  }
+
+  .folder-card {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 18px 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: relative;
+    overflow: hidden;
+    text-align: left;
+  }
+
+  .folder-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .folder-card:hover,
+  .folder-card.active {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+  }
+
+  .folder-card:hover::before,
+  .folder-card.active::before {
+    opacity: 1;
+  }
+
+  .folder-icon-wrap {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: #60a5fa;
+  }
+
+  .folder-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e2e8f0;
+  }
+
+  .folder-count {
+    font-size: 12px;
+    color: #475569;
+    margin-top: 2px;
+  }
+
+  .folder-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .folder-card-wrap:hover .folder-actions {
+    opacity: 1;
+  }
+
+  .folder-action-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.35);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    color: #94a3b8;
+    font-size: 12px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .folder-action-btn.delete-btn {
+    color: #fda4af;
+  }
+
+  .bottom-area {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .search-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .search-wrap {
+    flex: 1;
+    min-width: 220px;
+    position: relative;
+  }
+
+  .search-wrap :global(svg) {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 15px;
+    height: 15px;
+    color: #475569;
+  }
+
+  .search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 9px 14px 9px 36px;
+    font-size: 13px;
+    color: #e2e8f0;
+    outline: none;
+    transition: all 0.2s ease;
+    font-family: inherit;
+  }
+
+  .search-input::placeholder {
+    color: #475569;
+  }
+
+  .search-input:focus {
+    border-color: rgba(59, 130, 246, 0.5);
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  }
+
+  .filter-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .chip {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #64748b;
+  }
+
+  .chip:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #94a3b8;
+  }
+
+  .chip.active {
+    background: rgba(37, 99, 235, 0.2);
+    border-color: rgba(59, 130, 246, 0.4);
+    color: #60a5fa;
+  }
+
+  .docs-panel {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .docs-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .docs-panel-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #e2e8f0;
+  }
+
+  .docs-count {
+    font-size: 12px;
+    color: #475569;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 2px 8px;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+
+  .documents-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .documents-table thead {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .documents-table thead th {
+    padding: 12px 14px;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #64748b;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .documents-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    transition: background 0.2s ease;
+  }
+
+  .documents-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .documents-table td {
+    padding: 12px 14px;
+    color: #cbd5e1;
+    vertical-align: middle;
+  }
+
+  .file-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .file-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+  }
+
+  .file-name {
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .file-name-btn {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .file-name-btn:hover .file-name {
+    color: #93c5fd;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .type-badge,
+  .status-badge {
+    display: inline-flex;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 6px;
+  }
+
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    transition: all 0.2s ease;
+  }
+
+  .icon-btn:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #e2e8f0;
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+
+  .icon-btn.delete-btn {
+    color: #fda4af;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 56px 24px;
+    gap: 12px;
+  }
+
+  .empty-icon-wrap {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+    color: #334155;
+  }
+
+  .empty-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: #94a3b8;
+  }
+
+  .empty-sub {
+    font-size: 13px;
+    color: #475569;
+    text-align: center;
+    max-width: 280px;
+  }
+
+  .empty-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .empty-btn {
+    font-size: 12px;
+    padding: 7px 14px;
+  }
+
+  .modal {
+    background: #0f1c2f;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+  }
+
+  .modal-header,
+  .modal-footer {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .modal-header h2,
+  .form-group label,
+  .confirmation-content p,
+  .share-email,
+  .shares-list h3 {
+    color: #e2e8f0;
+  }
+
+  .form-group input,
+  .form-group select,
+  .share-link-box input,
+  .copy-btn,
+  .folder-tab,
+  .upload-area,
+  .share-item,
+  .share-form,
+  .empty-shares {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #cbd5e1;
+  }
+
+  .form-group input::placeholder {
+    color: #64748b;
+  }
+
+  .selected-folder-text {
+    color: #94a3b8;
+  }
+
+  .warning-text,
+  .remove-share-btn,
+  .folder-action-btn.delete-btn {
+    color: #fda4af !important;
+  }
+
+  @media (max-width: 720px) {
+    .topbar {
+      padding: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .documents-container {
+      padding: 16px;
+    }
+
+    .stats-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .folders-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .action-bar .btn span {
+      display: none;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .folders-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .stats-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  /* Light mode guard overrides for enterprise layout */
+  :global(html:not(.dark)) .page-shell {
+    background: #f6f9fd;
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .topbar {
+    border-bottom-color: #dbe6f2;
+  }
+
+  :global(html:not(.dark)) .page-title {
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .page-subtitle,
+  :global(html:not(.dark)) .stat-label,
+  :global(html:not(.dark)) .stat-sub,
+  :global(html:not(.dark)) .folder-count,
+  :global(html:not(.dark)) .chip,
+  :global(html:not(.dark)) .docs-count,
+  :global(html:not(.dark)) .documents-table thead th {
+    color: #5f7188;
+  }
+
+  :global(html:not(.dark)) .btn-ghost,
+  :global(html:not(.dark)) .btn-secondary {
+    background: #eef5fc;
+    color: #11406d;
+    border-color: #d8e2ef;
+  }
+
+  :global(html:not(.dark)) .btn-ghost:hover,
+  :global(html:not(.dark)) .btn-secondary:hover {
+    background: #e2edf9;
+    color: #0f172a;
+    border-color: #bfd5ec;
+  }
+
+  :global(html:not(.dark)) .stat-card,
+  :global(html:not(.dark)) .folder-card,
+  :global(html:not(.dark)) .docs-panel,
+  :global(html:not(.dark)) .modal {
+    background: #ffffff;
+    border-color: #d8e2ef;
+  }
+
+  :global(html:not(.dark)) .stat-value,
+  :global(html:not(.dark)) .folder-name,
+  :global(html:not(.dark)) .docs-panel-title,
+  :global(html:not(.dark)) .file-name,
+  :global(html:not(.dark)) .documents-table td,
+  :global(html:not(.dark)) .modal-header h2,
+  :global(html:not(.dark)) .form-group label,
+  :global(html:not(.dark)) .confirmation-content p,
+  :global(html:not(.dark)) .share-email,
+  :global(html:not(.dark)) .shares-list h3 {
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .search-input,
+  :global(html:not(.dark)) .icon-btn,
+  :global(html:not(.dark)) .folder-action-btn,
+  :global(html:not(.dark)) .form-group input,
+  :global(html:not(.dark)) .form-group select,
+  :global(html:not(.dark)) .share-link-box input,
+  :global(html:not(.dark)) .copy-btn,
+  :global(html:not(.dark)) .folder-tab,
+  :global(html:not(.dark)) .upload-area,
+  :global(html:not(.dark)) .share-item,
+  :global(html:not(.dark)) .share-form,
+  :global(html:not(.dark)) .empty-shares,
+  :global(html:not(.dark)) .chip {
+    background: #eef5fc;
+    border-color: #d8e2ef;
+    color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .documents-table thead {
+    background: #f3f8ff;
+  }
+
+  :global(html:not(.dark)) .documents-table tbody tr,
+  :global(html:not(.dark)) .docs-panel-header,
+  :global(html:not(.dark)) .modal-header,
+  :global(html:not(.dark)) .modal-footer {
+    border-color: #d8e2ef;
+  }
+
+  :global(html:not(.dark)) .documents-table tbody tr:hover {
+    background: #f3f8ff;
+  }
+
+  :global(html:not(.dark)) .selected-folder-text {
+    color: #5f7188;
   }
 </style>

@@ -8,8 +8,21 @@
     Phone,
     Save,
     User,
+    Shield,
+    BellRing,
+    Settings,
+    Lock,
+    Loader2
   } from 'lucide-svelte';
-  import { subscribeToCurrentUser, updateProfilePhoto, updateUserProfile } from '../lib/auth.js';
+  import {
+    subscribeToCurrentUser,
+    updateProfilePhoto,
+    updateUserProfile,
+    getStudentSupervisor,
+    getNotificationPreferences,
+    updateNotificationPreferences,
+    changePassword
+  } from '../lib/auth.js';
 
   let saved = false;
   let saveTimer;
@@ -34,6 +47,22 @@
     department: '',
   };
 
+  let notifsLoading = false;
+  let notifStatusUpdates = false;
+  let notifDocUploads = false;
+  let notifTimeLog = false;
+  let notifInactiveStudent = false;
+
+  let supervisorLoading = false;
+  let mySupervisor = null;
+
+  let isChangingPassword = false;
+  let currentPassword = '';
+  let newPassword = '';
+  let confirmNewPassword = '';
+  let passwordMessage = '';
+  let passwordError = '';
+
   function toTitleCase(value) {
     const text = String(value || '').trim();
     if (!text) {
@@ -41,6 +70,18 @@
     }
 
     return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+  }
+
+  function normalizeDepartment(dept) {
+    const d = String(dept || '').trim();
+    if (d.toUpperCase() === 'INTERNATIONAL NOC') return 'ISOC';
+    return d;
+  }
+
+  function normalizeRole(role) {
+    const r = String(role || '').trim().toLowerCase();
+    if (r === 'student') return 'Intern';
+    return toTitleCase(r);
   }
 
   function applyCurrentUserProfile(user) {
@@ -57,6 +98,90 @@
       phone: String(user.phone || ''),
       department: String(user.department || ''),
     };
+
+    if (String(user.role || '').toLowerCase() !== 'supervisor') {
+      loadSupervisorData(user.user_id);
+    }
+    loadNotificationPreferences(user.user_id);
+  }
+
+  async function loadSupervisorData(uid) {
+    if (supervisorLoading) return;
+    try {
+      supervisorLoading = true;
+      mySupervisor = await getStudentSupervisor(uid);
+    } catch(e) {
+      console.error(e);
+    } finally {
+      supervisorLoading = false;
+    }
+  }
+
+  async function loadNotificationPreferences(uid) {
+    try {
+      notifsLoading = true;
+      const prefs = await getNotificationPreferences(uid);
+      notifStatusUpdates = Boolean(prefs.request_status_updates);
+      notifDocUploads = Boolean(prefs.document_uploads);
+      notifTimeLog = Boolean(prefs.time_log_reminder);
+      notifInactiveStudent = Boolean(prefs.inactive_student_alert);
+    } catch(e) {
+      console.error(e);
+    } finally {
+      notifsLoading = false;
+    }
+  }
+
+  async function saveNotificationPreferences() {
+    if (!currentUser?.user_id) return;
+    try {
+      notifsLoading = true;
+      await updateNotificationPreferences(currentUser.user_id, {
+        request_status_updates: notifStatusUpdates,
+        document_uploads: notifDocUploads,
+        time_log_reminder: notifTimeLog,
+        inactive_student_alert: notifInactiveStudent
+      });
+    } catch(e) {
+      console.error(e);
+    } finally {
+      notifsLoading = false;
+    }
+  }
+
+  async function handlePasswordSave() {
+    passwordError = '';
+    passwordMessage = '';
+    
+    if (!currentPassword) {
+      passwordError = 'Please enter your current password.';
+      return;
+    }
+    if (newPassword.length < 8) {
+      passwordError = 'New password must be at least 8 characters.';
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      passwordError = 'Passwords do not match.';
+      return;
+    }
+
+    try {
+      isChangingPassword = true;
+      const res = await changePassword(currentUser.user_id, currentPassword, newPassword);
+      if (res.ok) {
+        passwordMessage = 'Password updated successfully.';
+        currentPassword = '';
+        newPassword = '';
+        confirmNewPassword = '';
+      } else {
+        passwordError = res.error || 'Failed to update password.';
+      }
+    } catch (e) {
+      passwordError = e.message || 'Error updating password';
+    } finally {
+      isChangingPassword = false;
+    }
   }
 
   function openPhotoPicker() {
@@ -121,20 +246,14 @@
     }
   }
 
-  let notifications = {
-    emailAlerts: true,
-    taskReminders: true,
-    evaluationAlerts: true,
-    weeklyDigest: false,
-    systemUpdates: true,
-  };
 
   const MAIN_DB_URL = 'https://docs.google.com/spreadsheets/d/1cHfXzp8gRD-x8sVf_j_WtNf-1h_JUqt_O_MOEfBlNVk/edit?pli=1&gid=0#gid=0';
+  const IMS_GAS_URL = 'https://script.google.com/home/projects/1DJSac0BqK0YznmpdqlbzhWvcHXDBeMbnQyyDu42sqQTIwS9YFOPTmNSr/edit';
   let copyMessage = '';
   let copyTimer;
 
-  function copyToClipboard() {
-    navigator.clipboard.writeText(MAIN_DB_URL);
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text);
     copyMessage = 'Copied!';
     clearTimeout(copyTimer);
     copyTimer = setTimeout(() => {
@@ -150,13 +269,6 @@
     { key: 'department', label: 'Department', icon: Building, type: 'text' },
   ];
 
-  const notificationRows = [
-    { key: 'emailAlerts', label: 'Email Alerts', desc: 'Receive important updates via email.' },
-    { key: 'taskReminders', label: 'Task Reminders', desc: 'Get notified before task deadlines.' },
-    { key: 'evaluationAlerts', label: 'Evaluation Alerts', desc: 'Notifications for new evaluations or feedback.' },
-    { key: 'weeklyDigest', label: 'Weekly Digest', desc: 'Summary email of your week sent every Monday.' },
-    { key: 'systemUpdates', label: 'System Updates', desc: 'Announcements about maintenance or new features.' },
-  ];
 
 
   function updateProfileField(key, value) {
@@ -165,9 +277,6 @@
     saveError = '';
   }
 
-  function updateNotification(key, value) {
-    notifications = { ...notifications, [key]: value };
-  }
 
 
   async function handleSave() {
@@ -232,9 +341,9 @@
 
   $: displayName = String(profile.fullName || '').trim() || 'User';
   $: currentUserRole = String(currentUser?.role || '').trim().toLowerCase();
-  $: canViewMainDb = currentUserRole === 'admin';
-  $: roleLabel = toTitleCase(currentUser?.role) || 'Intern';
-  $: displayDepartment = String(profile.department || '').trim();
+  $: canViewMainDb = currentUserRole === 'admin' || currentUserRole === 'supervisor';
+  $: roleLabel = normalizeRole(currentUser?.role) || 'Intern';
+  $: displayDepartment = normalizeDepartment(profile.department);
   $: profileSubtitle = [displayDepartment, roleLabel].filter(Boolean).join(' ');
   $: profilePhotoUrl = String(currentUser?.profile_photo_url || '').trim();
   $: profileInitials = (displayName || 'U')
@@ -245,8 +354,7 @@
     .join('') || 'U';
 </script>
 
-<section class="settings-shell grid grid-cols-1 gap-6 lg:grid-cols-3">
-  <div class={`${canViewMainDb ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6`}>
+<section class="settings-shell space-y-6">
   <section class="theme-section settings-panel settings-panel-profile rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <header class="theme-divider border-b px-6 py-4">
       <div class="flex items-center gap-2">
@@ -320,35 +428,220 @@
     </div>
   </section>
 
-  <section class="theme-section settings-panel settings-panel-notify rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+  {#if currentUserRole !== 'supervisor'}
+    <section class="theme-section settings-panel rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+      <header class="theme-divider border-b px-6 py-4">
+        <div class="flex items-center gap-2">
+          <Shield size={16} class="text-indigo-600" />
+          <h2 class="theme-heading text-[15px] font-semibold">My Supervisor</h2>
+        </div>
+        <p class="theme-text mt-1 text-[13px]">Your assigned internship supervisor.</p>
+      </header>
+
+      <div class="px-6 py-5">
+        {#if supervisorLoading}
+           <p class="theme-text text-[13px]">Loading supervisor details...</p>
+        {:else if !mySupervisor}
+           <p class="theme-text text-[13px]">No supervisor assigned yet.</p>
+        {:else}
+           <div class="flex items-center gap-4">
+             <div class="flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600">
+               {#if mySupervisor.profile_photo_url}
+                  <img src={mySupervisor.profile_photo_url} alt="Supervisor" class="h-12 w-12 rounded-full object-cover">
+               {:else}
+                  <span class="text-lg font-bold text-white font-medium">{mySupervisor.full_name.charAt(0).toUpperCase()}</span>
+               {/if}
+             </div>
+             <div>
+               <p class="theme-heading text-[15px] font-semibold">{mySupervisor.full_name}</p>
+               <p class="theme-text text-[13px]">{normalizeDepartment(mySupervisor.department)} Supervisor</p>
+               <p class="theme-text text-[13px] opacity-75">{mySupervisor.email}</p>
+             </div>
+           </div>
+        {/if}
+      </div>
+    </section>
+  {/if}
+
+  <section class="theme-section settings-panel rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <header class="theme-divider border-b px-6 py-4">
       <div class="flex items-center gap-2">
-        <Bell size={16} class="text-indigo-600" />
+        <BellRing size={16} class="text-indigo-600" />
         <h2 class="theme-heading text-[15px] font-semibold">Notification Preferences</h2>
       </div>
-      <p class="theme-text mt-1 text-[13px]">Choose what notifications you receive.</p>
+      <p class="theme-text mt-1 text-[13px]">Manage your email and system notifications.</p>
     </header>
 
-    <div class="px-6">
-      {#each notificationRows as row, i}
-        <div class={`flex items-center justify-between py-4 ${i < notificationRows.length - 1 ? 'theme-divider border-b' : ''}`}>
-          <div class="mr-4 flex-1">
-            <p class="theme-heading text-[14px] font-medium">{row.label}</p>
-            <p class="theme-text mt-0.5 text-[13px]">{row.desc}</p>
-          </div>
-          <button
-            type="button"
-            class="relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200"
-            style={`background-color: ${notifications[row.key] ? '#4F46E5' : '#E5E7EB'};`}
-            on:click={() => updateNotification(row.key, !notifications[row.key])}
-            aria-label={`Toggle ${row.label}`}
-          >
-            <span class={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${notifications[row.key] ? 'translate-x-5' : 'translate-x-0'}`}></span>
-          </button>
+    <div class="px-6 py-5 space-y-4">
+      <label class="flex items-center justify-between cursor-pointer">
+        <div>
+          <p class="theme-heading text-[14px] font-medium">Request status updates</p>
+          <p class="theme-text text-[12px]">
+            {#if currentUserRole === 'supervisor'}
+              Notify me when a student submits or updates a request.
+            {:else}
+              Notify me when my request is approved or not approved.
+            {/if}
+          </p>
         </div>
-      {/each}
+        <div class="relative">
+          <input type="checkbox" class="sr-only peer" bind:checked={notifStatusUpdates} on:change={saveNotificationPreferences} disabled={notifsLoading}>
+          <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+        </div>
+      </label>
+
+      <label class="flex items-center justify-between cursor-pointer">
+        <div>
+          <p class="theme-heading text-[14px] font-medium">Document uploads</p>
+          <p class="theme-text text-[12px]">
+            {#if currentUserRole === 'supervisor'}
+              Notify me when any of my assigned students uploads a document.
+            {:else}
+              Notify me when a document is uploaded in the Documents tab.
+            {/if}
+          </p>
+        </div>
+        <div class="relative">
+          <input type="checkbox" class="sr-only peer" bind:checked={notifDocUploads} on:change={saveNotificationPreferences} disabled={notifsLoading}>
+          <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+        </div>
+      </label>
+
+      {#if currentUserRole === 'supervisor'}
+        <label class="flex items-center justify-between cursor-pointer">
+          <div>
+            <p class="theme-heading text-[14px] font-medium">Inactive student alert</p>
+            <p class="theme-text text-[12px]">Notify me if any of my assigned students has not logged out by 5:00 PM.</p>
+          </div>
+          <div class="relative">
+            <input type="checkbox" class="sr-only peer" bind:checked={notifInactiveStudent} on:change={saveNotificationPreferences} disabled={notifsLoading}>
+            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+          </div>
+        </label>
+      {:else}
+        <label class="flex items-center justify-between cursor-pointer">
+          <div>
+            <p class="theme-heading text-[14px] font-medium">Time log reminder</p>
+            <p class="theme-text text-[12px]">Send me an email reminder if I have not logged out by 5:00 PM.</p>
+          </div>
+          <div class="relative">
+            <input type="checkbox" class="sr-only peer" bind:checked={notifTimeLog} on:change={saveNotificationPreferences} disabled={notifsLoading}>
+            <div class="h-6 w-11 rounded-full bg-slate-200 peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+          </div>
+        </label>
+      {/if}
     </div>
   </section>
+
+  <section class="theme-section settings-panel rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <header class="theme-divider border-b px-6 py-4">
+      <div class="flex items-center gap-2">
+        <Lock size={16} class="text-indigo-600" />
+        <h2 class="theme-heading text-[15px] font-semibold">Password & Security</h2>
+      </div>
+      <p class="theme-text mt-1 text-[13px]">Update your password to keep your account secure.</p>
+    </header>
+
+    <div class="px-6 py-5">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <label class="block sm:col-span-2">
+          <span class="theme-text mb-1.5 block text-[13px]">Current Password</span>
+          <input type="password" bind:value={currentPassword} class="theme-input w-full rounded-xl border py-2.5 px-3 text-[14px] outline-none transition-colors focus:border-indigo-400" />
+        </label>
+        <label class="block">
+          <span class="theme-text mb-1.5 block text-[13px]">New Password</span>
+          <input type="password" bind:value={newPassword} class="theme-input w-full rounded-xl border py-2.5 px-3 text-[14px] outline-none transition-colors focus:border-indigo-400" />
+        </label>
+        <label class="block">
+          <span class="theme-text mb-1.5 block text-[13px]">Confirm New Password</span>
+          <input type="password" bind:value={confirmNewPassword} class="theme-input w-full rounded-xl border py-2.5 px-3 text-[14px] outline-none transition-colors focus:border-indigo-400" />
+        </label>
+      </div>
+      
+      {#if passwordError}
+        <p class="mt-4 text-[13px] text-rose-600">{passwordError}</p>
+      {/if}
+      {#if passwordMessage}
+        <p class="mt-4 text-[13px] text-emerald-600">{passwordMessage}</p>
+      {/if}
+      
+      <div class="mt-4 flex justify-end">
+        <button type="button" on:click={handlePasswordSave} disabled={isChangingPassword} class="settings-btn settings-btn-primary flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-medium text-white">
+          {#if isChangingPassword}
+            <span class="spinning-icon"><Loader2 size={16} /></span>
+          {/if}
+          <span>{isChangingPassword ? 'Updating...' : 'Change Password'}</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  {#if canViewMainDb}
+    <!-- MAIN_DB Section Section -->
+    <section class="theme-section settings-panel settings-panel-database rounded-2xl border">
+      <header class="theme-divider border-b px-6 py-4">
+        <div class="flex items-center gap-2">
+          <Building size={16} class="text-indigo-500" />
+          <h2 class="theme-heading text-[15px] font-semibold">MAIN_DB</h2>
+        </div>
+        <p class="theme-text mt-1 text-[13px]">Access the main database spreadsheet for this project.</p>
+      </header>
+
+      <div class="px-6 py-5">
+        <div class="mb-4 p-4 rounded-lg settings-link-box border">
+          <a
+            href={MAIN_DB_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="settings-link text-[13px] font-medium break-all line-clamp-2 hover:underline"
+          >
+            {MAIN_DB_URL}
+          </a>
+        </div>
+
+        <button
+          type="button"
+          on:click={() => copyToClipboard(MAIN_DB_URL)}
+          class="settings-btn settings-copy-button rounded-lg px-6 py-2.5 text-[14px] font-medium text-white"
+        >
+          {copyMessage || 'Copy Link'}
+        </button>
+      </div>
+    </section>
+
+    <!-- NEW: IMS GAS Section -->
+    <section class="theme-section settings-panel rounded-2xl border">
+      <header class="theme-divider border-b px-6 py-4">
+        <div class="flex items-center gap-2">
+          <Building size={16} class="text-indigo-500" />
+          <h2 class="theme-heading text-[15px] font-semibold">IMS GAS</h2>
+        </div>
+        <p class="theme-text mt-1 text-[13px]">Access the Google Apps Script project editor.</p>
+      </header>
+
+      <div class="px-6 py-5">
+        <div class="mb-4 p-4 rounded-lg settings-link-box border">
+          <a
+            href={IMS_GAS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="settings-link text-[13px] font-medium break-all line-clamp-2 hover:underline"
+          >
+            {IMS_GAS_URL}
+          </a>
+        </div>
+
+        <button
+          type="button"
+          on:click={() => copyToClipboard(IMS_GAS_URL)}
+          class="settings-btn settings-copy-button rounded-lg px-6 py-2.5 text-[14px] font-medium text-white"
+        >
+          {copyMessage || 'Copy Link'}
+        </button>
+      </div>
+    </section>
+  {/if}
+
 
 
   <div class="flex items-center justify-end gap-3">
@@ -367,47 +660,17 @@
       class:settings-btn-success={saved}
       disabled={isSavingProfile}
     >
-      <Save size={14} />
-      {isSavingProfile ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}
+      {#if isSavingProfile}
+        <span class="spinning-icon"><Loader2 size={14} /></span>
+      {:else}
+        <Save size={14} />
+      {/if}
+      <span>{isSavingProfile ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}</span>
     </button>
   </div>
 
   {#if saveError}
     <p class="text-right text-[12px] text-rose-600">{saveError}</p>
-  {/if}
-  </div>
-
-  {#if canViewMainDb}
-    <!-- MAIN_DB Section on Right (Admin only) -->
-    <div class="lg:col-span-1">
-      <section class="theme-section settings-panel settings-panel-database rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.05)] p-6 sticky top-6">
-        <h3 class="theme-heading text-[16px] font-bold mb-4">MAIN_DB</h3>
-        <p class="theme-text text-[13px] mb-4">Access the main database spreadsheet for this project.</p>
-        
-        <div class="mb-4 p-4 rounded-lg settings-link-box border">
-          <a 
-            href={MAIN_DB_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="settings-link text-[13px] font-medium break-all line-clamp-3 hover:underline"
-          >
-            {MAIN_DB_URL}
-          </a>
-        </div>
-
-        <button
-          type="button"
-          on:click={copyToClipboard}
-          class="settings-btn settings-copy-button w-full rounded-lg px-4 py-2.5 text-[14px] font-medium text-white"
-        >
-          {copyMessage || 'Copy Link'}
-        </button>
-        
-        {#if copyMessage}
-          <p class="settings-copy-note mt-2 text-[12px] text-center font-medium">{copyMessage}</p>
-        {/if}
-      </section>
-    </div>
   {/if}
 </section>
 
@@ -415,10 +678,10 @@
   .settings-shell {
     --st-surface: #ffffff;
     --st-surface-soft: #f3f8ff;
-    --st-border: #d7e3f1;
+    --st-border: #d8e2ef;
     --st-heading: #0f172a;
-    --st-text: #1f2937;
-    --st-muted: #60748e;
+    --st-text: #5f7188;
+    --st-muted: #64748b;
     position: relative;
     border-radius: 1.25rem;
     padding: 0.35rem;
@@ -431,23 +694,17 @@
     inset: 0;
     z-index: -2;
     border-radius: 1.25rem;
-    background: radial-gradient(130% 130% at 0% 0%, #e4f1ff 0%, #f7fbff 58%, #eef4fb 100%);
+    background: #f6f9fd;
   }
 
   .settings-shell::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: 1.25rem;
-    background-image: linear-gradient(112deg, rgba(15, 108, 189, 0.08), transparent 52%);
-    pointer-events: none;
+    display: none;
   }
 
   .theme-section {
     background: var(--st-surface);
     border-color: var(--st-border);
-    box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03), 0 1px 2px rgba(15, 23, 42, 0.05);
   }
 
   .settings-panel {
@@ -456,40 +713,23 @@
   }
 
   .settings-panel::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 3px;
+    display: none;
   }
 
-  .settings-panel-profile::before {
-    background: linear-gradient(90deg, #0f6cbd, #38bdf8);
-  }
-
-  .settings-panel-notify::before {
-    background: linear-gradient(90deg, #d97706, #f59e0b);
-  }
-
-  .settings-panel-database::before {
-    background: linear-gradient(90deg, #1d4ed8, #06b6d4);
-  }
-
-  .theme-divider,
-  .theme-border {
+  .theme-divider {
     border-color: var(--st-border);
   }
 
   .theme-input {
-    background: #edf4fb;
-    border-color: #bed2e8;
+    background: #eef5fc;
+    border-color: #d8e2ef;
     color: var(--st-heading);
   }
 
   .theme-input:focus {
-    border-color: #60a5fa;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    border-color: #3b82f6;
+    background: #ffffff;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
   }
 
   .theme-heading {
@@ -523,97 +763,84 @@
 
   .settings-btn-primary,
   .settings-copy-button {
-    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
-    border: 1px solid #0f6cbd;
-    box-shadow: 0 14px 28px -16px rgba(15, 108, 189, 0.9);
+    background: #2563eb;
+    border: 1px solid #1d4ed8;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
 
   .settings-btn-primary:hover:not(:disabled),
   .settings-copy-button:hover:not(:disabled) {
-    filter: brightness(1.06);
+    background: #1d4ed8;
     transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   }
 
   .settings-btn-success {
-    background: linear-gradient(90deg, #0f766e, #10b981);
-    border-color: #0f766e;
+    background: #10b981;
+    border-color: #059669;
   }
 
   .settings-link-box {
-    background: #f1f7fd;
-    border-color: #c9d9ec;
-  }
-
-  .settings-link {
-    color: #0f6cbd;
+    background: #eef5fc;
+    border-color: #d8e2ef;
   }
 
   .settings-link:hover {
     color: #0a4f8d;
   }
 
-  .settings-copy-note {
-    color: #0f766e;
-  }
-
   :global(.dark) .settings-shell {
-    --st-surface: #162338;
-    --st-surface-soft: #1b2a42;
-    --st-border: #2b3c57;
-    --st-heading: #e5edf8;
-    --st-text: #cfdceb;
-    --st-muted: #9ab0cb;
+    --st-surface: #0f1c2f;
+    --st-surface-soft: #1e293b;
+    --st-border: rgba(255, 255, 255, 0.1);
+    --st-heading: #e2e8f0;
+    --st-text: #cbd5e1;
+    --st-muted: #94a3b8;
   }
 
   :global(.dark) .settings-shell::before {
-    background: radial-gradient(130% 130% at 0% 0%, #173459 0%, #101a2b 48%, #0b1422 100%);
+    background: #0b111e;
   }
 
   :global(.dark) .settings-shell::after {
-    background-image: linear-gradient(112deg, rgba(91, 177, 255, 0.12), transparent 55%);
+    display: none;
   }
 
   :global(.dark) .theme-section {
-    box-shadow: 0 20px 38px -30px rgba(2, 8, 23, 0.95);
+    background: var(--st-surface);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   }
 
   :global(.dark) .theme-input {
-    background: #1a2c45;
-    border-color: #334b6b;
-    color: #dbe7f5;
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #cbd5e1;
   }
 
   :global(.dark) .theme-input:focus {
-    border-color: #7cc3ff;
-    box-shadow: 0 0 0 3px rgba(91, 177, 255, 0.24);
+    border-color: #3b82f6;
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
   }
 
   :global(.dark) .settings-btn-ghost {
-    border-color: #365276;
-    background: #1a2c45;
-    color: #cfe0f2;
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: #cbd5e1;
   }
 
   :global(.dark) .settings-btn-ghost:hover:not(:disabled) {
-    background: #223653;
-    border-color: #4a6789;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
   }
 
   :global(.dark) .settings-link-box {
-    background: #1a2c45;
-    border-color: #334b6b;
-  }
-
-  :global(.dark) .settings-link {
-    color: #7cc3ff;
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
   }
 
   :global(.dark) .settings-link:hover {
     color: #a5d8ff;
-  }
-
-  :global(.dark) .settings-copy-note {
-    color: #6ee7b7;
   }
 
   @media (max-width: 768px) {
@@ -621,5 +848,17 @@
       border-radius: 1rem;
       padding: 0;
     }
+  }
+
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 </style>

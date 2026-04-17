@@ -37,7 +37,7 @@
     { path: '/supervisor/time-logs', label: 'Time Logs', icon: Clock },
     { path: '/supervisor/requests', label: 'Requests', icon: FileCheck },
     { path: '/supervisor/activity', label: 'Activity', icon: Activity },
-    { path: '/supervisor/documents', label: 'Documents', icon: FolderOpen },
+    { path: '/documents', label: 'Documents', icon: FolderOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -45,6 +45,7 @@
   let currentUser = null;
   let unsubscribeAuth;
   const dispatch = createEventDispatcher();
+
 
   function buildInitials(fullName) {
     const value = String(fullName || '').trim();
@@ -186,3 +187,7 @@
     </div>
   </div>
 </aside>
+
+<style>
+  /* Sidebar styles can be added here if needed */
+</style>

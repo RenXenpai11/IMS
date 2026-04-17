@@ -8,141 +8,150 @@
 		EyeOff,
 		GraduationCap,
 		KeyRound,
+		Loader2,
 		LockKeyhole,
 		Mail,
 		School,
 		Shield,
-		User
-	} from 'lucide-svelte';
-	import heroImage from '../../assets/hero.png';
-	import { registerAccount, resendEmailOtp, verifyEmailOtp } from '../lib/auth.js';
+		User,
+	} from "lucide-svelte";
+	import heroImage from "../../assets/hero.png";
+	import {
+		registerAccount,
+		resendEmailOtp,
+		verifyEmailOtp,
+	} from "../lib/auth.js";
 
-	let name = '';
-	let email = '';
-	let password = '';
-	let confirmPassword = '';
+	let name = "";
+	let email = "";
+	let password = "";
+	let confirmPassword = "";
 	let showPassword = false;
 	let showConfirmPassword = false;
-	let role = 'Student';
-	let error = '';
-	let info = '';
-	let stage = 'account';
+	let role = "Student";
+	let error = "";
+	let info = "";
+	let stage = "account";
 
-	let totalHours = '';
-	let startDate = '';
-	let department = '';
-	let course = '';
-	let school = '';
-	let showDepartmentSuggestions = false;
+	let totalHours = "";
+	let startDate = "";
+	let department = "";
+	let course = "";
+	let school = "";
 	let showCourseSuggestions = false;
 	let showSchoolSuggestions = false;
-	let otpCode = '';
-	let verificationEmail = '';
+	let otpCode = "";
+	let verificationEmail = "";
 	let isVerifyingOtp = false;
 	let isResendingOtp = false;
+	let isSubmittingAccount = false;
+	let isSubmittingSignup = false;
 
 	const courseCatalog = [
-		'BS Accountancy',
-		'BS Architecture',
-		'BS Biology',
-		'BS Business Administration',
-		'BS Civil Engineering',
-		'BS Chemical Engineering',
-		'BS Computer Engineering',
-		'BS Communication',
-		'BS Computer Engineering',
-		'BS Computer Science',
-		'BS Criminology',
-		'BS Electrical Engineering',
-		'BS Electronics Engineering',	
-		'BS Elementary Education',
-		'BS Hospitality Management',
-		'BS Industrial Engineering',
-		'BS Information Systems',
-		'BS Information Technology',
-		'BS Mechanical Engineering',
-		'BS Medical Technology',
-		'BS Nursing',
-		'BS Pharmacy',
-		'BS Psychology',
-		'BS Secondary Education',
-		'BS Tourism Management'
+		"BS Accountancy",
+		"BS Architecture",
+		"BS Biology",
+		"BS Business Administration",
+		"BS Civil Engineering",
+		"BS Chemical Engineering",
+		"BS Computer Engineering",
+		"BS Communication",
+		"BS Computer Engineering",
+		"BS Computer Science",
+		"BS Criminology",
+		"BS Electrical Engineering",
+		"BS Electronics Engineering",
+		"BS Elementary Education",
+		"BS Hospitality Management",
+		"BS Industrial Engineering",
+		"BS Information Systems",
+		"BS Information Technology",
+		"BS Mechanical Engineering",
+		"BS Medical Technology",
+		"BS Nursing",
+		"BS Pharmacy",
+		"BS Psychology",
+		"BS Secondary Education",
+		"BS Tourism Management",
 	];
 
 	const schoolCatalog = [
-		'Assumption College',
-		'Ateneo de Davao University',
-		'Ateneo de Manila University',
-		'Brokenshire College',
-		'Cebu Institute of Technology University',
-		'Davao Doctors College',
-		'De La Salle University',
-		'Holy Cross of Davao College',
-		'Jose Maria College',
-		'Mapua University',
-		'Mapua Malayan Colleges Mindanao',
-		'Mindanao State University',
-		'MSU - Iligan Institute of Technology',
-		'Notre Dame of Dadiangas University',
-		'Philippine College of Technology',
-		'Polytechnic University of the Philippines',
-		'San Pedro College',
-		'Silliman University',
-		'St. John Paul II College of Davao',
-		'University of Immaculate Conception',
-		'University of Mindanao',
-		'University of Mindanao - Tagum College',
-		'University of Mindanao - Digos Campus',
-		'University of San Carlos',
-		'University of Santo Tomas',
-		'University of Southeastern Philippines',
-		'University of the Philippines'
+		"Assumption College",
+		"Ateneo de Davao University",
+		"Ateneo de Manila University",
+		"Brokenshire College",
+		"Cebu Institute of Technology University",
+		"Davao Doctors College",
+		"De La Salle University",
+		"Holy Cross of Davao College",
+		"Jose Maria College",
+		"Mapua University",
+		"Mapua Malayan Colleges Mindanao",
+		"Mindanao State University",
+		"MSU - Iligan Institute of Technology",
+		"Notre Dame of Dadiangas University",
+		"Philippine College of Technology",
+		"Polytechnic University of the Philippines",
+		"San Pedro College",
+		"Silliman University",
+		"St. John Paul II College of Davao",
+		"University of Immaculate Conception",
+		"University of Mindanao",
+		"University of Mindanao - Tagum College",
+		"University of Mindanao - Digos Campus",
+		"University of San Carlos",
+		"University of Santo Tomas",
+		"University of Southeastern Philippines",
+		"University of the Philippines",
 	];
 
-	const departmentCatalog = ['International NOC', 'Regional Surveillance Center', 'CNFM'];
+	const departmentCatalog = ["ISOC", "RSC", "CNFM"];
 
 	function isValidEmail(value) {
 		return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 	}
 
 	function goBackToLogin() {
-		window.location.hash = '/login';
+		window.location.hash = "/login";
 	}
 
 	function setVerificationStage(emailInput) {
-		verificationEmail = String(emailInput || email || '').trim().toLowerCase();
-		otpCode = '';
-		error = '';
+		verificationEmail = String(emailInput || email || "")
+			.trim()
+			.toLowerCase();
+		otpCode = "";
+		error = "";
 		info = `A 6-digit OTP has been sent to ${verificationEmail}.`;
-		stage = 'verify';
+		stage = "verify";
 	}
 
 	async function submitAccount() {
-		error = '';
-		info = '';
+		error = "";
+		info = "";
 
 		if (!name || !email || !password || !confirmPassword || !role) {
-			error = 'Please complete name, email, password, and role.';
+			error = "Please complete name, email, password, and role.";
 			return;
 		}
 
 		if (!isValidEmail(email)) {
-			error = 'Please provide a valid email address.';
+			error = "Please provide a valid email address.";
 			return;
 		}
 
 		if (password.length < 8) {
-			error = 'Password must be at least 8 characters long.';
+			error = "Password must be at least 8 characters long.";
 			return;
 		}
 
 		if (password !== confirmPassword) {
-			error = 'Password and confirm password do not match.';
+			error = "Password and confirm password do not match.";
 			return;
 		}
 
-		if (role === 'Supervisor') {
+		if (role === "Supervisor") {
 			try {
+				isSubmittingAccount = true;
 				const registration = await registerAccount({
 					name,
 					email,
@@ -151,39 +160,47 @@
 				});
 				setVerificationStage(registration?.verification_email || email);
 			} catch (err) {
-				error = err?.message || 'Unable to create account right now.';
+				error = err?.message || "Unable to create account right now.";
+			} finally {
+				isSubmittingAccount = false;
 			}
 			return;
 		}
 
-		stage = 'ojt';
-		info = 'Great. Complete OJT setup to finish your Student signup.';
+		stage = "ojt";
+		info = "Great. Complete OJT setup to finish your Intern signup.";
 	}
 
 	async function submitStudentSignup() {
-		error = '';
-		info = '';
+		error = "";
+		info = "";
 
 		if (!totalHours || !startDate || !department || !course || !school) {
-			error = 'Please complete all OJT setup details.';
+			error = "Please complete all OJT setup details.";
 			return;
 		}
 
 		if (Number(totalHours) <= 0) {
-			error = 'Total OJT hours must be greater than zero.';
+			error = "Total OJT hours must be greater than zero.";
 			return;
 		}
 
 		const totalWorkingDays = Math.ceil(Number(totalHours) / 8);
-		const computedEstimatedEndDateObj = addWorkingDays(startDate, Math.max(0, totalWorkingDays - 1));
-		const computedEstimatedEndDate = toIsoDateOnly(computedEstimatedEndDateObj);
+		const computedEstimatedEndDateObj = addWorkingDays(
+			startDate,
+			Math.max(0, totalWorkingDays - 1),
+		);
+		const computedEstimatedEndDate = toIsoDateOnly(
+			computedEstimatedEndDateObj,
+		);
 
 		if (!computedEstimatedEndDate) {
-			error = 'Invalid start date. Please select a valid date.';
+			error = "Invalid start date. Please select a valid date.";
 			return;
 		}
 
 		try {
+			isSubmittingSignup = true;
 			const registration = await registerAccount({
 				name,
 				email,
@@ -201,58 +218,64 @@
 
 			setVerificationStage(registration?.verification_email || email);
 		} catch (err) {
-			error = err?.message || 'Unable to create account right now.';
+			error = err?.message || "Unable to create account right now.";
+		} finally {
+			isSubmittingSignup = false;
 		}
 	}
 
 	async function submitOtpVerification() {
-		error = '';
+		error = "";
 
 		if (!verificationEmail) {
-			error = 'Missing verification email. Please restart account signup.';
+			error =
+				"Missing verification email. Please restart account signup.";
 			return;
 		}
 
 		if (!/^\d{6}$/.test(otpCode.trim())) {
-			error = 'Enter a valid 6-digit OTP code.';
+			error = "Enter a valid 6-digit OTP code.";
 			return;
 		}
 
 		try {
 			isVerifyingOtp = true;
 			await verifyEmailOtp(verificationEmail, otpCode.trim());
-			stage = 'success';
-			info = 'Your email is verified. You can now log in.';
+			stage = "success";
+			info = "Your email is verified. You can now log in.";
 		} catch (err) {
-			error = err?.message || 'Unable to verify OTP right now.';
+			error = err?.message || "Unable to verify OTP right now.";
 		} finally {
 			isVerifyingOtp = false;
 		}
 	}
 
 	async function resendOtpCode() {
-		error = '';
+		error = "";
 
 		if (!verificationEmail) {
-			error = 'Missing verification email. Please restart account signup.';
+			error =
+				"Missing verification email. Please restart account signup.";
 			return;
 		}
 
 		try {
 			isResendingOtp = true;
 			const result = await resendEmailOtp(verificationEmail);
-			info = result?.message || `A new OTP has been sent to ${verificationEmail}.`;
+			info =
+				result?.message ||
+				`A new OTP has been sent to ${verificationEmail}.`;
 		} catch (err) {
-			error = err?.message || 'Unable to resend OTP right now.';
+			error = err?.message || "Unable to resend OTP right now.";
 		} finally {
 			isResendingOtp = false;
 		}
 	}
 
 	function backToAccountStep() {
-		stage = 'account';
-		error = '';
-		info = '';
+		stage = "account";
+		error = "";
+		info = "";
 	}
 
 	function filterSuggestions(options, query) {
@@ -262,16 +285,18 @@
 			return [];
 		}
 
-		return options.filter((option) => option.toLowerCase().includes(term)).slice(0, 8);
+		return options
+			.filter((option) => option.toLowerCase().includes(term))
+			.slice(0, 8);
 	}
 
 	function parseIsoDateOnly(value) {
-		const raw = String(value || '').trim();
+		const raw = String(value || "").trim();
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
 			return null;
 		}
 
-		const [y, m, d] = raw.split('-').map((n) => Number(n));
+		const [y, m, d] = raw.split("-").map((n) => Number(n));
 		const dt = new Date(y, m - 1, d);
 		if (Number.isNaN(dt.getTime())) {
 			return null;
@@ -281,7 +306,10 @@
 	}
 
 	function addWorkingDays(startDateValue, workingDays) {
-		const start = startDateValue instanceof Date ? new Date(startDateValue) : parseIsoDateOnly(startDateValue);
+		const start =
+			startDateValue instanceof Date
+				? new Date(startDateValue)
+				: parseIsoDateOnly(startDateValue);
 		if (!start || Number.isNaN(start.getTime())) return null;
 
 		let remaining = Math.max(0, Math.trunc(Number(workingDays || 0)));
@@ -303,23 +331,18 @@
 
 	function toIsoDateOnly(dateInput) {
 		if (!(dateInput instanceof Date) || Number.isNaN(dateInput.getTime())) {
-			return '';
+			return "";
 		}
 
 		const year = dateInput.getFullYear();
-		const month = String(dateInput.getMonth() + 1).padStart(2, '0');
-		const day = String(dateInput.getDate()).padStart(2, '0');
+		const month = String(dateInput.getMonth() + 1).padStart(2, "0");
+		const day = String(dateInput.getDate()).padStart(2, "0");
 		return `${year}-${month}-${day}`;
 	}
 
 	function selectCourse(value) {
 		course = value;
 		showCourseSuggestions = false;
-	}
-
-	function selectDepartment(value) {
-		department = value;
-		showDepartmentSuggestions = false;
 	}
 
 	function selectSchool(value) {
@@ -333,12 +356,6 @@
 		}, 100);
 	}
 
-	function hideDepartmentSuggestions() {
-		setTimeout(() => {
-			showDepartmentSuggestions = false;
-		}, 100);
-	}
-
 	function hideSchoolSuggestions() {
 		setTimeout(() => {
 			showSchoolSuggestions = false;
@@ -346,7 +363,6 @@
 	}
 
 	$: filteredCourses = filterSuggestions(courseCatalog, course);
-	$: filteredDepartments = filterSuggestions(departmentCatalog, department);
 	$: filteredSchools = filterSuggestions(schoolCatalog, school);
 </script>
 
@@ -355,13 +371,14 @@
 		<section class="brand-panel">
 			<h1>Internship Management System</h1>
 			<p>
-				Create trusted access for students and supervisors in a telecom-grade internship environment.
+				Create trusted access for students and supervisors in a
+				telecom-grade internship environment.
 			</p>
 			<div class="phase-pills" aria-hidden="true">
-				<span class:active={stage === 'account'}>Account</span>
-				<span class:active={stage === 'ojt'}>OJT Setup</span>
-				<span class:active={stage === 'verify'}>Verify Email</span>
-				<span class:active={stage === 'success'}>Ready</span>
+				<span class:active={stage === "account"}>Account</span>
+				<span class:active={stage === "ojt"}>OJT Setup</span>
+				<span class:active={stage === "verify"}>Verify Email</span>
+				<span class:active={stage === "success"}>Ready</span>
 			</div>
 		</section>
 
@@ -369,39 +386,61 @@
 			<header class="signup-head">
 				<h1>Create Account</h1>
 				<p>
-					{stage === 'ojt'
-						? 'Complete your required OJT profile to finalize registration.'
-						: stage === 'verify'
-							? 'Verify your email with the OTP code before logging in.'
-							: 'Set up your account and continue to your internship dashboard.'}
+					{stage === "ojt"
+						? "Complete your required OJT profile to finalize registration."
+						: stage === "verify"
+							? "Verify your email with the OTP code before logging in."
+							: "Set up your account and continue to your internship dashboard."}
 				</p>
 			</header>
 
-			{#if stage === 'account'}
-				<form class="signup-form" on:submit|preventDefault={submitAccount}>
+			{#if stage === "account"}
+				<form
+					class="signup-form"
+					on:submit|preventDefault={submitAccount}
+				>
 					<label class="field">
 						<span>Name</span>
 						<div class="input-wrap">
-							<span class="input-icon"><User size={16} strokeWidth={2.2} /></span>
-							<input bind:value={name} type="text" placeholder="Enter your full name" autocomplete="name" />
+							<span class="input-icon"
+								><User size={16} strokeWidth={2.2} /></span
+							>
+							<input
+								bind:value={name}
+								type="text"
+								placeholder="Enter your full name"
+								autocomplete="name"
+							/>
 						</div>
 					</label>
 
 					<label class="field">
 						<span>Email</span>
 						<div class="input-wrap">
-							<span class="input-icon"><Mail size={16} strokeWidth={2.2} /></span>
-							<input bind:value={email} type="email" autocomplete="email" placeholder="Enter your email address" />
+							<span class="input-icon"
+								><Mail size={16} strokeWidth={2.2} /></span
+							>
+							<input
+								bind:value={email}
+								type="email"
+								autocomplete="email"
+								placeholder="Enter your email address"
+							/>
 						</div>
 					</label>
 
 					<label class="field">
 						<span>Password</span>
 						<div class="input-wrap password-wrap">
-							<span class="input-icon"><LockKeyhole size={16} strokeWidth={2.2} /></span>
+							<span class="input-icon"
+								><LockKeyhole
+									size={16}
+									strokeWidth={2.2}
+								/></span
+							>
 							<input
 								bind:value={password}
-								type={showPassword ? 'text' : 'password'}
+								type={showPassword ? "text" : "password"}
 								autocomplete="new-password"
 								placeholder="Create password"
 							/>
@@ -409,7 +448,9 @@
 								type="button"
 								class="toggle-password"
 								on:click={() => (showPassword = !showPassword)}
-								aria-label={showPassword ? 'Hide password' : 'Show password'}
+								aria-label={showPassword
+									? "Hide password"
+									: "Show password"}
 							>
 								{#if showPassword}
 									<EyeOff size={16} />
@@ -423,18 +464,27 @@
 					<label class="field">
 						<span>Confirm Password</span>
 						<div class="input-wrap password-wrap">
-							<span class="input-icon"><LockKeyhole size={16} strokeWidth={2.2} /></span>
+							<span class="input-icon"
+								><LockKeyhole
+									size={16}
+									strokeWidth={2.2}
+								/></span
+							>
 							<input
 								bind:value={confirmPassword}
-								type={showConfirmPassword ? 'text' : 'password'}
+								type={showConfirmPassword ? "text" : "password"}
 								autocomplete="new-password"
 								placeholder="Confirm password"
 							/>
 							<button
 								type="button"
 								class="toggle-password"
-								on:click={() => (showConfirmPassword = !showConfirmPassword)}
-								aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+								on:click={() =>
+									(showConfirmPassword =
+										!showConfirmPassword)}
+								aria-label={showConfirmPassword
+									? "Hide password"
+									: "Show password"}
 							>
 								{#if showConfirmPassword}
 									<EyeOff size={16} />
@@ -448,10 +498,12 @@
 					<label class="field">
 						<span>Role</span>
 						<div class="input-wrap select-wrap">
-							<span class="input-icon"><Shield size={16} strokeWidth={2.2} /></span>
+							<span class="input-icon"
+								><Shield size={16} strokeWidth={2.2} /></span
+							>
 							<select bind:value={role}>
 								<option value="Supervisor">Supervisor</option>
-								<option value="Student">Student</option>
+								<option value="Student">Intern</option>
 							</select>
 						</div>
 					</label>
@@ -465,14 +517,35 @@
 					{/if}
 
 					<div class="actions">
-						<button class="primary" type="submit">Continue</button>
-						<button class="secondary" type="button" on:click={goBackToLogin}>Back to Login</button>
+						<button
+							class="primary"
+							type="submit"
+							disabled={isSubmittingAccount}
+						>
+							{#if isSubmittingAccount}
+								<span class="spinning-icon"
+									><Loader2 size={18} /></span
+								>
+								<span>Processing...</span>
+							{:else}
+								<span>Continue</span>
+							{/if}
+						</button>
+						<button
+							class="secondary"
+							type="button"
+							on:click={goBackToLogin}
+							disabled={isSubmittingAccount}>Back to Login</button
+						>
 					</div>
 				</form>
 			{/if}
 
-			{#if stage === 'ojt'}
-				<form class="signup-form" on:submit|preventDefault={submitStudentSignup}>
+			{#if stage === "ojt"}
+				<form
+					class="signup-form"
+					on:submit|preventDefault={submitStudentSignup}
+				>
 					{#if info}
 						<p class="feedback success">{info}</p>
 					{/if}
@@ -480,45 +553,44 @@
 					<label class="field">
 						<span>Total OJT Hours</span>
 						<div class="input-wrap">
-							<span class="input-icon"><Clock3 size={16} strokeWidth={2.2} /></span>
-							<input bind:value={totalHours} type="number" min="1" />
+							<span class="input-icon"
+								><Clock3 size={16} strokeWidth={2.2} /></span
+							>
+							<input
+								bind:value={totalHours}
+								type="number"
+								min="1"
+							/>
 						</div>
 					</label>
 
 					<label class="field">
 						<span>Start Date</span>
 						<div class="input-wrap">
-							<span class="input-icon"><CalendarDays size={16} strokeWidth={2.2} /></span>
+							<span class="input-icon"
+								><CalendarDays
+									size={16}
+									strokeWidth={2.2}
+								/></span
+							>
 							<input bind:value={startDate} type="date" />
 						</div>
 					</label>
 
 					<label class="field">
 						<span>Department</span>
-						<div class="typeahead-wrap">
-							<div class="input-wrap">
-								<span class="input-icon"><Building size={16} strokeWidth={2.2} /></span>
-								<input
-									bind:value={department}
-									type="text"
-									autocomplete="off"
-									on:focus={() => (showDepartmentSuggestions = true)}
-									on:blur={hideDepartmentSuggestions}
-									placeholder="Search your department"
-								/>
-							</div>
-
-							{#if showDepartmentSuggestions && department.trim().length > 0 && filteredDepartments.length > 0}
-								<ul class="suggestions" role="listbox" aria-label="Department suggestions">
-									{#each filteredDepartments as item}
-										<li>
-											<button type="button" class="suggestion-item" on:mousedown={() => selectDepartment(item)}>
-												{item}
-											</button>
-										</li>
-									{/each}
-								</ul>
-							{/if}
+						<div class="input-wrap">
+							<span class="input-icon"
+								><Building size={16} strokeWidth={2.2} /></span
+							>
+							<select bind:value={department}>
+								<option value="" disabled selected
+									>Select Department</option
+								>
+								{#each departmentCatalog as item}
+									<option value={item}>{item}</option>
+								{/each}
+							</select>
 						</div>
 					</label>
 
@@ -526,21 +598,36 @@
 						<span>Course</span>
 						<div class="typeahead-wrap">
 							<div class="input-wrap">
-								<span class="input-icon"><GraduationCap size={16} strokeWidth={2.2} /></span>
+								<span class="input-icon"
+									><GraduationCap
+										size={16}
+										strokeWidth={2.2}
+									/></span
+								>
 								<input
 									bind:value={course}
 									autocomplete="off"
-									on:focus={() => (showCourseSuggestions = true)}
+									on:focus={() =>
+										(showCourseSuggestions = true)}
 									on:blur={hideCourseSuggestions}
 									placeholder="Search your course"
 								/>
 							</div>
 
 							{#if showCourseSuggestions && course.trim().length > 0 && filteredCourses.length > 0}
-								<ul class="suggestions" role="listbox" aria-label="Course suggestions">
+								<ul
+									class="suggestions"
+									role="listbox"
+									aria-label="Course suggestions"
+								>
 									{#each filteredCourses as item}
 										<li>
-											<button type="button" class="suggestion-item" on:mousedown={() => selectCourse(item)}>
+											<button
+												type="button"
+												class="suggestion-item"
+												on:mousedown={() =>
+													selectCourse(item)}
+											>
 												{item}
 											</button>
 										</li>
@@ -554,22 +641,37 @@
 						<span>School</span>
 						<div class="typeahead-wrap">
 							<div class="input-wrap">
-								<span class="input-icon"><School size={16} strokeWidth={2.2} /></span>
+								<span class="input-icon"
+									><School
+										size={16}
+										strokeWidth={2.2}
+									/></span
+								>
 								<input
 									bind:value={school}
 									type="text"
 									autocomplete="off"
-									on:focus={() => (showSchoolSuggestions = true)}
+									on:focus={() =>
+										(showSchoolSuggestions = true)}
 									on:blur={hideSchoolSuggestions}
 									placeholder="Search your school"
 								/>
 							</div>
 
 							{#if showSchoolSuggestions && school.trim().length > 0 && filteredSchools.length > 0}
-								<ul class="suggestions" role="listbox" aria-label="School suggestions">
+								<ul
+									class="suggestions"
+									role="listbox"
+									aria-label="School suggestions"
+								>
 									{#each filteredSchools as item}
 										<li>
-											<button type="button" class="suggestion-item" on:mousedown={() => selectSchool(item)}>
+											<button
+												type="button"
+												class="suggestion-item"
+												on:mousedown={() =>
+													selectSchool(item)}
+											>
 												{item}
 											</button>
 										</li>
@@ -584,24 +686,61 @@
 					{/if}
 
 					<div class="actions">
-						<button class="primary" type="submit">Complete Signup</button>
-						<button class="secondary" type="button" on:click={goBackToLogin}>Back to Login</button>
-						<button class="text-btn" type="button" on:click={backToAccountStep}>Back to Account Details</button>
+						<button
+							class="primary"
+							type="submit"
+							disabled={isSubmittingSignup}
+						>
+							{#if isSubmittingSignup}
+								<span class="spinning-icon"
+									><Loader2 size={18} /></span
+								>
+								<span>Processing...</span>
+							{:else}
+								<span>Complete Signup</span>
+							{/if}
+						</button>
+						<button
+							class="secondary"
+							type="button"
+							on:click={goBackToLogin}
+							disabled={isSubmittingSignup}>Back to Login</button
+						>
+						<button
+							class="text-btn"
+							type="button"
+							on:click={backToAccountStep}
+							disabled={isSubmittingSignup}
+							>Back to Account Details</button
+						>
 					</div>
 				</form>
 			{/if}
 
-			{#if stage === 'verify'}
-				<form class="signup-form" on:submit|preventDefault={submitOtpVerification}>
+			{#if stage === "verify"}
+				<form
+					class="signup-form"
+					on:submit|preventDefault={submitOtpVerification}
+				>
 					<p class="verify-help">
-						Enter the 6-digit code sent to <strong>{verificationEmail}</strong>.
+						Enter the 6-digit code sent to <strong
+							>{verificationEmail}</strong
+						>.
 					</p>
 
 					<label class="field">
 						<span>OTP Code</span>
 						<div class="input-wrap">
-							<span class="input-icon"><KeyRound size={16} strokeWidth={2.2} /></span>
-							<input bind:value={otpCode} type="text" inputmode="numeric" maxlength="6" placeholder="Enter 6-digit OTP" />
+							<span class="input-icon"
+								><KeyRound size={16} strokeWidth={2.2} /></span
+							>
+							<input
+								bind:value={otpCode}
+								type="text"
+								inputmode="numeric"
+								maxlength="6"
+								placeholder="Enter 6-digit OTP"
+							/>
 						</div>
 					</label>
 
@@ -614,24 +753,55 @@
 					{/if}
 
 					<div class="actions">
-						<button class="primary" type="submit" disabled={isVerifyingOtp}>
-							{isVerifyingOtp ? 'Verifying...' : 'Verify OTP'}
+						<button
+							class="primary"
+							type="submit"
+							disabled={isVerifyingOtp}
+						>
+							{#if isVerifyingOtp}
+								<span class="spinning-icon"
+									><Loader2 size={18} /></span
+								>
+								<span>Verifying...</span>
+							{:else}
+								<span>Verify OTP</span>
+							{/if}
 						</button>
-						<button class="secondary" type="button" on:click={resendOtpCode} disabled={isResendingOtp}>
-							{isResendingOtp ? 'Sending...' : 'Resend OTP'}
+						<button
+							class="secondary"
+							type="button"
+							on:click={resendOtpCode}
+							disabled={isResendingOtp || isVerifyingOtp}
+						>
+							{#if isResendingOtp}
+								<span class="spinning-icon"
+									><Loader2 size={18} /></span
+								>
+								<span>Sending...</span>
+							{:else}
+								<span>Resend OTP</span>
+							{/if}
 						</button>
-						<button class="text-btn" type="button" on:click={goBackToLogin}>Back to Login</button>
+						<button
+							class="text-btn"
+							type="button"
+							on:click={goBackToLogin}>Back to Login</button
+						>
 					</div>
 				</form>
 			{/if}
 
-			{#if stage === 'success'}
+			{#if stage === "success"}
 				<section class="success-panel">
 					<div class="success-icon"><CheckCircle2 size={22} /></div>
 					<h2>Account Ready</h2>
 					<p>{info}</p>
 					<div class="actions">
-						<button class="primary" type="button" on:click={goBackToLogin}>Go to Login</button>
+						<button
+							class="primary"
+							type="button"
+							on:click={goBackToLogin}>Go to Login</button
+						>
 					</div>
 				</section>
 			{/if}
@@ -651,7 +821,7 @@
 	}
 
 	.signup-shell::before {
-		content: '';
+		content: "";
 		position: absolute;
 		inset: -1.2rem;
 		background-image: var(--bg-image);
@@ -663,12 +833,20 @@
 	}
 
 	.signup-shell::after {
-		content: '';
+		content: "";
 		position: absolute;
 		inset: 0;
-		background:
-			radial-gradient(circle at 70% 44%, rgba(76, 124, 255, 0.25) 0%, rgba(76, 124, 255, 0) 48%),
-			linear-gradient(105deg, rgba(4, 10, 28, 0.84) 18%, rgba(5, 14, 38, 0.7) 56%, rgba(7, 13, 34, 0.87) 100%);
+		background: radial-gradient(
+				circle at 70% 44%,
+				rgba(76, 124, 255, 0.25) 0%,
+				rgba(76, 124, 255, 0) 48%
+			),
+			linear-gradient(
+				105deg,
+				rgba(4, 10, 28, 0.84) 18%,
+				rgba(5, 14, 38, 0.7) 56%,
+				rgba(7, 13, 34, 0.87) 100%
+			);
 		z-index: -2;
 	}
 
@@ -724,7 +902,11 @@
 	}
 
 	.phase-pills span.active {
-		background: linear-gradient(95deg, rgba(0, 87, 255, 0.55), rgba(124, 58, 237, 0.48));
+		background: linear-gradient(
+			95deg,
+			rgba(0, 87, 255, 0.55),
+			rgba(124, 58, 237, 0.48)
+		);
 		border-color: rgba(147, 197, 253, 0.7);
 		color: #f8fafc;
 	}
@@ -733,7 +915,11 @@
 		position: relative;
 		padding: clamp(1.1rem, 2.5vw, 1.8rem);
 		border-radius: 1.35rem;
-		background: linear-gradient(150deg, rgba(255, 255, 255, 0.18) 0%, rgba(233, 239, 255, 0.08) 100%);
+		background: linear-gradient(
+			150deg,
+			rgba(255, 255, 255, 0.18) 0%,
+			rgba(233, 239, 255, 0.08) 100%
+		);
 		border: 1px solid rgba(226, 232, 240, 0.4);
 		backdrop-filter: blur(16px);
 		box-shadow:
@@ -800,7 +986,10 @@
 		padding: 0.66rem 0.9rem 0.66rem 2.45rem;
 		font-size: 0.94rem;
 		outline: none;
-		transition: border-color 160ms ease, box-shadow 180ms ease, background-color 160ms ease;
+		transition:
+			border-color 160ms ease,
+			box-shadow 180ms ease,
+			background-color 160ms ease;
 	}
 
 	input::placeholder {
@@ -839,7 +1028,9 @@
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: background-color 160ms ease, color 160ms ease;
+		transition:
+			background-color 160ms ease,
+			color 160ms ease;
 	}
 
 	.toggle-password:hover {
@@ -901,22 +1092,34 @@
 		font-size: 0.9rem;
 		font-weight: 700;
 		cursor: pointer;
-		transition: transform 140ms ease, box-shadow 160ms ease, filter 160ms ease;
+		transition:
+			transform 140ms ease,
+			box-shadow 160ms ease,
+			filter 160ms ease;
 	}
 
 	.primary {
 		color: #ffffff;
-		background: linear-gradient(100deg, #0057ff 0%, #4f46e5 52%, #7c3aed 100%);
+		background: linear-gradient(
+			100deg,
+			#0057ff 0%,
+			#4f46e5 52%,
+			#7c3aed 100%
+		);
 		box-shadow: 0 16px 34px -22px rgba(79, 70, 229, 0.96);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
 	}
 
-	.primary:hover {
+	.primary:hover:not(:disabled) {
 		transform: translateY(-1px);
 		filter: brightness(1.04);
 		box-shadow: 0 20px 38px -24px rgba(124, 58, 237, 0.9);
 	}
 
-	.primary:active {
+	.primary:active:not(:disabled) {
 		transform: translateY(1px) scale(0.997);
 	}
 
@@ -924,10 +1127,35 @@
 		background: rgba(148, 163, 184, 0.2);
 		color: #e2e8f0;
 		border: 1px solid rgba(203, 213, 225, 0.34);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
 	}
 
-	.secondary:hover {
+	.secondary:hover:not(:disabled) {
 		background: rgba(148, 163, 184, 0.32);
+	}
+
+	button:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+	}
+
+	.spinning-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.text-btn {

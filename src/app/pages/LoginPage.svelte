@@ -1,15 +1,77 @@
 <script>
-	import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-svelte';
+	import { Eye, EyeOff, Loader2, LockKeyhole, Mail } from 'lucide-svelte';
 	import heroImage from '../../assets/hero.png';
 	import { loginWithCredentials } from '../lib/auth.js';
+
+	const PENDING_REDIRECT_STORAGE_KEY = 'ims-pending-redirect';
 
 	let email = '';
 	let password = '';
 	let showPassword = false;
 	let message = '';
 	let error = '';
+	let isLoading = false;
+
+	function readPendingRedirectIntent() {
+		let pending = null;
+
+		try {
+			const raw = window.sessionStorage.getItem(PENDING_REDIRECT_STORAGE_KEY);
+			if (raw) {
+				pending = JSON.parse(raw);
+			}
+		} catch {
+			pending = null;
+		}
+
+		try {
+			window.sessionStorage.removeItem(PENDING_REDIRECT_STORAGE_KEY);
+		} catch {
+			// Ignore cleanup errors.
+		}
+
+		if (pending && String(pending.page || '').toLowerCase() === 'requests') {
+			return {
+				page: 'requests',
+				requestId: String(pending.requestId || '').trim(),
+			};
+		}
+
+		const params = new URLSearchParams(window.location.search || '');
+		const page = String(params.get('page') || '').trim().toLowerCase();
+		if (page !== 'requests') {
+			return null;
+		}
+
+		return {
+			page: 'requests',
+			requestId: String(params.get('requestId') || '').trim(),
+		};
+	}
+
+	function applyPostLoginRedirect(user) {
+		const role = String(user?.role || '').trim().toLowerCase();
+		const fallbackPath = role === 'supervisor' ? '/supervisor' : '/';
+		const intent = readPendingRedirectIntent();
+
+		if (!intent || intent.page !== 'requests') {
+			window.location.hash = fallbackPath;
+			return;
+		}
+
+		const targetPath = role === 'supervisor' ? '/supervisor/requests' : '/requests';
+		const params = new URLSearchParams();
+		params.set('page', 'requests');
+		if (intent.requestId) {
+			params.set('requestId', intent.requestId);
+		}
+
+		window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+		window.location.hash = targetPath;
+	}
 
 	async function handleLogin() {
+		if (isLoading) return;
 		error = '';
 		message = '';
 
@@ -19,15 +81,15 @@
 		}
 
 		try {
+			isLoading = true;
 			const user = await loginWithCredentials(email, password);
-			const role = String(user?.role || '').trim();
-			const redirectPath = role.toLowerCase() === 'supervisor' ? '/supervisor' : '/';
 			message = 'Authenticated successfully. Redirecting...';
 			setTimeout(() => {
-				window.location.hash = redirectPath;
+				applyPostLoginRedirect(user);
 			}, 420);
 		} catch (err) {
 			error = err?.message || 'Invalid credentials. Please try again.';
+			isLoading = false;
 		}
 	}
 
@@ -104,7 +166,14 @@
 				<p class="feedback success">{message}</p>
 			{/if}
 
-			<button class="login-btn" type="submit">Log In</button>
+			<button class="login-btn" type="submit" disabled={isLoading}>
+				{#if isLoading}
+					<span class="spinning-icon"><Loader2 size={18} /></span>
+					<span>Logging in...</span>
+				{:else}
+					<span>Log In</span>
+				{/if}
+			</button>
 
 			<p class="signup-row">
 				Need access?
@@ -165,15 +234,6 @@
 		padding-inline: clamp(0rem, 2vw, 1.6rem);
 	}
 
-	.brand-kicker {
-		margin: 0;
-		font-size: 0.76rem;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #c7d2fe;
-	}
-
 	.brand-panel h1 {
 		margin: 0.8rem 0 0;
 		font-size: clamp(2rem, 5vw, 3.4rem);
@@ -216,15 +276,6 @@
 		margin: 0.38rem 0 0;
 		color: #cbd5e1;
 		font-size: 0.94rem;
-	}
-
-	.product-tag {
-		margin: 0;
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		color: #bfdbfe;
 	}
 
 	.field {
@@ -347,9 +398,31 @@
 		cursor: pointer;
 		transition: transform 140ms ease, box-shadow 170ms ease, filter 170ms ease;
 		box-shadow: 0 18px 38px -20px rgba(79, 70, 229, 0.95);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
 	}
 
-	.login-btn:hover {
+	.login-btn:disabled {
+		opacity: 0.75;
+		cursor: not-allowed;
+		filter: brightness(0.9);
+	}
+
+	.spinning-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.login-btn:hover:not(:disabled) {
 		transform: translateY(-1px);
 		filter: brightness(1.04);
 		box-shadow: 0 22px 44px -24px rgba(124, 58, 237, 0.9);

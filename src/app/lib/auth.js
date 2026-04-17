@@ -368,6 +368,7 @@ export async function createTimeLog(logInput) {
     time_in: String(logInput?.time_in || '').trim(),
     time_out: String(logInput?.time_out || '').trim(),
     hours_rendered: Number(logInput?.hours_rendered || 0),
+    entry_type: String(logInput?.entry_type || 'login').trim(),
     status: String(logInput?.status || 'recorded').trim(),
     notes: String(logInput?.notes || '').trim(),
     updateStartDate: logInput?.updateStartDate === true,
@@ -426,6 +427,18 @@ export async function listAssignedStudentRequests(supervisorUserId) {
   });
 
   return Array.isArray(result.requests) ? result.requests : [];
+}
+
+export async function listAssignedStudentDocuments(supervisorUserId, studentUserId) {
+  const result = await postAction('list_assigned_student_documents', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    student_user_id: String(studentUserId || '').trim(),
+  });
+
+  return {
+    documents: Array.isArray(result.documents) ? result.documents : [],
+    folders: Array.isArray(result.folders) ? result.folders : []
+  };
 }
 
 export async function listSupervisorTimeLogs(supervisorUserId, studentUserId) {
@@ -516,5 +529,36 @@ export async function markAllNotificationsRead(userId) {
     user_id: String(userId || '').trim(),
   });
 
+  return result;
+}
+
+export async function getStudentSupervisor(studentUserId) {
+  const result = await postAction('get_student_supervisor', {
+    student_user_id: String(studentUserId || '').trim(),
+  });
+  return result.supervisor || null;
+}
+
+export async function getNotificationPreferences(userId) {
+  const result = await postAction('get_notification_preferences', {
+    user_id: String(userId || '').trim(),
+  });
+  return result.settings || {};
+}
+
+export async function updateNotificationPreferences(userId, settings) {
+  const result = await postAction('update_notification_preferences', {
+    user_id: String(userId || '').trim(),
+    settings: settings || {},
+  });
+  return result;
+}
+
+export async function changePassword(userId, currentPassword, newPassword) {
+  const result = await postAction('change_password', {
+    user_id: String(userId || '').trim(),
+    current_password: String(currentPassword || ''),
+    new_password: String(newPassword || ''),
+  });
   return result;
 }
