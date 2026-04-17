@@ -65,6 +65,13 @@
     void form.reason;
     return checkFormValidityImmediate();
   })();
+  // Clear form error when user changes form fields
+  $: if (form.requestType || form.date || form.startTime || form.endTime || form.lunchBreak || form.reason) {
+    // Only clear error if it was a validation error (not a server error from submission)
+    if (formError && formError.includes('cannot be scheduled') || formError.includes('End time must') || formError.includes('Overtime must') || formError.includes('Start time and end')) {
+      formError = '';
+    }
+  }
 
   function getTodayDate() {
     const today = new Date();
@@ -342,6 +349,18 @@
       
       if (dayOfWeek === 0 || dayOfWeek === 6) {
         return `Absence cannot be requested on ${dayName}s (your day off). Please select a weekday (Monday-Friday).`;
+      }
+
+      // Check for duplicate absence request on the same date
+      const existingAbsenceOnDate = requests.some(
+        (req) => 
+          req.requestType === 'Absence' && 
+          req.date === form.date &&
+          (req.status === 'Pending' || req.status === 'Approved')
+      );
+      
+      if (existingAbsenceOnDate) {
+        return `You already have an absence request for ${new Date(form.date + 'T00:00:00').toLocaleDateString()}. Please edit the existing request or select a different date.`;
       }
     }
 
