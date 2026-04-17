@@ -17,7 +17,7 @@
   const DEFAULT_REQUIRED_HOURS = 500;
   const AVERAGE_DAILY_HOURS = 8;
   const INITIAL_COMPLETED_HOURS = 0;
-
+  
   // ---- Skeleton loading flag ----
   let isLoading = true;
 
@@ -37,16 +37,18 @@
   let timeIn = '08:00';
   let timeOut = '';
   let logSyncError = '';
+  
   let isLoggingIn = false;
   let isLoggingOut = false;
   let isLoggedIn = false;
+  
   let includeLunch = (() => {
     if (typeof window !== 'undefined') {
       return window.localStorage.getItem('ojt_include_lunch') === 'true';
     }
     return false;
   })();
-
+  
   let showDeleteConfirm = false;
   let deleteConfirmEntry = null;
 
@@ -356,7 +358,7 @@
   let _chartInitRaf = null;
   let _chartRetryTimer = null;
   let _chartResizeObserver = null;
-
+  
   function requestTlChartInit() {
     if (typeof window === 'undefined') return;
     if (_chartInitRaf) cancelAnimationFrame(_chartInitRaf);
@@ -438,10 +440,12 @@
     const c = getTlColors();
     const { days, totals } = buildWeeklyData();
     if (tlChart) { tlChart.destroy(); tlChart = null; }
+    
     const gradient = ctx.createLinearGradient(0, 0, 0, 160);
     gradient.addColorStop(0, c.accent + '30');
     gradient.addColorStop(1, c.accent + '00');
     const maxVal = Math.max(...totals);
+    
     tlChart = new Chart(ctx, {
       type: 'line',
       data: {
@@ -531,7 +535,6 @@
   }
 
   let _themeObserver = null;
-
   onMount(() => {
     loadAllData();
     // Watch for theme changes to redraw chart
@@ -539,7 +542,7 @@
     _themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     _themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   });
-
+  
   onDestroy(() => {
     if (_themeObserver) _themeObserver.disconnect();
     if (_chartInitRaf) cancelAnimationFrame(_chartInitRaf);
@@ -547,7 +550,7 @@
     if (_chartResizeObserver) _chartResizeObserver.disconnect();
     if (tlChart) { tlChart.destroy(); tlChart = null; }
   });
-
+  
   // Rebuild chart when entries change (but only if not loading)
   $: if (!isLoading && entries) {
     ensureChartResizeObserver();
@@ -564,17 +567,21 @@
   $: remainingHours = Math.max(0, requiredHours - completedHours);
   $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
   $: completedEntries = entries.filter((entry) => entry.timeOut && Number(entry.hours) > 0);
+  
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
     localStorage.setItem(completedHoursStorageKey, String(completedHours));
   }
+  
   $: effectiveRemaining = Math.max(0, remainingHours);
   $: totalAbsenceHours = 0;
   $: adjustedRequiredHours = Math.max(0, requiredHours);
   $: projectedWorkingDays = Math.ceil(adjustedRequiredHours / AVERAGE_DAILY_HOURS);
+  
   $: estimatedDate = (() => {
     const start = parseIsoDateOnly(ojtStartDate) || new Date();
     return addWorkingDays(start, Math.max(0, projectedWorkingDays - 1));
   })();
+  
   $: statCards = [
     { label: 'Total Hours Required', value: `${Number(requiredHours || 0).toFixed(1)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
     { label: 'Hours Completed', value: `${Number(completedHours || 0).toFixed(1)}h`, sub: `${Number(remainingHours || 0).toFixed(1)}h remaining`, icon: CheckCircle2, tone: 'success' },
@@ -589,12 +596,10 @@
 
 <section class="tl-page">
   {#if isLoading}
-    <!-- ===== SKELETON LOADING STATE ===== -->
     <div class="tl-error-banner skeleton">
       <div class="skeleton-text" style="width: 200px;"></div>
     </div>
 
-    <!-- Stat Cards Skeleton -->
     <div class="tl-stat-grid">
       {#each [1,2,3,4] as _}
         <div class="tl-stat-card skeleton-stat">
@@ -608,7 +613,6 @@
       {/each}
     </div>
 
-    <!-- Progress Section Skeleton -->
     <div class="tl-progress-section skeleton-progress">
       <div class="tl-progress-header">
         <div>
@@ -625,7 +629,6 @@
       </div>
     </div>
 
-    <!-- Three Column Skeleton -->
     <div class="tl-three-col">
       <div class="tl-card skeleton-card">
         <div class="skeleton-text" style="width: 100px; height: 14px;"></div>
@@ -644,7 +647,6 @@
       </div>
     </div>
 
-    <!-- Table Skeleton -->
     <div class="tl-table-section skeleton-table">
       <div class="tl-table-header">
         <div class="skeleton-text" style="width: 120px;"></div>
@@ -672,7 +674,6 @@
     </div>
 
   {:else}
-    <!-- ===== ACTUAL CONTENT ===== -->
     {#if logSyncError}
       <div class="tl-error-banner">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -680,7 +681,6 @@
       </div>
     {/if}
 
-    <!-- Stat Cards -->
     <div class="tl-stat-grid">
       {#each statCards as card (card.label)}
         <div class="tl-stat-card tl-stat-{card.tone}">
@@ -696,7 +696,6 @@
       {/each}
     </div>
 
-    <!-- Progress Section -->
     <div class="tl-progress-section">
       <div class="tl-progress-header">
         <div>
@@ -716,10 +715,8 @@
       </div>
     </div>
 
-    <!-- Three-column Card Row -->
     <div class="tl-three-col">
 
-      <!-- Time In Card -->
       <div class="tl-card">
         <div class="tl-card-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -749,7 +746,6 @@
         {/if}
       </div>
 
-      <!-- Log Out Card -->
       <div class="tl-card">
         <div class="tl-card-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -800,7 +796,6 @@
         {/if}
       </div>
 
-      <!-- Weekly Overview -->
       <div class="tl-card tl-card-chart">
         <div class="tl-chart-header">
           <div>
@@ -818,7 +813,6 @@
       </div>
     </div>
 
-    <!-- Time Log History Table -->
     <div class="tl-table-section">
       <div class="tl-table-header">
         <span class="tl-table-title">Time Log History</span>
@@ -871,7 +865,6 @@
     </div>
   {/if}
 
-  <!-- Delete Confirmation Modal (unchanged) -->
   {#if showDeleteConfirm && deleteConfirmEntry}
     <div class="tl-modal-overlay" on:click|self={cancelDelete}>
       <div class="tl-modal" role="dialog" aria-modal="true" aria-labelledby="tl-modal-title">
@@ -1076,7 +1069,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr 1.4fr;
     gap: 14px;
-    align-items: start;
+    align-items: stretch;
   }
   .tl-card {
     background: var(--tl-surface);
@@ -1087,6 +1080,7 @@
     flex-direction: column;
     gap: 14px;
     box-shadow: var(--tl-shadow-sm);
+    height: 100%;
   }
   .tl-card-title {
     font-size: 13px;
@@ -1214,7 +1208,8 @@
   .tl-lunch-row:hover { border-color: var(--tl-accent2); }
   .tl-lunch-left { display: flex; align-items: center; gap: 10px; }
   .tl-lunch-icon {
-    width: 30px; height: 30px;
+    width: 30px;
+    height: 30px;
     border-radius: 8px;
     display: grid; place-items: center;
     background: rgba(217,119,6,0.12);
@@ -1374,7 +1369,8 @@
   .tl-modal-overlay {
     position: fixed; inset: 0;
     background: rgba(0,0,0,0.5);
-    display: flex; align-items: center; justify-content: center;
+    display: flex;
+    align-items: center; justify-content: center;
     z-index: 200;
     padding: 1rem;
     backdrop-filter: blur(2px);
@@ -1401,7 +1397,8 @@
   .tl-modal-close {
     background: none; border: none;
     font-size: 16px; color: var(--tl-text2);
-    cursor: pointer; width: 28px; height: 28px;
+    cursor: pointer; width: 28px;
+    height: 28px;
     display: grid; place-items: center;
     border-radius: 6px; transition: all 0.15s;
   }
