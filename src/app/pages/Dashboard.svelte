@@ -530,47 +530,47 @@
 
       <div class="dash-stat-grid">
         <div class="dash-stat-card">
-          <div class="dash-stat-top">
+          <div class="dash-stat-icon tone-blue">
+            <Target size={16} />
+          </div>
+          <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Needed</div>
-            <div class="dash-stat-icon tone-blue">
-              <Target size={16} />
-            </div>
+            <div class="dash-stat-value">{totalOjtHours || 0}</div>
+            <div class="dash-stat-sub">total OJT hours</div>
           </div>
-          <div class="dash-stat-value">{totalOjtHours || 0}</div>
-          <div class="dash-stat-sub">total OJT hours</div>
         </div>
 
         <div class="dash-stat-card">
-          <div class="dash-stat-top">
+          <div class="dash-stat-icon tone-green">
+            <CheckCircle size={16} />
+          </div>
+          <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Completed</div>
-            <div class="dash-stat-icon tone-green">
-              <CheckCircle size={16} />
-            </div>
+            <div class="dash-stat-value">{hoursCompleted}</div>
+            <div class="dash-stat-sub">all rendered hours</div>
           </div>
-          <div class="dash-stat-value">{hoursCompleted}</div>
-          <div class="dash-stat-sub">all rendered hours</div>
         </div>
 
         <div class="dash-stat-card">
-          <div class="dash-stat-top">
+          <div class="dash-stat-icon tone-amber">
+            <Hourglass size={16} />
+          </div>
+          <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Remaining</div>
-            <div class="dash-stat-icon tone-amber">
-              <Hourglass size={16} />
-            </div>
+            <div class="dash-stat-value">{hoursRemaining}</div>
+            <div class="dash-stat-sub">left to finish</div>
           </div>
-          <div class="dash-stat-value">{hoursRemaining}</div>
-          <div class="dash-stat-sub">left to finish</div>
         </div>
 
         <div class="dash-stat-card">
-          <div class="dash-stat-top">
-            <div class="dash-stat-label">Working Days Needed</div>
-            <div class="dash-stat-icon tone-purple">
-              <CalendarDays size={16} />
-            </div>
+          <div class="dash-stat-icon tone-purple">
+            <CalendarDays size={16} />
           </div>
-          <div class="dash-stat-value">{remainingWorkingDays} <span class="dash-stat-unit">days</span></div>
-          <div class="dash-stat-sub">to complete OJT</div>
+          <div class="dash-stat-body">
+            <div class="dash-stat-label">Working Days Needed</div>
+            <div class="dash-stat-value">{remainingWorkingDays} <span class="dash-stat-unit">days</span></div>
+            <div class="dash-stat-sub">to complete OJT</div>
+          </div>
         </div>
       </div>
 
@@ -865,10 +865,10 @@
   .dash-stat-card {
     position: relative;
     overflow: hidden;
-    padding: 20px 22px;
+    padding: 18px 20px;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: flex-start;
+    gap: 14px;
     transition: box-shadow 0.2s, transform 0.2s;
   }
 
@@ -903,12 +903,18 @@
   }
 
   .dash-stat-icon {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     border-radius: 10px;
     display: grid;
     place-items: center;
     flex-shrink: 0;
+  }
+
+  .dash-stat-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .tone-blue {
@@ -952,7 +958,7 @@
   }
 
   .dash-stat-value {
-    font-size: 28px;
+    font-size: 24px;
     font-weight: 700;
     letter-spacing: -0.8px;
     line-height: 1;
@@ -987,14 +993,14 @@
   }
 
   .dash-card {
-    padding: 22px 24px;
+    padding: 22px;
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
 
   .dash-end-value {
-    font-size: 30px;
+    font-size: 24px;
     font-weight: 700;
     letter-spacing: -0.8px;
     color: #0f172a;
@@ -1062,7 +1068,7 @@
   }
 
   .dash-progress-percent {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 700;
     letter-spacing: -0.6px;
     color: #0f172a;
@@ -1101,7 +1107,7 @@
   }
 
   .dash-panel {
-    min-height: 220px;
+    min-height: 180px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
