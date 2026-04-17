@@ -25,6 +25,8 @@ var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
 var USER_SETTINGS_SHEET_ = 'user_settings';
 var USER_SETTINGS_HEADERS_ = ['user_id', 'settings_json', 'updated_at'];
+var INTERN_SCHEDULES_SHEET_ = 'intern_schedules';
+var INTERN_SCHEDULES_HEADERS_ = ['schedule_id', 'intern_id', 'supervisor_id', 'days_off', 'shift_start', 'shift_end', 'created_at', 'updated_at'];
 
 // Default intern work schedule (Monday-Friday, 9am-5pm)
 var DEFAULT_WORK_DAYS_ = [1, 2, 3, 4, 5]; // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
@@ -119,6 +121,10 @@ function dispatchAction_(payload) {
 
   if (action === 'assign_students_to_supervisor') {
     return handleAssignStudentsToSupervisor_(payload);
+  }
+
+  if (action === 'save_intern_schedule') {
+    return handleSaveInternSchedule_(payload);
   }
 
   if (action === 'list_supervisor_assigned_students') {
@@ -1571,6 +1577,92 @@ function handleAssignStudentsToSupervisor_(payload) {
     ok: true,
     message: 'Assigned students saved successfully.',
     assigned_count: studentUserIds.length,
+  };
+}
+
+function handleSaveInternSchedule_(payload) {
+  var supervisorUserId = String(payload.supervisor_user_id || '').trim();
+  var internUserId = String(payload.intern_user_id || '').trim();
+  var daysOffInput = Array.isArray(payload.days_off) ? payload.days_off : [];
+  var shiftStart = String(payload.shift_start || '09:00').trim();
+  var shiftEnd = String(payload.shift_end || '17:00').trim();
+
+  if (!supervisorUserId) {
+    return { ok: false, error: 'supervisor_user_id is required.' };
+  }
+
+  if (!internUserId) {
+    return { ok: false, error: 'intern_user_id is required.' };
+  }
+
+  var supervisorRecord = findUserRecordByUserId_(supervisorUserId);
+  if (!supervisorRecord) {
+    return { ok: false, error: 'Supervisor not found.' };
+  }
+
+  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+    return { ok: false, error: 'Only supervisors can save schedules.' };
+  }
+
+  // Validate days off (should be numbers 0-6)
+  var daysOff = [];
+  var seenDays = {};
+  for (var i = 0; i < daysOffInput.length; i++) {
+    var day = Number(daysOffInput[i]);
+    if (!Number.isInteger(day) || day < 0 || day > 6 || seenDays[day]) {
+      continue;
+    }
+    seenDays[day] = true;
+    daysOff.push(day);
+  }
+
+  // Sort days off for consistency
+  daysOff.sort(function(a, b) { return a - b; });
+
+  var sheet = getSheet_(INTERN_SCHEDULES_SHEET_);
+  var headers = getHeaders_(sheet);
+  
+  // Ensure required columns exist
+  if (!headers || headers.length === 0) {
+    appendHeaders_(sheet, INTERN_SCHEDULES_HEADERS_);
+  }
+
+  var internIdCol = findColumnIndex_(headers, 'intern_id');
+  var supervisorIdCol = findColumnIndex_(headers, 'supervisor_id');
+  var values = getSheetValues_(sheet);
+
+  // Find and delete existing schedule for this intern (if any)
+  var rowsToDelete = [];
+  for (var rowIndex = 1; rowIndex < values.length; rowIndex++) {
+    var rowInternId = String(values[rowIndex][internIdCol - 1] || '').trim();
+    var rowSupervisorId = String(values[rowIndex][supervisorIdCol - 1] || '').trim();
+    if (rowInternId === internUserId && rowSupervisorId === supervisorUserId) {
+      rowsToDelete.push(rowIndex + 1);
+    }
+  }
+
+  // Delete old records
+  for (var r = rowsToDelete.length - 1; r >= 0; r--) {
+    sheet.deleteRow(rowsToDelete[r]);
+  }
+
+  // Add new schedule record
+  var now = isoNow_();
+  appendObjectRow_(sheet, {
+    schedule_id: createId_('SCH'),
+    intern_id: internUserId,
+    supervisor_id: supervisorUserId,
+    days_off: JSON.stringify(daysOff),
+    shift_start: shiftStart,
+    shift_end: shiftEnd,
+    created_at: now,
+    updated_at: now,
+  });
+
+  return {
+    ok: true,
+    message: 'Schedule saved successfully.',
+    schedule_id: createId_('SCH'),
   };
 }
 

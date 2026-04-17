@@ -1,11 +1,12 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { Check, RefreshCw, Save, Search, Users, X, Loader2 } from 'lucide-svelte';
+  import { Check, RefreshCw, Search, Users, X, Loader2, Plus, Trash2 } from 'lucide-svelte';
   import {
     assignStudentsToSupervisor,
     getCurrentUser,
     listStudentsForAssignment,
     listSupervisorAssignedStudents,
+    saveInternSchedule,
     subscribeToCurrentUser,
   } from '../lib/auth.js';
 
@@ -17,9 +18,20 @@
   let successMessage = '';
   let availableStudents = [];
   let assignedStudents = [];
-  let selectedStudentIds = [];
   let studentSearch = '';
   let unsubscribe;
+  let showAddModal = false;
+  let addModalSearch = '';
+  let removingInternId = null;
+  let selectedInternForSetup = null;
+  let internDaysOff = [];
+  let internShiftStart = '09:00';
+  let internShiftEnd = '17:00';
+  let bulkAssignMode = false;
+  let bulkSelectedInterns = new Set();
+  let bulkDaysOff = [];
+  let bulkShiftStart = '09:00';
+  let bulkShiftEnd = '17:00';
 
   function toNumber(value) {
     const parsed = Number(value || 0);
@@ -63,16 +75,7 @@
   }
 
   function syncSelectedFromFetched(students, assigned) {
-    const fromAvailable = students
-      .filter((student) => Boolean(student?.is_assigned))
-      .map((student) => String(student?.user_id || '').trim())
-      .filter(Boolean);
-
-    const fromAssigned = assigned
-      .map((student) => String(student?.user_id || '').trim())
-      .filter(Boolean);
-
-    selectedStudentIds = Array.from(new Set([...fromAvailable, ...fromAssigned]));
+    // No longer needed - removed
   }
 
   async function loadData() {
@@ -82,7 +85,6 @@
     if (!supervisorId || roleNow !== 'supervisor') {
       availableStudents = [];
       assignedStudents = [];
-      selectedStudentIds = [];
       loading = false;
       return;
     }
@@ -98,7 +100,6 @@
 
       availableStudents = students;
       assignedStudents = assigned;
-      syncSelectedFromFetched(students, assigned);
     } catch (err) {
       errorMessage = err?.message || 'Unable to load interns.';
     } finally {
@@ -106,57 +107,191 @@
     }
   }
 
-  function toggleStudentSelection(studentId) {
-    const target = String(studentId || '').trim();
-    if (!target) return;
-
-    if (selectedStudentIds.includes(target)) {
-      selectedStudentIds = selectedStudentIds.filter((id) => id !== target);
-      return;
-    }
-
-    selectedStudentIds = [...selectedStudentIds, target];
-  }
-
-  function selectAllShown() {
-    const ids = filteredStudents
-      .map((student) => String(student?.user_id || '').trim())
-      .filter(Boolean);
-    selectedStudentIds = Array.from(new Set([...selectedStudentIds, ...ids]));
-  }
-
-  function clearSelection() {
-    selectedStudentIds = [];
-  }
-
-  function removeSelectedStudent(studentId) {
-    const target = String(studentId || '').trim();
-    if (!target) return;
-    selectedStudentIds = selectedStudentIds.filter((id) => id !== target);
-  }
-
-  async function handleSaveAssignments() {
+  async function handleAddIntern(studentId) {
+    if (!studentId) return;
     const supervisorId = String(currentUser?.user_id || '').trim();
     const roleNow = String(currentUser?.role || '').trim().toLowerCase();
 
     if (!supervisorId || roleNow !== 'supervisor') {
-      errorMessage = 'Only supervisor accounts can save assignments.';
+      errorMessage = 'Only supervisor accounts can add interns.';
       return;
     }
+
+    // Open setup modal for this intern
+    selectedInternForSetup = studentId;
+    internDaysOff = [];
+    internShiftStart = '09:00';
+    internShiftEnd = '17:00';
+  }
+
+  function toggleDayOff(dayIndex) {
+    if (internDaysOff.includes(dayIndex)) {
+      internDaysOff = internDaysOff.filter((d) => d !== dayIndex);
+    } else {
+      internDaysOff = [...internDaysOff, dayIndex];
+    }
+  }
+
+  async function confirmAddIntern() {
+    if (!selectedInternForSetup) return;
+
+    const supervisorId = String(currentUser?.user_id || '').trim();
+    const currentAssignedIds = assignedStudents.map((s) => String(s.user_id || '').trim());
+    const newIds = Array.from(new Set([...currentAssignedIds, String(selectedInternForSetup || '').trim()]));
 
     saving = true;
     errorMessage = '';
     successMessage = '';
 
     try {
-      await assignStudentsToSupervisor(supervisorId, selectedStudentIds);
-      successMessage = 'Assigned interns updated successfully.';
+      await assignStudentsToSupervisor(supervisorId, newIds);
+      
+      // Save the schedule (days off and shift times)
+      await saveInternSchedule(
+        supervisorId,
+        selectedInternForSetup,
+        internDaysOff,
+        internShiftStart,
+        internShiftEnd
+      );
+
+      successMessage = 'Intern added successfully with schedule configured.';
+      showAddModal = false;
+      selectedInternForSetup = null;
+      addModalSearch = '';
       await loadData();
     } catch (err) {
-      errorMessage = err?.message || 'Unable to save assigned interns.';
+      errorMessage = err?.message || 'Unable to add intern.';
     } finally {
       saving = false;
     }
+  }
+
+  function cancelSetup() {
+    selectedInternForSetup = null;
+    internDaysOff = [];
+    internShiftStart = '09:00';
+    internShiftEnd = '17:00';
+  }
+
+  function toggleBulkInternSelection(studentId) {
+    if (bulkSelectedInterns.has(studentId)) {
+      bulkSelectedInterns.delete(studentId);
+    } else {
+      bulkSelectedInterns.add(studentId);
+    }
+    bulkSelectedInterns = bulkSelectedInterns;
+  }
+
+  function toggleBulkDayOff(dayIndex) {
+    if (bulkDaysOff.includes(dayIndex)) {
+      bulkDaysOff = bulkDaysOff.filter((d) => d !== dayIndex);
+    } else {
+      bulkDaysOff = [...bulkDaysOff, dayIndex];
+    }
+  }
+
+  async function confirmBulkAssign() {
+    if (bulkSelectedInterns.size === 0) {
+      errorMessage = 'Please select at least one intern.';
+      return;
+    }
+
+    const supervisorId = String(currentUser?.user_id || '').trim();
+    const currentAssignedIds = assignedStudents.map((s) => String(s.user_id || '').trim());
+    const newInternIds = Array.from(bulkSelectedInterns).map((id) => String(id || '').trim());
+    const newIds = Array.from(new Set([...currentAssignedIds, ...newInternIds]));
+
+    saving = true;
+    errorMessage = '';
+    successMessage = '';
+
+    try {
+      // Assign all students first
+      await assignStudentsToSupervisor(supervisorId, newIds);
+
+      // Save schedules for each selected intern
+      for (const internId of newInternIds) {
+        await saveInternSchedule(
+          supervisorId,
+          internId,
+          bulkDaysOff,
+          bulkShiftStart,
+          bulkShiftEnd
+        );
+      }
+
+      successMessage = `${bulkSelectedInterns.size} interns added successfully with schedule configured.`;
+      bulkAssignMode = false;
+      bulkSelectedInterns = new Set();
+      bulkDaysOff = [];
+      bulkShiftStart = '09:00';
+      bulkShiftEnd = '17:00';
+      addModalSearch = '';
+      showAddModal = false;
+      await loadData();
+    } catch (err) {
+      errorMessage = err?.message || 'Unable to add interns.';
+    } finally {
+      saving = false;
+    }
+  }
+
+  function cancelBulkAssign() {
+    bulkAssignMode = false;
+    bulkSelectedInterns = new Set();
+    bulkDaysOff = [];
+    bulkShiftStart = '09:00';
+    bulkShiftEnd = '17:00';
+  }
+
+  async function handleRemoveIntern(internId) {
+    const supervisorId = String(currentUser?.user_id || '').trim();
+    const roleNow = String(currentUser?.role || '').trim().toLowerCase();
+
+    if (!supervisorId || roleNow !== 'supervisor') {
+      errorMessage = 'Only supervisor accounts can remove interns.';
+      return;
+    }
+
+    removingInternId = internId;
+    errorMessage = '';
+    successMessage = '';
+
+    try {
+      // Remove from the list and save
+      const newIds = assignedStudents
+        .filter((s) => String(s.user_id || '') !== String(internId || ''))
+        .map((s) => String(s.user_id || '').trim());
+
+      await assignStudentsToSupervisor(supervisorId, newIds);
+      successMessage = 'Intern removed successfully.';
+      await loadData();
+    } catch (err) {
+      errorMessage = err?.message || 'Unable to remove intern.';
+    } finally {
+      removingInternId = null;
+    }
+  }
+
+  function toggleStudentSelection(studentId) {
+    // No longer needed - removed
+  }
+
+  function selectAllShown() {
+    // No longer needed - removed
+  }
+
+  function clearSelection() {
+    // No longer needed - removed
+  }
+
+  function removeSelectedStudent(studentId) {
+    // No longer needed - removed
+  }
+
+  async function handleSaveAssignments() {
+    // No longer needed - removed
   }
 
   onMount(() => {
@@ -176,9 +311,11 @@
 
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
   $: isSupervisorUser = currentRole === 'supervisor';
-  $: normalizedSearch = String(studentSearch || '').trim().toLowerCase();
-  $: filteredStudents = availableStudents.filter((student) => {
-    if (!normalizedSearch) return true;
+  $: normalizedAddSearch = String(addModalSearch || '').trim().toLowerCase();
+  $: assignedIds = new Set(assignedStudents.map((s) => String(s.user_id || '').trim()));
+  $: availableToAdd = availableStudents.filter((student) => !assignedIds.has(String(student.user_id || '').trim()));
+  $: filteredAvailable = availableToAdd.filter((student) => {
+    if (!normalizedAddSearch) return true;
     const haystack = [
       String(student?.full_name || ''),
       String(student?.email || ''),
@@ -187,12 +324,8 @@
     ]
       .join(' ')
       .toLowerCase();
-    return haystack.includes(normalizedSearch);
+    return haystack.includes(normalizedAddSearch);
   });
-  $: selectedStudentsPreview = availableStudents.filter((student) =>
-    selectedStudentIds.includes(String(student?.user_id || ''))
-  );
-  $: selectedCount = selectedStudentIds.length;
   $: totalAssigned = assignedStudents.length;
   $: totalRequiredHours = assignedStudents.reduce((sum, student) => sum + toNumber(student.required_hours), 0);
   $: totalCompletedHours = assignedStudents.reduce((sum, student) => sum + toNumber(student.completed_hours), 0);
@@ -219,7 +352,7 @@
       </div>
 
       <div class="stat-card stat-violet">
-        <div class="stat-icon"><Save size={18} /></div>
+        <div class="stat-icon"><Check size={18} /></div>
         <p class="stat-value">{averageProgress}%</p>
         <p class="stat-label">Average Progress</p>
       </div>
@@ -234,21 +367,17 @@
     <div class="card">
       <div class="card-header">
         <div>
-          <h3 class="card-title">Assign Interns</h3>
-          <p class="text-muted text-sm">Display all interns and select who will be assigned to your account.</p>
+          <h3 class="card-title">Assigned Interns</h3>
+          <p class="text-muted text-sm">Add or remove interns from your assigned list.</p>
         </div>
 
         <div class="btn-group">
           <button class="btn btn-secondary" type="button" on:click={loadData} disabled={loading || saving}>
             <RefreshCw size={15} />Refresh
           </button>
-          <button class="btn btn-primary" type="button" on:click={handleSaveAssignments} disabled={saving} style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
-            {#if saving}
-              <span class="spinning-icon"><Loader2 size={15} /></span>
-            {:else}
-              <Save size={15} />
-            {/if}
-            <span>{saving ? 'Saving...' : 'Save Assignment'}</span>
+          <button class="btn btn-primary" type="button" on:click={() => { bulkSelectedInterns = new Set(); bulkDaysOff = []; bulkShiftStart = '09:00'; bulkShiftEnd = '17:00'; showAddModal = true; bulkAssignMode = true; }} disabled={loading || saving} style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+            <Plus size={15} />
+            <span>Add Interns</span>
           </button>
         </div>
       </div>
@@ -260,114 +389,329 @@
         <p class="alert alert-success">{successMessage}</p>
       {/if}
 
-      <div class="assign-toolbar">
-        <label class="search-wrap">
-          <span class="search-icon"><Search size={14} /></span>
-          <input
-            bind:value={studentSearch}
-            type="text"
-            class="search-input"
-            placeholder="Search interns by name, email, department, or company"
-          />
-        </label>
-
-        <div class="toolbar-actions">
-          <span class="selected-chip">{selectedCount} selected</span>
-          <button
-            class="btn btn-secondary btn-xs"
-            type="button"
-            on:click={selectAllShown}
-            disabled={!filteredStudents.length || saving}
-          >
-            Select All Shown
-          </button>
-          <button
-            class="btn btn-secondary btn-xs"
-            type="button"
-            on:click={clearSelection}
-            disabled={!selectedCount || saving}
-          >
-            Clear Selection
-          </button>
-        </div>
-      </div>
-
       {#if loading}
         <p class="text-muted">Loading intern accounts...</p>
-      {:else if availableStudents.length === 0}
-        <p class="text-muted">No intern accounts found in the spreadsheet yet.</p>
-      {:else if filteredStudents.length === 0}
-        <p class="text-muted">No interns match your search.</p>
+      {:else if assignedStudents.length === 0}
+        <p class="text-muted">No interns assigned yet. Click "Add Interns" to get started.</p>
       {:else}
-        <div class="pick-grid">
-          {#each filteredStudents as student (student.user_id)}
-            {@const isSelected = selectedStudentIds.includes(String(student.user_id || ''))}
-            <button
-              type="button"
-              class="student-pick"
-              class:selected={isSelected}
-              on:click={() => toggleStudentSelection(student.user_id)}
-            >
-              <div class="student-row">
-                <div class="avatar">
-                  {#if student.profile_photo_url}
-                    <img src={student.profile_photo_url} alt={`${student.full_name} avatar`} />
-                  {:else}
-                    {getInitials(student.full_name)}
-                  {/if}
-                </div>
-                <div class="student-copy">
-                  <p class="font-semibold text-sm truncate">{student.full_name}</p>
-                  <p class="text-xs text-muted truncate">{student.email}</p>
-                  <p class="text-xs text-muted mt-1">{student.company || '-'} • {normalizeDepartment(student.department) || '-'}</p>
-                </div>
-                <span class="pick-indicator">{isSelected ? 'Selected' : 'Select'}</span>
-              </div>
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      {#if selectedStudentsPreview.length > 0}
-        <div class="selected-preview">
-          <p class="selected-title">Selected Interns</p>
-          <div class="selected-pills">
-            {#each selectedStudentsPreview as student (student.user_id)}
-              <button class="selected-pill" type="button" on:click={() => removeSelectedStudent(student.user_id)}>
-                <span>{student.full_name}</span>
-                <X size={12} />
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/if}
-    </div>
-
-    <div class="card">
-      <h3 class="card-title">Assigned Intern Progress</h3>
-      {#if assignedStudents.length === 0}
-        <p class="text-muted">No interns assigned yet.</p>
-      {:else}
-        <div class="assigned-list">
+        <div class="assigned-grid">
           {#each assignedStudents as student (student.user_id)}
             {@const required = toNumber(student.required_hours)}
             {@const completed = toNumber(student.completed_hours)}
             {@const progress = toPercent(completed, required)}
-            <article class="assigned-item">
-              <div class="assigned-head">
-                <div>
-                  <p class="font-semibold text-sm">{student.full_name}</p>
-                  <p class="text-xs text-muted">{normalizeDepartment(student.department) || '-'} • ETA {normalizeDate(student.estimated_end_date)}</p>
+            <article class="assigned-card">
+              <div class="card-header-row">
+                <div class="assigned-info">
+                  <div class="assigned-avatar">
+                    {#if student.profile_photo_url}
+                      <img src={student.profile_photo_url} alt={`${student.full_name} avatar`} />
+                    {:else}
+                      {getInitials(student.full_name)}
+                    {/if}
+                  </div>
+                  <div class="info-text">
+                    <p class="font-semibold">{student.full_name}</p>
+                    <p class="text-xs text-muted">{normalizeDepartment(student.department) || '-'}</p>
+                  </div>
                 </div>
-                <p class="text-xs font-semibold text-muted">{completed}h / {required || '-'}h</p>
+                <button 
+                  class="btn-remove" 
+                  type="button" 
+                  on:click={() => handleRemoveIntern(student.user_id)}
+                  disabled={removingInternId === student.user_id}
+                  title="Remove this intern"
+                >
+                  {#if removingInternId === student.user_id}
+                    <Loader2 size={16} />
+                  {:else}
+                    <Trash2 size={16} />
+                  {/if}
+                </button>
               </div>
-              <div class="progress-bar"><div class="progress-fill" style={`width:${progress}%`}></div></div>
-              <p class="text-xs text-muted mt-2">{progress}% complete</p>
+
+              <div class="card-body">
+                <div class="hours-row">
+                  <div class="hours-stat">
+                    <p class="label">Completed</p>
+                    <p class="value">{completed}h</p>
+                  </div>
+                  <div class="hours-stat">
+                    <p class="label">Required</p>
+                    <p class="value">{required}h</p>
+                  </div>
+                  <div class="hours-stat">
+                    <p class="label">Progress</p>
+                    <p class="value">{progress}%</p>
+                  </div>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" style={`width:${progress}%`}></div></div>
+              </div>
             </article>
           {/each}
         </div>
       {/if}
     </div>
+
+    <!-- Add Intern Modal -->
+    {#if showAddModal}
+      <div class="modal-overlay" role="presentation" on:click={() => (showAddModal = false)}>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div class="modal-content" role="dialog" aria-modal="true" aria-label="Assign Interns" tabindex="-1" on:click|stopPropagation>
+          <div class="modal-header">
+            <h2>Assign Interns</h2>
+            <button class="modal-close" type="button" on:click={() => (showAddModal = false)} aria-label="Close dialog">
+              <X size={20} />
+            </button>
+          </div>
+
+          <div class="modal-body">
+            {#if bulkAssignMode}
+              <!-- Bulk assign mode -->
+              <div class="bulk-header">
+                <span class="bulk-count">{bulkSelectedInterns.size} selected</span>
+              </div>
+
+              <label class="search-wrap">
+                <span class="search-icon"><Search size={14} /></span>
+                <input
+                  bind:value={addModalSearch}
+                  type="text"
+                  class="search-input"
+                  placeholder="Search interns by name, email, department, or company"
+                />
+              </label>
+
+              {#if loading}
+                <p class="text-muted">Loading...</p>
+              {:else if filteredAvailable.length === 0}
+                <p class="text-muted">
+                  {availableToAdd.length === 0 ? 'All interns are already assigned.' : 'No interns match your search.'}
+                </p>
+              {:else}
+                <div class="intern-list-modal">
+                  {#each filteredAvailable as student (student.user_id)}
+                    {@const isSelected = bulkSelectedInterns.has(student.user_id)}
+                    <button
+                      type="button"
+                      class="intern-option bulk-option"
+                      class:bulk-selected={isSelected}
+                      on:click={() => toggleBulkInternSelection(student.user_id)}
+                      disabled={saving}
+                    >
+                      <div class="bulk-checkbox">
+                        {#if isSelected}
+                          <Check size={16} />
+                        {/if}
+                      </div>
+                      <div class="avatar">
+                        {#if student.profile_photo_url}
+                          <img src={student.profile_photo_url} alt={`${student.full_name} avatar`} />
+                        {:else}
+                          {getInitials(student.full_name)}
+                        {/if}
+                      </div>
+                      <div class="intern-option-info">
+                        <p class="font-semibold text-sm">{student.full_name}</p>
+                        <p class="text-xs text-muted">{student.email}</p>
+                        <p class="text-xs text-muted">{student.company || '-'} • {normalizeDepartment(student.department) || '-'}</p>
+                      </div>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+
+              <div class="setup-section" style="margin-top: 1.5rem;">
+                <div class="setup-label">Days Off</div>
+                <p class="setup-sublabel">Select which days these interns typically have off</p>
+                <div class="days-checkbox-list">
+                  {#each ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as day, index}
+                    <label class="day-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={bulkDaysOff.includes(index)}
+                        on:change={() => toggleBulkDayOff(index)}
+                      />
+                      <span>{day}</span>
+                    </label>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="setup-section">
+                <div class="setup-label">Shift Time</div>
+                <p class="setup-sublabel">Set the regular work hours for these interns</p>
+                <div class="shift-grid">
+                  <div class="time-input-group">
+                    <label for="bulk-shift-start">Start Time</label>
+                    <input 
+                      id="bulk-shift-start"
+                      type="time" 
+                      bind:value={bulkShiftStart}
+                      class="time-input"
+                    />
+                  </div>
+                  <div class="time-input-group">
+                    <label for="bulk-shift-end">End Time</label>
+                    <input 
+                      id="bulk-shift-end"
+                      type="time" 
+                      bind:value={bulkShiftEnd}
+                      class="time-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="setup-actions">
+                <button 
+                  class="btn btn-secondary" 
+                  type="button" 
+                  on:click={cancelBulkAssign}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button 
+                  class="btn btn-primary" 
+                  type="button" 
+                  on:click={confirmBulkAssign}
+                  disabled={saving || bulkSelectedInterns.size === 0}
+                  style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;"
+                >
+                  {#if saving}
+                    <span class="spinning-icon"><Loader2 size={15} /></span>
+                  {/if}
+                  <span>{saving ? 'Assigning...' : `Assign ${bulkSelectedInterns.size} Interns`}</span>
+                </button>
+              </div>
+            {:else if selectedInternForSetup}
+              <!-- Setup form for selected intern -->
+              {@const selectedStudent = availableToAdd.find((s) => String(s.user_id) === String(selectedInternForSetup))}
+              <div class="setup-header">
+                <button 
+                  class="setup-back-btn" 
+                  type="button" 
+                  on:click={cancelSetup}
+                  aria-label="Back to intern list"
+                >
+                  ← Back
+                </button>
+                <h3>{selectedStudent?.full_name}</h3>
+              </div>
+
+              <div class="setup-section">
+                <div class="setup-label">Days Off</div>
+                <p class="setup-sublabel">Select which days this intern typically has off</p>
+                <div class="days-checkbox-list">
+                  {#each ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as day, index}
+                    <label class="day-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={internDaysOff.includes(index)}
+                        on:change={() => toggleDayOff(index)}
+                      />
+                      <span>{day}</span>
+                    </label>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="setup-section">
+                <div class="setup-label">Shift Time</div>
+                <p class="setup-sublabel">Set the regular work hours for this intern</p>
+                <div class="shift-grid">
+                  <div class="time-input-group">
+                    <label for="shift-start">Start Time</label>
+                    <input 
+                      id="shift-start"
+                      type="time" 
+                      bind:value={internShiftStart}
+                      class="time-input"
+                    />
+                  </div>
+                  <div class="time-input-group">
+                    <label for="shift-end">End Time</label>
+                    <input 
+                      id="shift-end"
+                      type="time" 
+                      bind:value={internShiftEnd}
+                      class="time-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="setup-actions">
+                <button 
+                  class="btn btn-secondary" 
+                  type="button" 
+                  on:click={cancelSetup}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button 
+                  class="btn btn-primary" 
+                  type="button" 
+                  on:click={confirmAddIntern}
+                  disabled={saving}
+                  style="display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;"
+                >
+                  {#if saving}
+                    <span class="spinning-icon"><Loader2 size={15} /></span>
+                  {/if}
+                  <span>{saving ? 'Adding...' : 'Add Intern'}</span>
+                </button>
+              </div>
+            {:else}
+              <!-- List of available interns -->
+              <label class="search-wrap">
+                <span class="search-icon"><Search size={14} /></span>
+                <input
+                  bind:value={addModalSearch}
+                  type="text"
+                  class="search-input"
+                  placeholder="Search interns by name, email, department, or company"
+                />
+              </label>
+
+              {#if loading}
+                <p class="text-muted">Loading...</p>
+              {:else if filteredAvailable.length === 0}
+                <p class="text-muted">
+                  {availableToAdd.length === 0 ? 'All interns are already assigned.' : 'No interns match your search.'}
+                </p>
+              {:else}
+                <div class="intern-list-modal">
+                  {#each filteredAvailable as student (student.user_id)}
+                    <button
+                      type="button"
+                      class="intern-option"
+                      on:click={() => handleAddIntern(student.user_id)}
+                      disabled={saving || selectedInternForSetup}
+                    >
+                      <div class="avatar">
+                        {#if student.profile_photo_url}
+                          <img src={student.profile_photo_url} alt={`${student.full_name} avatar`} />
+                        {:else}
+                          {getInitials(student.full_name)}
+                        {/if}
+                      </div>
+                      <div class="intern-option-info">
+                        <p class="font-semibold text-sm">{student.full_name}</p>
+                        <p class="text-xs text-muted">{student.email}</p>
+                        <p class="text-xs text-muted">{student.company || '-'} • {normalizeDepartment(student.department) || '-'}</p>
+                      </div>
+                      <span class="add-indicator">Select</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -511,17 +855,6 @@
     color: #065f46;
   }
 
-  .assign-toolbar {
-    border-top: 1px solid var(--border);
-    padding-top: 0.85rem;
-    margin-bottom: 1rem;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: center;
-    justify-content: space-between;
-  }
-
   .search-wrap {
     position: relative;
     flex: 1;
@@ -553,69 +886,6 @@
     box-shadow: 0 0 0 2px rgba(15, 108, 189, 0.16);
   }
 
-  .toolbar-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  .selected-chip {
-    border-radius: 9999px;
-    background: #eaf3ff;
-    color: #0f6cbd;
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 0.35rem 0.7rem;
-  }
-
-  .pick-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 0.75rem;
-  }
-
-  .student-pick {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 0.85rem;
-    background: #f9fbff;
-    text-align: left;
-    padding: 0.75rem;
-    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
-  }
-
-  .student-pick:hover {
-    transform: translateY(-1px);
-    border-color: #0f6cbd;
-  }
-
-  .student-pick.selected {
-    border-color: #4f46e5;
-    box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.25);
-  }
-
-  .student-row {
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-  }
-
-  .student-copy {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .pick-indicator {
-    border-radius: 9999px;
-    background: #eaf3ff;
-    color: #0f6cbd;
-    font-size: 0.68rem;
-    font-weight: 700;
-    padding: 0.2rem 0.5rem;
-    white-space: nowrap;
-  }
-
   .avatar {
     display: flex;
     align-items: center;
@@ -637,62 +907,466 @@
     object-fit: cover;
   }
 
-  .selected-preview {
-    margin-top: 1rem;
+  .assigned-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.25rem;
+  }
+
+  .assigned-card {
     border: 1px solid var(--border);
-    background: #f9fbff;
-    border-radius: 0.75rem;
-    padding: 0.75rem;
+    border-radius: 1rem;
+    padding: 1.25rem;
+    background: var(--surface);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s;
   }
 
-  .selected-title {
-    margin: 0 0 0.5rem;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.68rem;
-    font-weight: 700;
+  .assigned-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
   }
 
-  .selected-pills {
+  .card-header-row {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
   }
 
-  .selected-pill {
-    display: inline-flex;
+  .assigned-info {
+    display: flex;
     align-items: center;
-    gap: 0.3rem;
-    border-radius: 9999px;
-    border: 1px solid #c7ddfb;
-    background: #eaf3ff;
-    color: #0f6cbd;
-    padding: 0.28rem 0.65rem;
-    font-size: 0.72rem;
-    font-weight: 600;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
   }
 
-  .assigned-list {
+  .info-text {
+    min-width: 0;
+  }
+
+  .info-text p {
+    margin: 0;
+  }
+
+  .info-text .font-semibold {
+    font-size: 0.95rem;
+    color: var(--text-primary);
+  }
+
+  .assigned-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: white;
+    font-size: 0.8rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .assigned-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .card-body {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
   }
 
-  .assigned-item {
-    border: 1px solid var(--border);
-    border-radius: 0.7rem;
-    padding: 0.75rem;
-    background: #f9fbff;
+  .hours-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
   }
 
-  .assigned-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.75rem;
-    margin-bottom: 0.45rem;
+  .hours-stat {
+    text-align: center;
+    padding: 0.6rem 0.5rem;
+    border-radius: 0.5rem;
+    background: #f3f4f6;
   }
+
+  .hours-stat .label {
+    margin: 0;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .hours-stat .value {
+    margin: 0.3rem 0 0 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .btn-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 0.5rem;
+    background: #fee2e2;
+
+    color: #dc2626;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-remove:hover:not(:disabled) {
+    background: #fecaca;
+  }
+
+  .btn-remove:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* Modal Styles */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-content {
+    background: var(--surface);
+    border-radius: 1rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .modal-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .modal-close:hover {
+    background: #f3f4f6;
+    color: var(--text-primary);
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .intern-list-modal {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  .intern-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: #f9fbff;
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+  }
+
+  .intern-option:hover:not(:disabled) {
+    background: #eef2f7;
+    border-color: #0f6cbd;
+    transform: translateX(2px);
+  }
+
+  .intern-option:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .intern-option-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .intern-option-info p {
+    margin: 0;
+  }
+
+  .add-indicator {
+    border-radius: 9999px;
+    background: #eaf3ff;
+    color: #0f6cbd;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Setup form styles */
+  .setup-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .setup-back-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    padding: 0.4rem 0.6rem;
+    border: none;
+    background: transparent;
+    color: #0f6cbd;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .setup-back-btn:hover {
+    background: #eaf3ff;
+    border-radius: 0.4rem;
+  }
+
+  .setup-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .setup-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .setup-label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+  }
+
+  .setup-sublabel {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+    margin-top: 0;
+  }
+
+  .days-checkbox-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .day-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+    user-select: none;
+  }
+
+  .day-checkbox:hover {
+    background: #eaf3ff;
+  }
+
+  .day-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #0f6cbd;
+  }
+
+  .day-checkbox span {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .shift-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .time-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .time-input-group label {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .time-input {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    background: #f9fbff;
+    color: var(--text-primary);
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    outline: none;
+  }
+
+  .time-input:focus {
+    border-color: #0f6cbd;
+    box-shadow: 0 0 0 2px rgba(15, 108, 189, 0.16);
+  }
+
+  .setup-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .setup-actions .btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .spinning-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  :global(.dark) .setup-section {
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .setup-header {
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .day-checkbox:hover {
+    background: #223653;
+  }
+
+  :global(.dark) .day-checkbox span {
+    color: #e5edf8;
+  }
+
+  :global(.dark) .time-input {
+    background: #1a2c45;
+    border-color: #2b3c57;
+    color: #e5edf8;
+  }
+
+  :global(.dark) .time-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.16);
+  }
+
+  :global(.dark) .setup-actions {
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .modal-content {
+    background: #162338;
+  }
+
+  :global(.dark) .modal-header {
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .modal-close:hover {
+    background: #223653;
+  }
+
+  :global(.dark) .intern-option {
+    background: #1a2c45;
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .intern-option:hover:not(:disabled) {
+    background: #223653;
+    border-color: #3b82f6;
+  }
+
+  :global(.dark) .btn-remove {
+    background: #7f1d1d;
+    color: #fca5a5;
+  }
+
+  :global(.dark) .btn-remove:hover:not(:disabled) {
+    background: #991b1b;
+  }
+
 
   .progress-bar {
     height: 0.5rem;
@@ -747,59 +1421,10 @@
     background: #e0eef9;
   }
 
-  .btn-xs {
-    padding: 0.35rem 0.6rem;
-    font-size: 0.72rem;
-  }
-
   .btn-group {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
-  }
-
-  .truncate {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .text-muted {
-    color: var(--text-muted);
-  }
-
-  .font-semibold {
-    font-weight: 600;
-  }
-
-  .text-sm {
-    font-size: 0.875rem;
-  }
-
-  .text-xs {
-    font-size: 0.75rem;
-  }
-
-
-  
-  .spinning-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-  .mt-1 {
-    margin-top: 0.25rem;
-  }
-
-  .mt-2 {
-    margin-top: 0.5rem;
   }
 
   :global(.dark) {
@@ -817,10 +1442,32 @@
   }
 
   :global(.dark) .search-input,
-  :global(.dark) .student-pick,
-  :global(.dark) .assigned-item,
-  :global(.dark) .selected-preview {
+  :global(.dark) .assigned-card {
     background: #1a2c45;
+  }
+
+  :global(.dark) .assigned-card {
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .card-header-row {
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .hours-stat {
+    background: #223653;
+  }
+
+  :global(.dark) .hours-stat .label {
+    color: #9ca3af;
+  }
+
+  :global(.dark) .hours-stat .value {
+    color: #e5edf8;
+  }
+
+  :global(.dark) .info-text .font-semibold {
+    color: #e5edf8;
   }
 
   :global(.dark) .btn-secondary {
@@ -831,16 +1478,76 @@
     background: #223653;
   }
 
-  :global(.dark) .selected-chip,
-  :global(.dark) .pick-indicator {
-    background: #223653;
-    color: #cfe3ff;
+  /* Bulk assign mode styles */
+  .bulk-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
   }
 
-  :global(.dark) .selected-pill {
+  .bulk-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    color: white;
+    padding: 0.35rem 0.75rem;
+    border-radius: 9999px;
+    font-weight: 700;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .bulk-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .bulk-option.bulk-selected {
+    background: #eaf3ff;
+    border-color: #0f6cbd;
+  }
+
+  .bulk-checkbox {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid var(--border);
+    border-radius: 0.35rem;
+    background: transparent;
+    color: #0f6cbd;
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+
+  .bulk-option.bulk-selected .bulk-checkbox {
+    background: #0f6cbd;
+    border-color: #0f6cbd;
+    color: white;
+  }
+
+  :global(.dark) .bulk-option.bulk-selected {
     background: #223653;
-    color: #cfe3ff;
-    border-color: #345172;
+    border-color: #3b82f6;
+  }
+
+  :global(.dark) .bulk-checkbox {
+    border-color: #2b3c57;
+  }
+
+  :global(.dark) .bulk-option.bulk-selected .bulk-checkbox {
+    background: #3b82f6;
+    border-color: #3b82f6;
+  }
+
+  :global(.dark) .bulk-header {
+    border-color: #2b3c57;
   }
 
   @media (max-width: 768px) {
@@ -857,15 +1564,6 @@
       justify-content: center;
     }
 
-    .toolbar-actions {
-      width: 100%;
-    }
-
-    .toolbar-actions .btn {
-      flex: 1;
-      justify-content: center;
-    }
-
     .search-wrap {
       min-width: 0;
       width: 100%;
@@ -875,14 +1573,21 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .assigned-head {
-      flex-direction: column;
-      gap: 0.35rem;
+    .assigned-grid {
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 
   @media (max-width: 540px) {
     .stats-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .assigned-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .hours-row {
       grid-template-columns: 1fr;
     }
   }

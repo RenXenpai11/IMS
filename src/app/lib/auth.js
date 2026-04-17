@@ -429,6 +429,18 @@ export async function listAssignedStudentRequests(supervisorUserId) {
   return Array.isArray(result.requests) ? result.requests : [];
 }
 
+export async function saveInternSchedule(supervisorUserId, internUserId, daysOff, shiftStart, shiftEnd) {
+  const result = await postAction('save_intern_schedule', {
+    supervisor_user_id: String(supervisorUserId || '').trim(),
+    intern_user_id: String(internUserId || '').trim(),
+    days_off: Array.isArray(daysOff) ? daysOff : [],
+    shift_start: String(shiftStart || '09:00').trim(),
+    shift_end: String(shiftEnd || '17:00').trim(),
+  });
+
+  return result;
+}
+
 export async function listAssignedStudentDocuments(supervisorUserId, studentUserId) {
   const result = await postAction('list_assigned_student_documents', {
     supervisor_user_id: String(supervisorUserId || '').trim(),
