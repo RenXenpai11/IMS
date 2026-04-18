@@ -13,12 +13,39 @@
   }
 </script>
 
-<div class="layout-shell" class:sidebar-collapsed={sidebarCollapsed}>
+<div class="ims-layout">
   <Sidebar {currentPath} collapsed={sidebarCollapsed} on:toggle={toggleSidebar} />
-  <div class="layout-main">
-    <Header pageTitle={pageMeta.title} pageDescription={pageMeta.description} />
-    <main class="layout-content">
+  <div class="ims-layout-main">
+    <Header
+      pageTitle={pageMeta.title}
+      pageDescription={pageMeta.description}
+      collapsed={sidebarCollapsed}
+    />
+    <main class="ims-layout-content">
       <slot />
     </main>
   </div>
 </div>
+
+<style>
+  .ims-layout {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .ims-layout-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .ims-layout-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 32px;
+  }
+</style>
