@@ -6,6 +6,7 @@
     getStudentDashboard,
   } from '../lib/auth.js';
   import { Target, CheckCircle, Hourglass, CalendarDays, ClipboardList, ArrowRight } from 'lucide-svelte';
+  import { getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
   
   const PROGRESS_MODES = {
     APPROVED: 'APPROVED',
@@ -240,15 +241,14 @@
   $: effectiveCompletedHours = progressMode === PROGRESS_MODES.ALL ? totalCompletedHours + pendingOvertimeHours : totalCompletedHours;
   $: hoursCompleted = effectiveCompletedHours;
   $: hoursRemaining = Math.max(0, totalOjtHours - hoursCompleted);
-  $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / 8);
-  $: remainingWorkingDays = Math.ceil(Math.max(0, hoursRemaining) / 8);
-  $: computedEstimatedEndDateObj = formStartDate
-    ? addWorkingDays(parseIsoDateOnly(formStartDate), Math.max(0, remainingWorkingDays - 1))
-    : null;
-  $: computedEstimatedEndDate = computedEstimatedEndDateObj ? toIsoDateOnly(computedEstimatedEndDateObj) : '';
-  $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
+  $: avgDailyHours = 8; // You can make this dynamic if needed
+  $: totalWorkingDays = Math.ceil(Math.max(0, totalOjtHours) / avgDailyHours);
+  $: remainingWorkingDays = Math.ceil(Math.max(0, hoursRemaining) / avgDailyHours);
+  $: estimatedEndDateDisplay = (formStartDate && hoursRemaining > 0)
+    ? getEstimatedCompletionDate(hoursRemaining, avgDailyHours)
+    : 'Not available yet';
   $: startDateDisplay = formStartDate ? formatDateLong(formStartDate) : 'Not set yet';
-  $: estimatedEndDateDisplay = computedEstimatedEndDate ? formatDateLong(computedEstimatedEndDate) : 'Not available yet';
+  $: progressPercent = totalOjtHours > 0 ? Math.min(100, Math.round((hoursCompleted / totalOjtHours) * 100)) : 0;
   $: progressFooterRemaining = `${Number(hoursRemaining || 0).toFixed(1)}h remaining`;
 
   function normalizeActivityDotKind(item) {
@@ -576,7 +576,7 @@
         <div class="dash-card dash-progress-card">
           <div class="dash-progress-top">
             <span class="dash-progress-label">Progress</span>
-            <span class="dash-progress-count">{Number(hoursCompleted || 0).toFixed(1)} / {totalOjtHours || 0} hrs</span>
+            <span class="dash-progress-count dash-progress-yellow">{Number(hoursCompleted || 0).toFixed(1)} / {totalOjtHours || 0} hrs</span>
           </div>
           <div class="dash-progress-track">
             <div class="dash-progress-fill" style="width: {Math.max(progressPercent, 0.5)}%;"></div>
@@ -892,12 +892,12 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: #64748b;
+    color: #000000;
   }
 
   :global(.dark) .dash-stat-label,
   :global(.dark) .dash-section-label {
-    color: #94a3b8;
+    color: #ffffff;
   }
 
   .dash-stat-icon {
@@ -1311,11 +1311,18 @@
   .dash-empty-text {
     font-size: 13px;
     font-weight: 500;
+    color: #000000;
   }
 
   .dash-empty-sub {
     font-size: 11.5px;
     text-align: center;
+    color: #000000;
+  }
+
+  :global(.dark) .dash-empty-text,
+  :global(.dark) .dash-empty-sub {
+    color: #ffffff;
   }
 
   :global(.dark) .dash-empty-state {
@@ -1429,10 +1436,18 @@
       font-size: 18px;
     }
 
+
     .dash-end-value,
     .dash-progress-percent,
     .dash-stat-value {
       font-size: 24px;
     }
+  }
+
+  .dash-progress-yellow {
+    color: #facc15 !important; /* Tailwind yellow-400 */
+  }
+  :global(.dark) .dash-progress-yellow {
+    color: #fde047 !important; /* Tailwind yellow-300 for dark mode */
   }
 </style>

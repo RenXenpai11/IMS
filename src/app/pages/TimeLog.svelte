@@ -13,6 +13,7 @@
     Loader2
   } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
+  import { getEstimatedCompletionDate } from '../lib/getEstimatedCompletionDate.js';
 
   const DEFAULT_REQUIRED_HOURS = 500;
   const AVERAGE_DAILY_HOURS = 8;
@@ -586,7 +587,7 @@
     { label: 'Total Hours Required', value: `${Number(requiredHours || 0).toFixed(1)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
     { label: 'Hours Completed', value: `${Number(completedHours || 0).toFixed(1)}h`, sub: `${Number(remainingHours || 0).toFixed(1)}h remaining`, icon: CheckCircle2, tone: 'success' },
     { label: 'Avg. Daily Hours', value: `${AVERAGE_DAILY_HOURS}h`, sub: 'Based on schedule', icon: Clock, tone: 'info' },
-    { label: 'Est. Completion', value: formatShortDate(estimatedDate), sub: String(estimatedDate.getFullYear()), icon: Calendar, tone: 'forecast' },
+    { label: 'Est. Completion', value: getEstimatedCompletionDate(remainingHours, AVERAGE_DAILY_HOURS), sub: new Date().getFullYear(), icon: Calendar, tone: 'forecast' },
   ];
 </script>
 
