@@ -1,4 +1,4 @@
-﻿<script>
+<script>
   import { onMount, onDestroy } from 'svelte';
   import {
     AlertCircle,
@@ -1358,9 +1358,13 @@
   /* Scrollbar */
   .tl-table-scroll {
     scrollbar-width: thin;
-    scrollbar-color: rgba(96,165,250,0.4) transparent;
+    scrollbar-color: rgba(96,165,250,0.4) var(--tl-surface);
   }
   .tl-table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+  .tl-table-scroll::-webkit-scrollbar-track {
+    background: var(--tl-surface);
+    border-radius: 999px;
+  }
   .tl-table-scroll::-webkit-scrollbar-thumb {
     background: rgba(96,165,250,0.4);
     border-radius: 999px;
