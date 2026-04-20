@@ -2152,42 +2152,45 @@ let assignedTasksError = '';
 
     {#if activeView === 'Overview'}
     <!-- Daily Work Logs Card -->
-    <section class="panel daily-logs-panel" style="margin-top: 1.2rem;">
+    <section class="panel daily-logs-panel">
       <header class="panel-header">
         <h3>Daily Work Logs</h3>
       </header>
-      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; background: var(--color-bg);">
+      <div class="daily-logs-content">
         <!-- Add Work Log Card -->
-        <div style="flex: 1 1 340px; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; max-width: 420px; display: flex; flex-direction: column; background: var(--color-soft); border: 1px solid var(--color-border);">
-          <h4 style="font-size: 0.93rem; font-weight: 700; margin-bottom: 1rem; font-family: inherit; display: flex; align-items: flex-start; gap: 0.5rem; min-height: 24px; color: var(--color-heading);">
-            <FileEdit size={18} style="color: var(--color-accent);" />
+        <div class="worklog-card worklog-form-card">
+          <h4 class="worklog-card-head">
+            <span class="wl-icon"><FileEdit size={13} /></span>
             Add Work Log
           </h4>
           <form on:submit|preventDefault={handleAddWorkLog}>
-              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Task</span>
-                <textarea bind:value={workLogTask} placeholder="Task worked on" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
+              <label class="form-group">
+                <span class="form-label">Task</span>
+                <textarea class="form-textarea" bind:value={workLogTask} placeholder="Task worked on" rows="2"></textarea>
               </label>
-              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Notes</span>
-                <textarea bind:value={workLogNotes} placeholder="Notes" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
+              <label class="form-group">
+                <span class="form-label">Notes</span>
+                <textarea class="form-textarea" bind:value={workLogNotes} placeholder="Notes" rows="2"></textarea>
               </label>
-              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Learnings</span>
-                <textarea bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
+              <label class="form-group">
+                <span class="form-label">Learnings</span>
+                <textarea class="form-textarea" bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2"></textarea>
               </label>
-              <label style="display: block; margin-bottom: 1.1rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Attachment</span>
-                <br />
-                <input type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} style="margin-top: 0.2rem; font-size: 0.83rem;" />
+              <div class="form-group">
+                <span class="form-label">Attachment</span>
+                <label class="file-label" for="work-log-file-upload">
+                  <FileEdit size={13} />
+                  Upload files
+                </label>
+                <input id="work-log-file-upload" class="file-input" type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} />
                 {#if workLogAttachments.length > 0}
-                  <div style="margin-top: 0.3rem; display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                  <div class="worklog-attachment-chip-list">
                     {#each workLogAttachments as file}
                       <span class="worklog-attachment-chip">{file.name}</span>
                     {/each}
                   </div>
                 {/if}
-              </label>
+              </div>
               <button type="submit" class="submit-worklog-btn" disabled={isSavingWorkLog}>
                 {#if isSavingWorkLog}
                   <span class="spinning-icon"><Loader2 size={16} /></span>
@@ -2197,15 +2200,18 @@ let assignedTasksError = '';
             </form>
         </div>
         <!-- Work Logs Card -->
-        <div style="flex: 2 1 0%; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; width: 100%; max-width: none; display: flex; flex-direction: column; background: var(--color-soft); border: 1px solid var(--color-border);">
-          <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 1rem;">
-            <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); font-family: inherit; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0; min-height: 24px;">
-              <BookOpen size={18} style="color: var(--color-accent);" />
+        <div class="worklog-card worklog-list-card">
+          <div class="worklog-list-head">
+            <h4 class="worklog-card-head">
+              <span class="wl-icon"><BookOpen size={13} /></span>
               Work Logs
             </h4>
-            <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
-              <input type="text" placeholder="Search task, notes, learnings..." bind:value={workLogFilterKeyword} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-size: 0.87rem; min-width: 180px;" />
-              <input type="date" bind:value={workLogFilterDate} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-size: 0.87rem; min-width: 140px;" />
+            <div class="wl-filters">
+              <label class="wl-search-box">
+                <Search size={13} />
+                <input type="text" placeholder="Search task, notes, learnings..." bind:value={workLogFilterKeyword} />
+              </label>
+              <input class="wl-date-input" type="date" bind:value={workLogFilterDate} />
             </div>
           </div>
           {#if filteredWorkLogs.length === 0}
@@ -2309,8 +2315,8 @@ let assignedTasksError = '';
           position: relative;
         }
         :global(html.dark) .worklog-accordion-item {
-          border: 1px solid #1e3352 !important;
-          background: #132337 !important;
+          border: 1px solid #ffffff0f !important;
+          background: #161c27 !important;
         }
         .worklog-accordion-item.expanded,
         .worklog-accordion-item:hover {
@@ -2320,7 +2326,7 @@ let assignedTasksError = '';
         :global(html.dark) .worklog-accordion-item.expanded,
         :global(html.dark) .worklog-accordion-item:hover {
           border-color: #38bdf8 !important;
-          background: #1a2f4a !important;
+          background: #1e2736 !important;
           box-shadow: 0 4px 16px -8px rgba(56,189,248,0.2) !important;
         }
         }
@@ -2411,8 +2417,8 @@ let assignedTasksError = '';
           animation: fadeIn 0.18s;
         }
         :global(html.dark) .worklog-accordion-body {
-          background: #0d1b2e !important;
-          border-top: 1px solid #1e3352 !important;
+          background: #0d1117 !important;
+          border-top: 1px solid #ffffff0f !important;
         }
         .worklog-section {
           margin-bottom: 0.1rem;
@@ -2450,9 +2456,9 @@ let assignedTasksError = '';
           border: 1px solid var(--color-border);
         }
         :global(html.dark) .worklog-attachment-chip {
-          background: #1e3352 !important;
+          background: #1e2736 !important;
           color: #38bdf8 !important;
-          border: 1px solid #2a4a6e !important;
+          border: 1px solid #ffffff1a !important;
         }
         .worklog-attachment-chip:focus,
         .worklog-attachment-chip:hover {
@@ -2463,7 +2469,7 @@ let assignedTasksError = '';
         }
         :global(html.dark) .worklog-attachment-chip:focus,
         :global(html.dark) .worklog-attachment-chip:hover {
-          background: #2a4a6e !important;
+          background: #1e2736 !important;
           border-color: #38bdf8 !important;
           outline: none;
           color: #38bdf8 !important;
@@ -2486,8 +2492,8 @@ let assignedTasksError = '';
         }
 
         :global(html.dark) .worklog-attachment-item {
-          background: #1a2f4a !important;
-          border: 1px solid #2a4a6e !important;
+          background: #1e2736 !important;
+          border: 1px solid #ffffff1a !important;
         }
 
         .worklog-attachment-main {
@@ -2724,8 +2730,8 @@ let assignedTasksError = '';
     background: var(--color-surface);
   }
   :global(html.dark) .notes-panel {
-    background: #132337 !important;
-    border: 1px solid #1e3352 !important;
+    background: #161c27 !important;
+    border: 1px solid #ffffff0f !important;
   }
   .notes-header {
     display: flex;
@@ -2801,16 +2807,16 @@ let assignedTasksError = '';
     scrollbar-gutter: stable;
   }
   :global(html.dark) {
-    --color-bg: #101a2b;
-    --color-surface: #162338;
-    --color-soft: #1a2c45;
-    --color-card: #1a2c45;
-    --color-border: #334b6b;
+    --color-bg: #0d1117;
+    --color-surface: #161c27;
+    --color-soft: #1e2736;
+    --color-card: #1e2736;
+    --color-border: #ffffff1a;
     --color-heading: #e5edf8;
     --color-text: #cfdceb;
     --color-muted: #9ab0cb;
     --color-accent: #7cc3ff;
-    --color-accent-bg: #1a2c45;
+    --color-accent-bg: #1e2736;
     --color-danger: #ef4444;
     --color-success: #22c55e;
     --color-warning: #f59e42;
@@ -2890,8 +2896,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .stat-card {
-    background: #132337 !important;
-    border-color: #1e3352 !important;
+    background: #161c27 !important;
+    border-color: #ffffff0f !important;
     box-shadow: 0 18px 36px -20px rgba(0,0,0,0.5) !important;
   }
 
@@ -2926,7 +2932,7 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .stat-card:hover {
-    border-color: #2a4a6e !important;
+    border-color: #ffffff1a !important;
   }
 
   .panel {
@@ -3031,8 +3037,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .controls-bar {
-    border: 1px solid #1e3352 !important;
-    background: #132337 !important;
+    border: 1px solid #ffffff0f !important;
+    background: #161c27 !important;
   }
 
   .controls-right {
@@ -3065,8 +3071,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .search-control {
-    background: #132337 !important;
-    border-color: #1e3352 !important;
+    background: #161c27 !important;
+    border-color: #ffffff0f !important;
   }
 
   .search-control input {
@@ -3115,8 +3121,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .status-control select {
-    background: #132337 !important;
-    border: 1px solid #1e3352 !important;
+    background: #161c27 !important;
+    border: 1px solid #ffffff0f !important;
     color: #e5edf8 !important;
   }
 
@@ -3161,8 +3167,8 @@ let assignedTasksError = '';
 
   :global(html.dark) .view-toggle button {
     color: #8eaec9 !important;
-    background: #132337 !important;
-    border: 1px solid #1e3352 !important;
+    background: #161c27 !important;
+    border: 1px solid #ffffff0f !important;
   }
 
   .view-toggle button.active {
@@ -3174,7 +3180,7 @@ let assignedTasksError = '';
   :global(html.dark) .view-toggle button.active {
     color: #38bdf8 !important;
     border-color: #38bdf8 !important;
-    background: #1e3352 !important;
+    background: #1e2736 !important;
   }
 
   .view-toggle button.active span {
@@ -3190,8 +3196,8 @@ let assignedTasksError = '';
     border-bottom: 1px solid var(--color-border);
   }
   :global(html.dark) .panel-header {
-    background: #132337 !important;
-    border-bottom: 1px solid #1e3352 !important;
+    background: #161c27 !important;
+    border-bottom: 1px solid #ffffff0f !important;
   }
 
   .panel-header h3 {
@@ -3212,8 +3218,8 @@ let assignedTasksError = '';
     border: 1px solid var(--color-border);
   }
   :global(html.dark) .tasks-panel {
-    background: #0d1b2e !important;
-    border-color: #1e3352 !important;
+    background: #0d1117 !important;
+    border-color: #ffffff0f !important;
   }
 
   .tasks-header {
@@ -3240,7 +3246,7 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .overview-shell {
-    background: #0d1b2e !important;
+    background: #0d1117 !important;
   }
 
   .overview-panels {
@@ -3259,8 +3265,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .overview-panel {
-    border: 1px solid #1e3352 !important;
-    background: #132337 !important;
+    border: 1px solid #ffffff0f !important;
+    background: #161c27 !important;
   }
 
   .overview-panel h4 {
@@ -3314,8 +3320,8 @@ let assignedTasksError = '';
 
   :global(html.dark) .overview-task-link:hover,
   :global(html.dark) .overview-task-link.active {
-    background: #1e3352 !important;
-    border-color: #2a4a6e !important;
+    background: #1e2736 !important;
+    border-color: #ffffff1a !important;
   }
 
   .overview-panel li span {
@@ -3861,8 +3867,8 @@ let assignedTasksError = '';
     gap: 0.9rem;
   }
   :global(html.dark) .task-view-modal {
-    background: #23263a;
-    border: 1px solid #23263a;
+    background: #161c27;
+    border: 1px solid #ffffff0f;
   }
 
   .task-view-modal-head {
@@ -4313,5 +4319,991 @@ let assignedTasksError = '';
 
   .recent-activity-list::-webkit-scrollbar-thumb:hover {
     background: #0a4a8f;
+  }
+
+  /* Reference Activity Log restyle */
+  :global(html) {
+    --ims-ref-bg: #f0f4f8;
+    --ims-ref-surface: #ffffff;
+    --ims-ref-surface2: #f8fafc;
+    --ims-ref-surface3: #f1f5f9;
+    --ims-ref-border: #e2e8f0;
+    --ims-ref-border2: #cbd5e1;
+    --ims-ref-accent: #2563eb;
+    --ims-ref-accent2: #3b82f6;
+    --ims-ref-accent-glow: #2563eb20;
+    --ims-ref-green: #16a34a;
+    --ims-ref-green-dim: #16a34a18;
+    --ims-ref-amber: #d97706;
+    --ims-ref-amber-dim: #d9770618;
+    --ims-ref-red: #dc2626;
+    --ims-ref-red-dim: #dc262618;
+    --ims-ref-text: #0f172a;
+    --ims-ref-text2: #64748b;
+    --ims-ref-text3: #94a3b8;
+    --ims-ref-radius: 14px;
+    --ims-ref-radius-sm: 8px;
+    --ims-ref-shadow-sm: 0 1px 3px #0000000d, 0 1px 2px #00000008;
+    --ims-ref-shadow: 0 4px 16px #0000001a;
+    --ims-ref-input-bg: #f8fafc;
+  }
+
+  :global(html.dark),
+  :global(body.dark) {
+    --ims-ref-bg: #0d1117;
+    --ims-ref-surface: #161c27;
+    --ims-ref-surface2: #1e2736;
+    --ims-ref-surface3: #242f42;
+    --ims-ref-border: #ffffff0f;
+    --ims-ref-border2: #ffffff1a;
+    --ims-ref-accent: #3b82f6;
+    --ims-ref-accent2: #60a5fa;
+    --ims-ref-accent-glow: #3b82f630;
+    --ims-ref-green: #22c55e;
+    --ims-ref-green-dim: #22c55e22;
+    --ims-ref-amber: #f59e0b;
+    --ims-ref-amber-dim: #f59e0b18;
+    --ims-ref-red: #ef4444;
+    --ims-ref-red-dim: #ef444418;
+    --ims-ref-text: #f1f5f9;
+    --ims-ref-text2: #94a3b8;
+    --ims-ref-text3: #4b5563;
+    --ims-ref-shadow-sm: 0 1px 3px #00000030;
+    --ims-ref-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    --ims-ref-input-bg: #1e2736;
+  }
+
+  .activity-shell {
+    --color-bg: var(--ims-ref-bg);
+    --color-surface: var(--ims-ref-surface);
+    --color-soft: var(--ims-ref-surface2);
+    --color-card: var(--ims-ref-surface);
+    --color-border: var(--ims-ref-border);
+    --color-heading: var(--ims-ref-text);
+    --color-text: var(--ims-ref-text);
+    --color-muted: var(--ims-ref-text2);
+    --color-accent: var(--ims-ref-accent);
+    --color-accent-bg: var(--ims-ref-accent-glow);
+    width: 100%;
+    padding: 20px 24px;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    color: var(--ims-ref-text);
+    background: transparent;
+    font-family: 'DM Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+
+  .activity-shell::before,
+  .activity-shell::after {
+    display: none !important;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .stat-card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    min-height: 0;
+    padding: 14px 16px;
+    border-radius: var(--ims-ref-radius-sm);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    overflow: visible;
+  }
+
+  .stat-card::before {
+    display: none;
+  }
+
+  .stat-card:hover {
+    box-shadow: var(--ims-ref-shadow);
+    transform: translateY(-2px);
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    border: 0;
+  }
+
+  .tone-indigo {
+    color: #0f6cbd;
+    background: #edf4fb;
+  }
+
+  .tone-green {
+    color: #059669;
+    background: #ecfdf5;
+  }
+
+  .tone-blue {
+    color: #2563eb;
+    background: #eff6ff;
+  }
+
+  .tone-violet {
+    color: #0891b2;
+    background: #ecfeff;
+  }
+
+  :global(html.dark) .tone-indigo,
+  :global(body.dark) .tone-indigo {
+    color: #38bdf8 !important;
+    background: rgba(56, 189, 248, 0.12) !important;
+  }
+
+  :global(html.dark) .tone-green,
+  :global(body.dark) .tone-green {
+    color: #34d399 !important;
+    background: rgba(52, 211, 153, 0.12) !important;
+  }
+
+  :global(html.dark) .tone-blue,
+  :global(body.dark) .tone-blue {
+    color: #60a5fa !important;
+    background: rgba(96, 165, 250, 0.12) !important;
+  }
+
+  :global(html.dark) .tone-violet,
+  :global(body.dark) .tone-violet {
+    color: #22d3ee !important;
+    background: rgba(34, 211, 238, 0.12) !important;
+  }
+
+  .stat-value {
+    color: var(--ims-ref-text);
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.4px;
+    line-height: 1;
+    text-shadow: none;
+  }
+
+  .stat-label {
+    color: var(--ims-ref-text2);
+    font-size: 11px;
+    margin-top: 3px;
+    font-weight: 500;
+  }
+
+  .controls-bar {
+    padding: 10px 14px;
+    border-radius: var(--ims-ref-radius-sm);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    gap: 10px;
+  }
+
+  .view-toggle {
+    gap: 6px;
+  }
+
+  .view-toggle button,
+  .search-control,
+  .status-control select {
+    min-height: 0;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: transparent;
+    color: var(--ims-ref-text2);
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: none;
+  }
+
+  .view-toggle button {
+    padding: 7px 14px;
+    gap: 6px;
+  }
+
+  .view-toggle button:hover {
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text);
+  }
+
+  .view-toggle button.active {
+    background: var(--ims-ref-accent-glow);
+    color: var(--ims-ref-accent2);
+    border-color: var(--ims-ref-accent2);
+  }
+
+  .search-control {
+    padding: 7px 12px;
+    gap: 7px;
+    background: var(--ims-ref-surface2);
+  }
+
+  .search-control input {
+    width: 130px;
+    color: var(--ims-ref-text);
+    font-size: 13px;
+  }
+
+  .search-control input::placeholder {
+    color: var(--ims-ref-text3);
+  }
+
+  .status-control::after {
+    right: 10px;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid var(--ims-ref-text2);
+    border-bottom: 1.5px solid var(--ims-ref-text2);
+    transform: translateY(-65%) rotate(45deg);
+  }
+
+  .status-control select {
+    padding: 7px 30px 7px 12px;
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text);
+  }
+
+  .new-task-btn {
+    min-height: 0;
+    padding: 8px 16px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 0;
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  }
+
+  .panel {
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    overflow: hidden;
+  }
+
+  .panel:hover {
+    box-shadow: var(--ims-ref-shadow-sm);
+  }
+
+  .panel-header {
+    padding: 14px 18px;
+    background: var(--ims-ref-surface);
+    border-bottom: 1px solid var(--ims-ref-border);
+  }
+
+  .panel-header h3 {
+    color: var(--ims-ref-text);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-shadow: none;
+  }
+
+  .tasks-panel,
+  .overview-shell,
+  .task-list {
+    background: var(--ims-ref-surface);
+  }
+
+  .overview-shell {
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .overview-panels {
+    grid-template-columns: 1fr 1fr 0.9fr;
+    gap: 12px;
+  }
+
+  .overview-panel,
+  .notes-panel {
+    min-height: 180px;
+    padding: 16px;
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    gap: 0;
+  }
+
+  .overview-panel h4,
+  .notes-title,
+  .tracker-card-heading h4 {
+    color: var(--ims-ref-text);
+    font-size: 13.5px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  .overview-panel h4 :global(svg),
+  .notes-header :global(svg),
+  .tracker-card-heading :global(svg) {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    padding: 6px;
+  }
+
+  .overview-empty-copy {
+    color: var(--ims-ref-text3);
+    font-size: 12px;
+    margin-top: 12px;
+  }
+
+  .overview-panel ul {
+    margin-top: 12px;
+    gap: 5px;
+  }
+
+  .overview-task-link {
+    padding: 8px 10px;
+    border-radius: var(--ims-ref-radius-sm);
+    color: var(--ims-ref-text2);
+    font-size: 13px;
+    background: transparent;
+    border: 1px solid transparent;
+  }
+
+  .overview-task-link span {
+    color: var(--ims-ref-text);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .overview-task-link small,
+  .worklog-date {
+    color: var(--ims-ref-text3);
+    font-family: 'DM Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 11.5px;
+  }
+
+  .overview-task-link:hover,
+  .overview-task-link.active {
+    background: var(--ims-ref-surface2);
+    border-color: var(--ims-ref-border);
+  }
+
+  .recent-activity-list li {
+    margin-bottom: 10px !important;
+    gap: 8px !important;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .recent-activity-list li > span {
+    width: 6px;
+    height: 6px;
+    min-width: 6px;
+    margin-top: 6px !important;
+    color: transparent !important;
+    background: var(--ims-ref-accent2);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .recent-activity-list li div div {
+    color: var(--ims-ref-text2) !important;
+    font-size: 12.5px !important;
+    line-height: 1.5;
+  }
+
+  .overview-tracker {
+    min-height: 0;
+    padding: 16px 18px;
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+  }
+
+  .tracker-card-head {
+    align-items: center;
+    margin-bottom: 12px;
+    padding-left: 0;
+  }
+
+  .tracker-summary {
+    border: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  .tracker-title {
+    color: var(--ims-ref-text);
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+
+  .tracker-description {
+    color: var(--ims-ref-text2) !important;
+    font-size: 12.5px;
+    margin: 0 0 8px !important;
+    line-height: 1.5;
+  }
+
+  .tracker-meta {
+    color: var(--ims-ref-text3);
+    font-size: 12px;
+    gap: 8px;
+  }
+
+  .tracker-menu-trigger,
+  .btn-more {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    color: var(--ims-ref-text2);
+    background: transparent;
+  }
+
+  .tracker-menu-trigger:hover {
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text);
+  }
+
+  .status-pill,
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 11px;
+    border-radius: 40px;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+
+  .status-pill::before,
+  .status-chip::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .status-pending {
+    color: var(--ims-ref-amber);
+    background: var(--ims-ref-amber-dim);
+  }
+
+  .status-progress {
+    color: var(--ims-ref-accent2);
+    background: var(--ims-ref-accent-glow);
+  }
+
+  .status-completed {
+    color: var(--ims-ref-green);
+    background: var(--ims-ref-green-dim);
+  }
+
+  .status-overdue {
+    color: var(--ims-ref-red);
+    background: var(--ims-ref-red-dim);
+  }
+
+  .daily-logs-panel {
+    margin-top: 0;
+  }
+
+  .daily-logs-content {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px;
+    background: var(--ims-ref-bg);
+  }
+
+  .worklog-card {
+    min-width: 0;
+    padding: 18px;
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+  }
+
+  .worklog-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px;
+    color: var(--ims-ref-text);
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+
+  .wl-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    color: var(--ims-ref-accent2);
+    background: var(--ims-ref-accent-glow);
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 12px;
+  }
+
+  .form-label {
+    color: var(--ims-ref-text2);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .form-input,
+  .form-textarea,
+  .task-view-grid input,
+  .task-view-grid select,
+  .task-view-description textarea,
+  .tracker-form input,
+  .tracker-form select,
+  .tracker-form textarea {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border2);
+    background: var(--ims-ref-input-bg);
+    color: var(--ims-ref-text);
+    font-family: inherit;
+    font-size: 12.5px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .form-textarea,
+  .task-view-description textarea,
+  .tracker-form textarea {
+    min-height: 60px;
+    resize: vertical;
+  }
+
+  .form-input:focus,
+  .form-textarea:focus,
+  .task-view-grid input:focus,
+  .task-view-grid select:focus,
+  .task-view-description textarea:focus,
+  .tracker-form input:focus,
+  .tracker-form select:focus,
+  .tracker-form textarea:focus {
+    border-color: var(--ims-ref-accent2);
+    box-shadow: 0 0 0 3px var(--ims-ref-accent-glow);
+  }
+
+  .file-label,
+  .attachment-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    padding: 7px 12px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px dashed var(--ims-ref-border2);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .file-label:hover,
+  .attachment-upload-btn:hover {
+    border-color: var(--ims-ref-accent2);
+    color: var(--ims-ref-accent2);
+  }
+
+  .file-input {
+    display: none;
+  }
+
+  .submit-worklog-btn,
+  .btn-submit {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 4px;
+    padding: 10px;
+    border: 0;
+    border-radius: var(--ims-ref-radius-sm);
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+  }
+
+  .submit-worklog-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .worklog-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .worklog-list-head .worklog-card-head {
+    margin-bottom: 0;
+  }
+
+  .wl-filters {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    flex-wrap: wrap;
+  }
+
+  .wl-search-box {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 160px;
+    flex: 1;
+    padding: 7px 12px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+    font-size: 12.5px;
+  }
+
+  .wl-search-box input {
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--ims-ref-text);
+    font-family: inherit;
+    font-size: 12.5px;
+  }
+
+  .wl-date-input {
+    padding: 7px 10px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text);
+    font-family: 'DM Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 12px;
+    outline: none;
+  }
+
+  .worklogs-empty {
+    color: var(--ims-ref-text3);
+    font-size: 12.5px;
+    text-align: center;
+    padding: 28px 0;
+    margin: 0;
+  }
+
+  .worklogs-accordion-list {
+    gap: 8px;
+  }
+
+  .worklog-accordion-item,
+  .task-accordion-item,
+  .task-row {
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    box-shadow: none;
+  }
+
+  .worklog-accordion-item:hover,
+  .worklog-accordion-item.expanded,
+  .task-accordion-item:hover,
+  .task-accordion-item.expanded {
+    border-color: var(--ims-ref-accent2);
+  }
+
+  .worklog-accordion-trigger,
+  .task-accordion-trigger {
+    padding: 12px 14px;
+    background: transparent;
+  }
+
+  .worklog-task-title,
+  .task-trigger-title {
+    color: var(--ims-ref-text);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .worklog-accordion-body,
+  .task-accordion-body-modern {
+    padding: 12px 14px 14px;
+    border-top: 1px solid var(--ims-ref-border);
+    background: transparent;
+  }
+
+  .worklog-label {
+    color: var(--ims-ref-text3);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .worklog-notes,
+  .worklog-learnings,
+  .task-description-modern {
+    color: var(--ims-ref-text2);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .worklog-attachment-chip,
+  .worklog-attachment-item,
+  .attachment-list li {
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+  }
+
+  .worklog-attachment-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .task-list {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .task-view-modal {
+    width: min(500px, 100%);
+    padding: 20px;
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
+  }
+
+  .task-view-modal-head h4 {
+    color: var(--ims-ref-text);
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .task-view-action,
+  .task-view-close,
+  .tracker-form-actions button,
+  .remove-item {
+    border-radius: 40px;
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .task-view-action.primary,
+  .tracker-form-actions .primary {
+    border-color: var(--ims-ref-accent);
+    background: var(--ims-ref-accent);
+    color: #fff;
+  }
+
+  :global(html.dark) .stat-card,
+  :global(html.dark) .panel,
+  :global(html.dark) .controls-bar,
+  :global(html.dark) .panel-header,
+  :global(html.dark) .overview-panel,
+  :global(html.dark) .notes-panel,
+  :global(html.dark) .overview-tracker,
+  :global(html.dark) .worklog-card,
+  :global(html.dark) .task-view-modal,
+  :global(body.dark) .stat-card,
+  :global(body.dark) .panel,
+  :global(body.dark) .controls-bar,
+  :global(body.dark) .panel-header,
+  :global(body.dark) .overview-panel,
+  :global(body.dark) .notes-panel,
+  :global(body.dark) .overview-tracker,
+  :global(body.dark) .worklog-card,
+  :global(body.dark) .task-view-modal {
+    background: var(--ims-ref-surface) !important;
+    border-color: var(--ims-ref-border) !important;
+    color: var(--ims-ref-text) !important;
+  }
+
+  :global(html.dark) .overview-shell,
+  :global(html.dark) .daily-logs-content,
+  :global(body.dark) .overview-shell,
+  :global(body.dark) .daily-logs-content {
+    background: var(--ims-ref-bg) !important;
+  }
+
+  :global(html.dark) .view-toggle button,
+  :global(html.dark) .search-control,
+  :global(html.dark) .status-control select,
+  :global(html.dark) .wl-search-box,
+  :global(html.dark) .wl-date-input,
+  :global(html.dark) .form-input,
+  :global(html.dark) .form-textarea,
+  :global(body.dark) .view-toggle button,
+  :global(body.dark) .search-control,
+  :global(body.dark) .status-control select,
+  :global(body.dark) .wl-search-box,
+  :global(body.dark) .wl-date-input,
+  :global(body.dark) .form-input,
+  :global(body.dark) .form-textarea {
+    background: var(--ims-ref-surface2) !important;
+    border-color: var(--ims-ref-border) !important;
+    color: var(--ims-ref-text) !important;
+  }
+
+  :global(html.dark) .activity-shell,
+  :global(body.dark) .activity-shell {
+    background: #0d1117 !important;
+  }
+
+  :global(html.dark) .activity-shell .stat-card,
+  :global(html.dark) .activity-shell .controls-bar,
+  :global(html.dark) .activity-shell .panel,
+  :global(html.dark) .activity-shell .panel-header,
+  :global(html.dark) .activity-shell .tasks-panel,
+  :global(html.dark) .activity-shell .overview-panel,
+  :global(html.dark) .activity-shell .notes-panel,
+  :global(html.dark) .activity-shell .overview-tracker,
+  :global(html.dark) .activity-shell .worklog-card,
+  :global(html.dark) .activity-shell .task-view-modal,
+  :global(body.dark) .activity-shell .stat-card,
+  :global(body.dark) .activity-shell .controls-bar,
+  :global(body.dark) .activity-shell .panel,
+  :global(body.dark) .activity-shell .panel-header,
+  :global(body.dark) .activity-shell .tasks-panel,
+  :global(body.dark) .activity-shell .overview-panel,
+  :global(body.dark) .activity-shell .notes-panel,
+  :global(body.dark) .activity-shell .overview-tracker,
+  :global(body.dark) .activity-shell .worklog-card,
+  :global(body.dark) .activity-shell .task-view-modal {
+    background-color: #161c27 !important;
+    border-color: #ffffff0f !important;
+    box-shadow: 0 1px 3px #00000030 !important;
+  }
+
+  :global(html.dark) .activity-shell .overview-shell,
+  :global(html.dark) .activity-shell .daily-logs-content,
+  :global(html.dark) .activity-shell .task-list,
+  :global(body.dark) .activity-shell .overview-shell,
+  :global(body.dark) .activity-shell .daily-logs-content,
+  :global(body.dark) .activity-shell .task-list {
+    background-color: #0d1117 !important;
+  }
+
+  :global(html.dark) .activity-shell .search-control,
+  :global(html.dark) .activity-shell .status-control select,
+  :global(html.dark) .activity-shell .view-toggle button,
+  :global(html.dark) .activity-shell .form-textarea,
+  :global(html.dark) .activity-shell .form-input,
+  :global(html.dark) .activity-shell .wl-search-box,
+  :global(html.dark) .activity-shell .wl-date-input,
+  :global(html.dark) .activity-shell .file-label,
+  :global(html.dark) .activity-shell .attachment-upload-btn,
+  :global(html.dark) .activity-shell .task-accordion-item,
+  :global(html.dark) .activity-shell .worklog-accordion-item,
+  :global(html.dark) .activity-shell .worklog-attachment-item,
+  :global(html.dark) .activity-shell .attachment-list li,
+  :global(body.dark) .activity-shell .search-control,
+  :global(body.dark) .activity-shell .status-control select,
+  :global(body.dark) .activity-shell .view-toggle button,
+  :global(body.dark) .activity-shell .form-textarea,
+  :global(body.dark) .activity-shell .form-input,
+  :global(body.dark) .activity-shell .wl-search-box,
+  :global(body.dark) .activity-shell .wl-date-input,
+  :global(body.dark) .activity-shell .file-label,
+  :global(body.dark) .activity-shell .attachment-upload-btn,
+  :global(body.dark) .activity-shell .task-accordion-item,
+  :global(body.dark) .activity-shell .worklog-accordion-item,
+  :global(body.dark) .activity-shell .worklog-attachment-item,
+  :global(body.dark) .activity-shell .attachment-list li {
+    background-color: #1e2736 !important;
+    border-color: #ffffff1a !important;
+  }
+
+  :global(html.dark) .activity-shell .overview-task-link:hover,
+  :global(html.dark) .activity-shell .overview-task-link.active,
+  :global(html.dark) .activity-shell .view-toggle button:hover,
+  :global(body.dark) .activity-shell .overview-task-link:hover,
+  :global(body.dark) .activity-shell .overview-task-link.active,
+  :global(body.dark) .activity-shell .view-toggle button:hover {
+    background-color: #1e2736 !important;
+    border-color: #ffffff1a !important;
+  }
+
+  :global(html.dark) .activity-shell .view-toggle button.active,
+  :global(body.dark) .activity-shell .view-toggle button.active {
+    background-color: #3b82f630 !important;
+    border-color: #60a5fa !important;
+    color: #60a5fa !important;
+  }
+
+  @media (max-width: 980px) {
+    .overview-panels,
+    .daily-logs-content {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .activity-shell {
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .controls-right,
+    .view-toggle {
+      width: 100%;
+    }
+
+    .search-control,
+    .status-control,
+    .status-control select,
+    .new-task-btn,
+    .view-toggle button {
+      flex: 1;
+    }
+
+    .search-control input {
+      width: 100%;
+    }
+
+    .daily-logs-content,
+    .overview-shell {
+      padding: 12px;
+    }
   }
 </style>
