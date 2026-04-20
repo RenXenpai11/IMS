@@ -362,8 +362,22 @@ function handleWorkLogFileUpload(event) {
   if (files.length === 0) {
     return;
   }
-  workLogAttachments = [...workLogAttachments, ...files];
+  // store as objects so name can be edited before upload
+  const wrapped = files.map(f => ({ file: f, name: f.name }));
+  workLogAttachments = [...workLogAttachments, ...wrapped];
   event.target.value = '';
+}
+
+function renameWorkLogAttachment(index, newName) {
+  if (typeof index !== 'number') return;
+  workLogAttachments = workLogAttachments.map((att, i) => i === index ? { ...att, name: String(newName || '').trim() } : att);
+}
+
+function removeWorkLogAttachment(index) {
+  if (typeof index !== 'number') return;
+  workLogAttachments = workLogAttachments.filter((_, i) => i !== index);
+  // try resetting file input if empty
+  if (workLogAttachments.length === 0 && workLogFileInput) workLogFileInput.value = '';
 }
 
 function fileToBase64_(file) {
@@ -457,12 +471,15 @@ async function handleAddWorkLog() {
     const result = await callAddActivityWorklog(payload);
     const taskId = String(result?.task_id || payload.task_id || '').trim();
     const uploadErrors = [];
-    const validAttachments = workLogAttachments.filter((file) => file && file.name && file.size > 0);
+    // workLogAttachments entries are { file, name }
+    const validAttachments = workLogAttachments.filter((a) => a && a.file && a.file.size > 0);
 
     if (taskId && validAttachments.length > 0) {
-      for (const file of validAttachments) {
+      for (const entry of validAttachments) {
+        const file = entry.file;
+        const fileName = String(entry.name || file.name || '').trim();
         try {
-          const ext = getFileExtension_(file.name);
+          const ext = getFileExtension_(fileName);
           const mimeSuffix = String(file.type || '').includes('/') ? String(file.type).split('/').pop() : '';
           const sizeMb = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
           const fileDataBase64 = await fileToBase64_(file);
@@ -472,7 +489,7 @@ async function handleAddWorkLog() {
             user_id: user?.user_id || '',
             file_type: ext || mimeSuffix || String(file.type || '').trim(),
             file_size: sizeMb,
-            file_name: file.name,
+            file_name: fileName,
             file_data_base64: fileDataBase64,
             mime_type: file.type || 'application/octet-stream',
             uploaded_at: now.toISOString(),
@@ -483,7 +500,7 @@ async function handleAddWorkLog() {
             throw new Error(uploadResult?.error || 'Save failed.');
           }
         } catch (uploadError) {
-          uploadErrors.push(`${file.name}: ${uploadError?.message || uploadError}`);
+          uploadErrors.push(`${fileName}: ${uploadError?.message || uploadError}`);
         }
       }
     }
@@ -2184,9 +2201,24 @@ let assignedTasksError = '';
                 </label>
                 <input id="work-log-file-upload" class="file-input" type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} />
                 {#if workLogAttachments.length > 0}
-                  <div class="worklog-attachment-chip-list">
-                    {#each workLogAttachments as file}
-                      <span class="worklog-attachment-chip">{file.name}</span>
+                  <div style="margin-top: 0.6rem; display:flex; flex-direction:column; gap:0.45rem;">
+                    {#each workLogAttachments as att, idx}
+                      <div class="worklog-attachment-row" style="display:flex; align-items:center; gap:0.6rem;">
+                        <div style="flex:1; min-width:0; display:flex; gap:0.6rem; align-items:center;">
+                          <div style="font-size:0.82rem; color:var(--color-muted); width:56px; text-align:center;">{getFileExtension_(att.name) || (att.file.type || '').split('/').pop() || 'file'}</div>
+                          <input
+                            type="text"
+                            class="worklog-attachment-name-input"
+                            value={att.name}
+                            on:input={(e) => renameWorkLogAttachment(idx, e.currentTarget.value)}
+                            style="width:100%; padding:0.4rem 0.6rem; border-radius:0.45rem; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text);"
+                          />
+                          <div style="font-size:0.82rem; color:var(--color-muted); white-space:nowrap;">{(att.file.size / 1024 / 1024).toFixed(2)} MB</div>
+                        </div>
+                        <div style="display:flex; gap:0.4rem;">
+                          <button type="button" class="ghost btn-compact" on:click={() => removeWorkLogAttachment(idx)} aria-label="Remove attachment">Remove</button>
+                        </div>
+                      </div>
                     {/each}
                   </div>
                 {/if}

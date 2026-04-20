@@ -3,6 +3,7 @@
   import { Check, RefreshCw, Search, Users, X, Loader2, Plus, Trash2 } from 'lucide-svelte';
   import {
     assignStudentsToSupervisor,
+    callApiAction,
     getCurrentUser,
     listStudentsForAssignment,
     listSupervisorAssignedStudents,
@@ -32,6 +33,11 @@
   let bulkDaysOff = [];
   let bulkShiftStart = '09:00';
   let bulkShiftEnd = '17:00';
+  let showEditEndDateModal = false;
+  let editingInternId = null;
+  let editingInternName = '';
+  let editingEndDate = '';
+  let savingEndDate = false;
 
   function toNumber(value) {
     const parsed = Number(value || 0);
@@ -213,6 +219,51 @@
     internDaysOff = [];
     internShiftStart = '09:00';
     internShiftEnd = '17:00';
+  }
+
+  function openEditEndDateModal(student) {
+    editingInternId = student.user_id;
+    editingInternName = student.full_name;
+    editingEndDate = student.estimated_end_date || '';
+    showEditEndDateModal = true;
+  }
+
+  function closeEditEndDateModal() {
+    showEditEndDateModal = false;
+    editingInternId = null;
+    editingInternName = '';
+    editingEndDate = '';
+  }
+
+  async function saveEstimatedEndDate() {
+    if (!editingInternId || !editingEndDate) {
+      errorMessage = 'Please select a valid date.';
+      return;
+    }
+
+    savingEndDate = true;
+    errorMessage = '';
+    successMessage = '';
+
+    try {
+      const result = await callApiAction('update_student_ojt_profile', {
+        user_id: editingInternId,
+        estimated_end_date: editingEndDate,
+      });
+
+      if (result && result.ok) {
+        successMessage = `Updated OJT end date for ${editingInternName}`;
+        await loadData();
+        closeEditEndDateModal();
+      } else {
+        errorMessage = result?.error || 'Failed to update end date.';
+      }
+    } catch (err) {
+      errorMessage = err?.message || 'Unable to save end date.';
+      console.error('Save end date error:', err);
+    } finally {
+      savingEndDate = false;
+    }
   }
 
   function toggleBulkInternSelection(studentId) {
@@ -489,9 +540,23 @@
                 </div>
                 <div class="progress-bar"><div class="progress-fill" style={`width:${progress}%`}></div></div>
                 
-                <div class="days-remaining" class:status-warning={daysStatus === 'warning'} class:status-success={daysStatus === 'success'} class:status-info={daysStatus === 'info'}>
+                <div
+                  class="days-remaining-display"
+                  class:status-warning={daysStatus === 'warning'}
+                  class:status-success={daysStatus === 'success'}
+                  class:status-info={daysStatus === 'info'}
+                >
                   <span class="days-label">OJT Ends In:</span>
                   <span class="days-value">{formatDaysRemaining(daysLeft)}</span>
+                  <button
+                    type="button"
+                    class="edit-date-btn"
+                    on:click={() => openEditEndDateModal(student)}
+                    title="Edit OJT end date"
+                    aria-label="Edit OJT end date"
+                  >
+                    ✎
+                  </button>
                 </div>
               </div>
             </article>
@@ -756,6 +821,66 @@
                 </div>
               {/if}
             {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Edit OJT End Date Modal -->
+    {#if showEditEndDateModal}
+      <div class="modal-overlay" role="presentation" on:click={closeEditEndDateModal}>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_interactive_supports_focus -->
+        <div class="modal-content" role="dialog" aria-modal="true" tabindex="-1" on:click|stopPropagation>
+          <div class="modal-header">
+            <h2>Edit OJT End Date</h2>
+            <button
+              class="modal-close"
+              type="button"
+              on:click={closeEditEndDateModal}
+              aria-label="Close dialog"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div class="modal-body">
+            <p class="text-muted" style="margin-bottom: 1rem;">
+              Update the OJT end date for <strong>{editingInternName}</strong>
+            </p>
+            <div class="form-group">
+              <label for="end-date-input" class="form-label">OJT End Date</label>
+              <input
+                id="end-date-input"
+                type="date"
+                bind:value={editingEndDate}
+                class="form-input"
+              />
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn-cancel"
+              on:click={closeEditEndDateModal}
+              disabled={savingEndDate}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn-save"
+              on:click={saveEstimatedEndDate}
+              disabled={savingEndDate || !editingEndDate}
+            >
+              {#if savingEndDate}
+                <Loader2 size={16} style="animation: spin 1s linear infinite;" />
+                Saving...
+              {:else}
+                Save End Date
+              {/if}
+            </button>
           </div>
         </div>
       </div>
@@ -1415,48 +1540,32 @@
     background: #991b1b;
   }
 
-  :global(.dark) .days-remaining {
+  :global(.dark) .days-remaining-display {
     background: #223653;
     border-color: #334b6b;
   }
 
-  :global(.dark) .days-remaining.status-warning {
+  :global(.dark) .days-remaining-display.status-warning {
     background: rgba(245, 158, 11, 0.15);
     border-color: rgba(245, 158, 11, 0.3);
   }
 
-  :global(.dark) .days-remaining.status-warning .days-label {
-    color: #fcd34d;
-  }
-
-  :global(.dark) .days-remaining.status-warning .days-value {
-    color: #fde047;
-  }
-
-  :global(.dark) .days-remaining.status-success {
+  :global(.dark) .days-remaining-display.status-success {
     background: rgba(16, 185, 129, 0.15);
     border-color: rgba(16, 185, 129, 0.3);
   }
 
-  :global(.dark) .days-remaining.status-success .days-label {
-    color: #6ee7b7;
-  }
-
-  :global(.dark) .days-remaining.status-success .days-value {
-    color: #6ee7b7;
-  }
-
-  :global(.dark) .days-remaining.status-info {
+  :global(.dark) .days-remaining-display.status-info {
     background: rgba(99, 102, 241, 0.15);
     border-color: rgba(99, 102, 241, 0.3);
   }
 
-  :global(.dark) .days-remaining.status-info .days-label {
-    color: #a5b4fc;
+  :global(.dark) .edit-date-btn {
+    background: rgba(255, 255, 255, 0.1);
   }
 
-  :global(.dark) .days-remaining.status-info .days-value {
-    color: #a5b4fc;
+  :global(.dark) .edit-date-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
 
   :global(.dark) .days-label {
@@ -1481,7 +1590,7 @@
     background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
   }
 
-  .days-remaining {
+  .days-remaining-display {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1490,21 +1599,51 @@
     margin-top: 0.75rem;
     background: #eaf3ff;
     border: 1px solid #bfdbfe;
+    font-size: 0.875rem;
+    font-weight: 500;
+    gap: 0.5rem;
   }
 
-  .days-remaining.status-warning {
+  .days-remaining-display.status-warning {
     background: #fef3c7;
     border-color: #fcd34d;
   }
 
-  .days-remaining.status-success {
+  .days-remaining-display.status-success {
     background: #d1fae5;
     border-color: #6ee7b7;
   }
 
-  .days-remaining.status-info {
+  .days-remaining-display.status-info {
     background: #e0e7ff;
     border-color: #c7d2fe;
+  }
+
+  .edit-date-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 0.3rem;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .edit-date-btn:hover {
+    background: rgba(255, 255, 255, 0.8);
+    transform: scale(1.1);
+  }
+
+  .edit-date-btn:active {
+    transform: scale(0.95);
   }
 
   .days-label {
@@ -1519,30 +1658,6 @@
     font-size: 0.9rem;
     font-weight: 700;
     color: var(--text-primary);
-  }
-
-  .days-remaining.status-warning .days-label {
-    color: #b45309;
-  }
-
-  .days-remaining.status-warning .days-value {
-    color: #92400e;
-  }
-
-  .days-remaining.status-success .days-label {
-    color: #0d9488;
-  }
-
-  .days-remaining.status-success .days-value {
-    color: #047857;
-  }
-
-  .days-remaining.status-info .days-label {
-    color: #4f46e5;
-  }
-
-  .days-remaining.status-info .days-value {
-    color: #4338ca;
   }
 
   .btn {
@@ -1583,6 +1698,98 @@
 
   .btn-secondary:hover:not(:disabled) {
     background: #e0eef9;
+  }
+
+  .btn-cancel {
+    background: #edf4fb;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 0.6rem 1.2rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .btn-cancel:hover:not(:disabled) {
+    background: #e0eef9;
+  }
+
+  .btn-cancel:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-save {
+    background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
+    color: white;
+    border: none;
+    padding: 0.6rem 1.2rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    box-shadow: 0 4px 12px rgba(15, 108, 189, 0.3);
+  }
+
+  .btn-save:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(15, 108, 189, 0.4);
+  }
+
+  .btn-save:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .modal-footer {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    padding: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .form-label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+  }
+
+  .form-input {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+  }
+
+  .form-input:focus {
+    outline: none;
+    border-color: #0f6cbd;
+    box-shadow: 0 0 0 2px rgba(15, 108, 189, 0.1);
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .text-muted {
+    color: var(--text-muted);
   }
 
   .btn-group {

@@ -919,16 +919,22 @@ function toggleEditAssigneeDropdown() {
       <label for="task-desc">Description</label>
       <textarea id="task-desc" rows="6" bind:value={newTaskDescription}></textarea>
 
-      <label for="task-status">Status</label>
-      <select id="task-status" bind:value={newTaskStatus} style="width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--soft); margin-bottom:0.4rem;">
-        <option value="Pending">Pending</option>
-        <option value="In Progress">In Progress</option>
-        <option value="Overdue">Overdue</option>
-        <option value="Completed">Completed</option>
-      </select>
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0.6rem; align-items:end;">
+        <div>
+          <label for="task-status">Status</label>
+          <select id="task-status" bind:value={newTaskStatus} style="width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--soft); margin-bottom:0;">
+            <option value="Pending">Pending</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Overdue">Overdue</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
 
-      <label for="task-due">Due Date</label>
-      <input id="task-due" type="date" bind:value={newTaskDueDate} />
+        <div>
+          <label for="task-due">Due Date</label>
+          <input id="task-due" type="date" bind:value={newTaskDueDate} style="width:100%;" />
+        </div>
+      </div>
 
       <label for="task-assigned">Assigned To</label>
       <div style="position:relative;">
@@ -1075,9 +1081,9 @@ function toggleEditAssigneeDropdown() {
             <button type="button" class="intern-row-button intern-tasks-compact" on:click={() => openViewTask(item)} aria-label={`View ${item.title}`}>
               <div style="flex:1; min-width:0">
                 <div class="title-text">{item.title}</div>
-                <div style="color:var(--muted); font-size:0.85rem; margin-top:0.25rem">Due: {formatDateToMMDDYYYY(item.due_date) || 'No due date'}</div>
               </div>
-              <div style="display:flex; gap:0.6rem; align-items:center;">
+              <div style="display:flex; gap:0.8rem; align-items:center;">
+                <div style="color:var(--muted); font-size:0.85rem">{formatDateToMMDDYYYY(item.due_date) || 'No due date'}</div>
                 <div class={`status-badge ${statusClass(item.status)}`}>{item.status}</div>
               </div>
             </button>
@@ -1290,18 +1296,7 @@ function toggleEditAssigneeDropdown() {
               <textarea rows="3" readonly>{viewTask?.description || 'No description'}</textarea>
             </label>
 
-            <div class="task-view-section">
-              <span>Attachments</span>
-              {#if viewTask?.attachments && viewTask.attachments.length > 0}
-                <ul class="attachment-list">
-                  {#each viewTask.attachments as a}
-                    <li><span>{a}</span></li>
-                  {/each}
-                </ul>
-              {:else}
-                <p class="overview-empty-copy">No attachments.</p>
-              {/if}
-            </div>
+            <!-- Attachments removed as requested -->
           </div>
         </div>
       {/if}
