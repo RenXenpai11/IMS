@@ -213,6 +213,14 @@ function dispatchAction_(payload) {
     return handleDeleteRequest_(payload);
   }
 
+  if (action === 'archive_request') {
+    return handleArchiveRequest_(payload);
+  }
+
+  if (action === 'delete_archived_request') {
+    return handleDeleteArchivedRequest_(payload);
+  }
+
   if (action === 'update_student_ojt_profile') {
     return handleUpdateStudentOjtProfile_(payload);
   }
@@ -2180,6 +2188,7 @@ function handleListAssignedStudentRequests_(payload) {
         status: String(row.status || 'Pending'),
         requester_name: String(row.requester_name || ''),
         created_at: String(row.created_at || ''),
+        archived: row.archived === 'true' || row.archived === true,
       });
     }
   }
@@ -2331,6 +2340,74 @@ function handleDeleteRequest_(payload) {
 
   sheet.deleteRow(rowIndex);
   return { ok: true, message: 'Request deleted successfully.' };
+}
+
+function handleArchiveRequest_(payload) {
+  var requestId = String(payload.request_id || '').trim();
+
+  if (!requestId) {
+    return { ok: false, error: 'request_id is required.' };
+  }
+
+  try {
+    var sheet = getRequestsSheet_();
+    var rows = getSheetValues_(sheet);
+    var headers = getHeaders_(sheet);
+    var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+    var archivedColIndex = findColumnIndex_(headers, 'archived');
+
+    // If archived column doesn't exist, add it to the header row
+    if (archivedColIndex === 0) {
+      var lastCol = sheet.getLastColumn();
+      sheet.getRange(1, lastCol + 1).setValue('archived');
+      archivedColIndex = lastCol + 1;
+    }
+
+    // Find the row with matching request_id
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
+        // Toggle archived status
+        var currentValue = String(rows[i][archivedColIndex - 1] || '').trim();
+        var newValue = currentValue === 'true' ? 'false' : 'true';
+        sheet.getRange(i + 1, archivedColIndex).setValue(newValue);
+        return { ok: true, message: 'Request status updated successfully.' };
+      }
+    }
+
+    return { ok: false, error: 'Request not found.' };
+  } catch (e) {
+    Logger.log('ERROR in handleArchiveRequest_: ' + e.toString());
+    return { ok: false, error: 'Error archiving request: ' + e.toString() };
+  }
+}
+
+function handleDeleteArchivedRequest_(payload) {
+  var requestId = String(payload.request_id || '').trim();
+
+  if (!requestId) {
+    return { ok: false, error: 'request_id is required.' };
+  }
+
+  try {
+    var sheet = getRequestsSheet_();
+    var rows = getSheetValues_(sheet);
+    var headers = getHeaders_(sheet);
+    var requestIdColIndex = findColumnIndex_(headers, 'request_id');
+
+    // Find the row with matching request_id (search from end to avoid index issues)
+    for (var i = rows.length - 1; i >= 1; i--) {
+      if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
+        // Delete the row (row numbers are 1-indexed, add 1 for header row)
+        sheet.deleteRow(i + 1);
+        return { ok: true, message: 'Request deleted permanently.' };
+      }
+    }
+
+    return { ok: false, error: 'Request not found.' };
+  } catch (e) {
+    Logger.log('ERROR in handleDeleteArchivedRequest_: ' + e.toString());
+    return { ok: false, error: 'Error deleting request: ' + e.toString() };
+  }
 }
 
 function handleUpdateStudentOjtProfile_(payload) {

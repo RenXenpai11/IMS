@@ -540,18 +540,24 @@
                 </div>
                 <div class="progress-bar"><div class="progress-fill" style={`width:${progress}%`}></div></div>
                 
-                <button
-                  type="button"
-                  class="days-remaining"
+                <div
+                  class="days-remaining-display"
                   class:status-warning={daysStatus === 'warning'}
                   class:status-success={daysStatus === 'success'}
                   class:status-info={daysStatus === 'info'}
-                  on:click={() => openEditEndDateModal(student)}
-                  title="Click to edit OJT end date"
                 >
                   <span class="days-label">OJT Ends In:</span>
                   <span class="days-value">{formatDaysRemaining(daysLeft)}</span>
-                </button>
+                  <button
+                    type="button"
+                    class="edit-date-btn"
+                    on:click={() => openEditEndDateModal(student)}
+                    title="Edit OJT end date"
+                    aria-label="Edit OJT end date"
+                  >
+                    ✎
+                  </button>
+                </div>
               </div>
             </article>
           {/each}
@@ -1534,48 +1540,32 @@
     background: #991b1b;
   }
 
-  :global(.dark) .days-remaining {
+  :global(.dark) .days-remaining-display {
     background: #223653;
     border-color: #334b6b;
   }
 
-  :global(.dark) .days-remaining.status-warning {
+  :global(.dark) .days-remaining-display.status-warning {
     background: rgba(245, 158, 11, 0.15);
     border-color: rgba(245, 158, 11, 0.3);
   }
 
-  :global(.dark) .days-remaining.status-warning .days-label {
-    color: #fcd34d;
-  }
-
-  :global(.dark) .days-remaining.status-warning .days-value {
-    color: #fde047;
-  }
-
-  :global(.dark) .days-remaining.status-success {
+  :global(.dark) .days-remaining-display.status-success {
     background: rgba(16, 185, 129, 0.15);
     border-color: rgba(16, 185, 129, 0.3);
   }
 
-  :global(.dark) .days-remaining.status-success .days-label {
-    color: #6ee7b7;
-  }
-
-  :global(.dark) .days-remaining.status-success .days-value {
-    color: #6ee7b7;
-  }
-
-  :global(.dark) .days-remaining.status-info {
+  :global(.dark) .days-remaining-display.status-info {
     background: rgba(99, 102, 241, 0.15);
     border-color: rgba(99, 102, 241, 0.3);
   }
 
-  :global(.dark) .days-remaining.status-info .days-label {
-    color: #a5b4fc;
+  :global(.dark) .edit-date-btn {
+    background: rgba(255, 255, 255, 0.1);
   }
 
-  :global(.dark) .days-remaining.status-info .days-value {
-    color: #a5b4fc;
+  :global(.dark) .edit-date-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
 
   :global(.dark) .days-label {
@@ -1600,7 +1590,7 @@
     background: linear-gradient(90deg, #0f6cbd, #0ea5e9);
   }
 
-  .days-remaining {
+  .days-remaining-display {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1609,46 +1599,51 @@
     margin-top: 0.75rem;
     background: #eaf3ff;
     border: 1px solid #bfdbfe;
-    cursor: pointer;
-    transition: all 0.2s;
     font-size: 0.875rem;
     font-weight: 500;
+    gap: 0.5rem;
   }
 
-  .days-remaining:hover {
-    background: #dbeafe;
-    border-color: #93c5fd;
-    transform: translateY(-1px);
-  }
-
-  .days-remaining.status-warning {
+  .days-remaining-display.status-warning {
     background: #fef3c7;
     border-color: #fcd34d;
   }
 
-  .days-remaining.status-warning:hover {
-    background: #fef08a;
-    border-color: #fbbf24;
-  }
-
-  .days-remaining.status-success {
+  .days-remaining-display.status-success {
     background: #d1fae5;
     border-color: #6ee7b7;
   }
 
-  .days-remaining.status-success:hover {
-    background: #a7f3d0;
-    border-color: #34d399;
-  }
-
-  .days-remaining.status-info {
+  .days-remaining-display.status-info {
     background: #e0e7ff;
     border-color: #c7d2fe;
   }
 
-  .days-remaining.status-info:hover {
-    background: #c7d2fe;
-    border-color: #a5b4fc;
+  .edit-date-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 0.3rem;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .edit-date-btn:hover {
+    background: rgba(255, 255, 255, 0.8);
+    transform: scale(1.1);
+  }
+
+  .edit-date-btn:active {
+    transform: scale(0.95);
   }
 
   .days-label {
@@ -1663,30 +1658,6 @@
     font-size: 0.9rem;
     font-weight: 700;
     color: var(--text-primary);
-  }
-
-  .days-remaining.status-warning .days-label {
-    color: #b45309;
-  }
-
-  .days-remaining.status-warning .days-value {
-    color: #92400e;
-  }
-
-  .days-remaining.status-success .days-label {
-    color: #0d9488;
-  }
-
-  .days-remaining.status-success .days-value {
-    color: #047857;
-  }
-
-  .days-remaining.status-info .days-label {
-    color: #4f46e5;
-  }
-
-  .days-remaining.status-info .days-value {
-    color: #4338ca;
   }
 
   .btn {
