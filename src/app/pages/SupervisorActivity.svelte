@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
-  import { Users, Clock3, CheckCircle, AlertCircle } from 'lucide-svelte';
+  import { Users, Clock3, CheckCircle, AlertCircle, Download, ExternalLink } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -89,6 +89,15 @@
     if (diffDays === 1) return 'yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
     return activityDate.toLocaleDateString();
+  }
+
+  function getDriveDownloadUrl(link) {
+    const url = String(link || '').trim();
+    if (!url) return '';
+    if (url.includes('uc?export=download')) return url;
+    const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    const fileId = idMatch ? idMatch[1] : '';
+    return fileId ? `https://drive.google.com/uc?export=download&id=${fileId}` : url;
   }
 
   function callSupervisorOverview(payload) {
@@ -989,13 +998,53 @@ function toggleEditAssigneeDropdown() {
                 <div class="log-details">
                   <div class="detail-row"><span class="row-label">Notes:</span> <div class="detail-value">{log.notes || 'No notes'}</div></div>
                   <div class="detail-row"><span class="row-label">Learnings:</span> <div class="detail-value">{log.learnings || 'No learnings'}</div></div>
+                  {#if log.attachments && log.attachments.length > 0}
+                    <div class="detail-row log-attachments">
+                      <span class="row-label">Attachments:</span>
+                      <div class="detail-value">
+                        <ul class="log-attachment-list">
+                          {#each log.attachments as file}
+                            <li class="log-attachment-item">
+                              <div class="log-attachment-main">
+                                <span class="log-attachment-name">{file.file_name || file.file_type || 'file'}</span>
+                                <span class="log-attachment-meta">{file.file_type || 'file'}{file.file_size ? ` • ${file.file_size}` : ''}</span>
+                              </div>
+                              <div class="log-attachment-actions">
+                                {#if file.link}
+                                  <a
+                                    class="log-attachment-action"
+                                    href={file.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="View attachment"
+                                    title="View"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </a>
+                                  <a
+                                    class="log-attachment-action"
+                                    href={getDriveDownloadUrl(file.link)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Download attachment"
+                                    title="Download"
+                                  >
+                                    <Download size={14} />
+                                  </a>
+                                {:else}
+                                  <span class="log-attachment-empty">No link</span>
+                                {/if}
+                              </div>
+                            </li>
+                          {/each}
+                        </ul>
+                      </div>
+                    </div>
+                  {/if}
                 </div>
 
-                <div class="log-foot">
-                  <div class="attachments"><span class="row-label">Attachment:</span>&nbsp;<span class="detail-value">{log.attachments?.length || 0}</span></div>
-                  <div class="log-actions">
-                    <button class="primary btn-compact" on:click|stopPropagation={() => approveWorklog(log)} disabled={isLoading}>Approve</button>
-                  </div>
+                <div class="log-actions">
+                  <button class="primary btn-compact" on:click|stopPropagation={() => approveWorklog(log)} disabled={isLoading}>Approve</button>
                 </div>
               </div>
             </div>
@@ -1102,11 +1151,52 @@ function toggleEditAssigneeDropdown() {
                 <div class="log-details">
                   <div class="detail-row"><span class="row-label">Notes:</span> <div class="detail-value">{log.notes || 'No notes'}</div></div>
                   <div class="detail-row"><span class="row-label">Learnings:</span> <div class="detail-value">{log.learnings || 'No learnings'}</div></div>
+                  {#if log.attachments && log.attachments.length > 0}
+                    <div class="detail-row log-attachments">
+                      <span class="row-label">Attachments:</span>
+                      <div class="detail-value">
+                        <ul class="log-attachment-list">
+                          {#each log.attachments as file}
+                            <li class="log-attachment-item">
+                              <div class="log-attachment-main">
+                                <span class="log-attachment-name">{file.file_name || file.file_type || 'file'}</span>
+                                <span class="log-attachment-meta">{file.file_type || 'file'}{file.file_size ? ` • ${file.file_size}` : ''}</span>
+                              </div>
+                              <div class="log-attachment-actions">
+                                {#if file.link}
+                                  <a
+                                    class="log-attachment-action"
+                                    href={file.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="View attachment"
+                                    title="View"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </a>
+                                  <a
+                                    class="log-attachment-action"
+                                    href={getDriveDownloadUrl(file.link)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Download attachment"
+                                    title="Download"
+                                  >
+                                    <Download size={14} />
+                                  </a>
+                                {:else}
+                                  <span class="log-attachment-empty">No link</span>
+                                {/if}
+                              </div>
+                            </li>
+                          {/each}
+                        </ul>
+                      </div>
+                    </div>
+                  {/if}
                 </div>
 
-                <div class="log-foot">
-                  <div class="attachments"><span class="row-label">Attachment:</span>&nbsp;<span class="detail-value">{log.attachments?.length || 0}</span></div>
-                </div>
+                
               </div>
             </div>
           {/each}
@@ -1706,8 +1796,43 @@ function toggleEditAssigneeDropdown() {
 
   /* collapse animation */
   .log-collapse { max-height: 0; overflow: hidden; transition: max-height 220ms ease; }
-  .log-card.expanded .log-collapse { max-height: 420px; }
+  .log-card.expanded .log-collapse { max-height: 800px; }
   .log-card.collapsed { min-height: 96px; }
+
+  .log-attachments { align-items: flex-start; }
+  .log-attachment-list { list-style: none; padding: 0; margin: 0.2rem 0 0 0; display: grid; gap: 0.45rem; }
+  .log-attachment-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--border) 35%, var(--surface));
+    border: 1px solid var(--border);
+  }
+  .log-attachment-main { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+  .log-attachment-name { font-size: 0.9rem; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-attachment-meta { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+  .log-attachment-actions { display: inline-flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+  .log-attachment-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 0.55rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--accent);
+    transition: transform 0.12s, background 0.12s, border-color 0.12s;
+  }
+  .log-attachment-action:hover {
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .log-attachment-empty { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
 
   .progress-list {
     display: grid;
