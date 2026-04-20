@@ -213,6 +213,10 @@ function dispatchAction_(payload) {
     return handleDeleteRequest_(payload);
   }
 
+  if (action === 'update_student_ojt_profile') {
+    return handleUpdateStudentOjtProfile_(payload);
+  }
+
   if (action === 'list_notifications') {
     return handleListNotifications_(payload);
   }
@@ -2327,6 +2331,57 @@ function handleDeleteRequest_(payload) {
 
   sheet.deleteRow(rowIndex);
   return { ok: true, message: 'Request deleted successfully.' };
+}
+
+function handleUpdateStudentOjtProfile_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  var estimatedEndDate = String(payload.estimated_end_date || '').trim();
+
+  if (!userId) {
+    return { ok: false, error: 'user_id is required.' };
+  }
+
+  if (!estimatedEndDate) {
+    return { ok: false, error: 'estimated_end_date is required.' };
+  }
+
+  try {
+    var sheet = getStudentOjtProfileSheet_();
+    var rows = getSheetValues_(sheet);
+    var headers = getHeaders_(sheet);
+    var userIdColIndex = findColumnIndex_(headers, 'user_id');
+    var estimatedEndDateColIndex = findColumnIndex_(headers, 'estimated_end_date');
+
+    if (userIdColIndex === 0 || estimatedEndDateColIndex === 0) {
+      return { ok: false, error: 'Student OJT Profile sheet must include user_id and estimated_end_date columns.' };
+    }
+
+    // Find the row with matching user_id
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][userIdColIndex - 1] || '').trim() === userId) {
+        // Update the estimated_end_date
+        sheet.getRange(i + 1, estimatedEndDateColIndex).setValue(estimatedEndDate);
+        return { ok: true, message: 'Student OJT profile updated successfully.' };
+      }
+    }
+
+    // If user not found, create a new row
+    var newRow = [];
+    for (var j = 0; j < headers.length; j++) {
+      if (j === userIdColIndex - 1) {
+        newRow.push(userId);
+      } else if (j === estimatedEndDateColIndex - 1) {
+        newRow.push(estimatedEndDate);
+      } else {
+        newRow.push('');
+      }
+    }
+    sheet.appendRow(newRow);
+    return { ok: true, message: 'Student OJT profile created and updated successfully.' };
+  } catch (e) {
+    Logger.log('ERROR in handleUpdateStudentOjtProfile_: ' + e.toString());
+    return { ok: false, error: 'Error updating profile: ' + e.toString() };
+  }
 }
 
 // --- Notification handlers ---

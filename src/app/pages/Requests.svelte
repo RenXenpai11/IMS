@@ -53,6 +53,9 @@
   let rejectionRemarks = "";
   let isRejectingRequest = false;
 
+  // Approval loading state
+  let approvingRequestId = null;
+
   let form = {
     requestType: "Absence",
     date: "",
@@ -387,6 +390,7 @@
 
   async function updateRequestStatus(requestId, nextStatus) {
     try {
+      approvingRequestId = requestId;
       const result = await callBackend("update_request_status", {
         request_id: requestId,
         status: nextStatus,
@@ -399,6 +403,8 @@
       }
     } catch (err) {
       console.error("Update request status error:", err);
+    } finally {
+      approvingRequestId = null;
     }
   }
 
@@ -710,10 +716,16 @@
                   {#if isSupervisor && request.status === "Pending"}
                     <button
                       class="action-btn approve"
+                      disabled={approvingRequestId === request.id}
                       on:click={() =>
                         updateRequestStatus(request.id, "Approved")}
                     >
-                      <ShieldCheck size={13} /> Approve
+                      {#if approvingRequestId === request.id}
+                        <Loader2 size={13} class="spin" />
+                      {:else}
+                        <ShieldCheck size={13} />
+                      {/if}
+                      {approvingRequestId === request.id ? "Approving..." : "Approve"}
                     </button>
                     <button
                       class="action-btn reject"
@@ -1383,6 +1395,10 @@
     background: var(--green);
     color: white;
   }
+  .action-btn.approve:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
   .action-btn.reject {
     background: var(--red);
     color: white;
@@ -1717,6 +1733,9 @@
   /* Spinner */
   .spinning-icon {
     display: inline-flex;
+    animation: spin 1s linear infinite;
+  }
+  .spin {
     animation: spin 1s linear infinite;
   }
   @keyframes spin {
