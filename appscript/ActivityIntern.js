@@ -25,7 +25,7 @@ function addActivityWorklog(payload) {
 		payload.notes || '',
 		payload.learnings || '',
 		payload.date || '',
-		payload.created_at || now.toISOString(),
+		formatTimestamp_(payload.created_at || now),
 		payload.created_by || '',
 		payload.updated_by || ''
 	];
@@ -43,7 +43,7 @@ function addWorklogAttachment(payload) {
 		var userId = String(payload.user_id || '').trim();
 		var fileType = String(payload.file_type || '').trim();
 		var fileSize = String(payload.file_size || '').trim();
-		var uploadedAt = new Date(payload.uploaded_at || new Date()).toISOString();
+		var uploadedAt = formatTimestamp_(payload.uploaded_at || new Date());
 		var uploadedBy = String(payload.uploaded_by || '').trim();
 		var fileName = String(payload.file_name || 'upload').trim();
 		var fileDataBase64 = String(payload.file_data_base64 || '').trim();
@@ -265,7 +265,7 @@ function logUserActivity(activity) {
 			id,
 			activity.user || '',
 			activity.message || '',
-			activity.timestamp || now.toISOString()
+			formatTimestamp_(activity.timestamp || now)
 		];
 		sheet.appendRow(row);
 		// Clean up old activities to keep sheet manageable (keep last 100)
@@ -922,9 +922,8 @@ function handleCreateActivityTask_(payload) {
 		return { ok: false, error: 'title is required.' };
 	}
 	var ownerEmail = String(payload.owner_email || payload.email || '').trim();
-	var dueDate = String(payload.due_date || '').trim();
-	// dateCreated logic removed
-	var createdAt = String(payload.created_at || isoNow_());
+	var dueDate = formatDateYMD_(payload.due_date || payload.dueDate || '');
+	var createdAt = formatTimestamp_(payload.created_at || new Date());
 	var userInfo = getUserInfoByEmail_(ownerEmail);
 	var user_id = userInfo ? String(userInfo.user_id).trim() : '';
 	var full_name = userInfo ? String(userInfo.full_name).trim() : ownerEmail;
@@ -965,7 +964,10 @@ function handleCreateActivityTask_(payload) {
 	appendObjectRow_(sheet, rowObject);
 
 	var assignedBy = String(payload.assigned_by || '').trim();
-	if (assignedBy && user_id) {
+	// Only create a supervisor_task row when the caller hasn't already created one.
+	// `createSupervisorTasks` creates the supervisor_task itself and passes
+	// `skipSupervisorCreate=true` to avoid duplicates.
+	if (assignedBy && user_id && !payload.skipSupervisorCreate) {
 		try {
 			var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
 			var supTaskId = (typeof createId_ === 'function') ? createId_('SUP') : ('SUP_' + new Date().getTime());

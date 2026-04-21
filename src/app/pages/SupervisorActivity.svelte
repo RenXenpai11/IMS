@@ -572,34 +572,6 @@
     return `${mm}-${dd}-${yyyy}`;
   }
 
-  // Unified display format for dates: DD-MM-YYYY
-  function formatToDDMMYYYY(dateStr) {
-    if (!dateStr) return '';
-    // Handle dd-mm-yy / dd-mm-yyyy input
-    const ddmm = /^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/.exec(String(dateStr));
-    if (ddmm) {
-      let dd = String(ddmm[1]).padStart(2, '0');
-      let mm = String(ddmm[2]).padStart(2, '0');
-      let yy = ddmm[3];
-      if (yy.length === 2) yy = '20' + yy;
-      return `${dd}-${mm}-${yy}`;
-    }
-
-    // Try ISO date (YYYY-MM-DD or full ISO)
-    const isoMatch = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoMatch) {
-      const [, y, m, d] = isoMatch;
-      return `${String(d).padStart(2, '0')}-${String(m).padStart(2, '0')}-${y}`;
-    }
-
-    const parsed = new Date(dateStr);
-    if (Number.isNaN(parsed.getTime())) return '';
-    const dd = String(parsed.getDate()).padStart(2, '0');
-    const mm = String(parsed.getMonth() + 1).padStart(2, '0');
-    const yyyy = parsed.getFullYear();
-    return `${dd}-${mm}-${yyyy}`;
-  }
-
   function assignedNames(ids) {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return '';
     const names = ids.map(id => {
@@ -609,13 +581,24 @@
     return names.join(', ');
   }
 
-  // keep for compatibility: two-digit year variant
   function formatDateToDDMMYY(dateStr) {
-    const full = formatToDDMMYYYY(dateStr);
-    if (!full) return '';
-    const parts = full.split('-');
-    if (parts.length !== 3) return full;
-    return `${parts[0]}-${parts[1]}-${parts[2].slice(-2)}`;
+    if (!dateStr) return '';
+    // If already in dd-mm-yy or dd-mm-yyyy, normalize to dd-mm-yy (two-digit year)
+    const ddmm = /^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/.exec(String(dateStr));
+    if (ddmm) {
+      let dd = String(ddmm[1]).padStart(2, '0');
+      let mm = String(ddmm[2]).padStart(2, '0');
+      let yy = ddmm[3];
+      if (yy.length === 4) yy = yy.slice(-2);
+      return `${dd}-${mm}-${yy}`;
+    }
+    // try ISO parse
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}-${mm}-${yy}`;
   }
 
   function toISOInputDate(dateStr) {
@@ -1129,7 +1112,7 @@ function toggleEditAssigneeDropdown() {
               <li style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-radius:0.6rem; background:var(--surface); border:1px solid var(--border);">
                 <div style="min-width:0">
                   <div style="font-weight:700">{a.title}</div>
-                  <div class="muted" style="font-size:0.9rem">{formatToDDMMYYYY(a.due_date) || ''} — {a.status || ''}</div>
+                  <div class="muted" style="font-size:0.9rem">{formatDateToMMDDYYYY(a.due_date) || ''} — {a.status || ''}</div>
                 </div>
                 <div style="display:flex; gap:0.4rem; align-items:center;">
                   <button class="ghost btn-compact" type="button" on:click={() => restoreTask(a.id)}>Restore</button>
@@ -1256,7 +1239,7 @@ function toggleEditAssigneeDropdown() {
                   <div class="col col-title" style="text-align:left;">
                     <div style="font-weight:700">{t.title}</div>
                   </div>
-                  <div class="col col-due">{formatToDDMMYYYY(t.due_date) || 'No due date'}</div>
+                  <div class="col col-due">{formatDateToMMDDYYYY(t.due_date) || 'No due date'}</div>
                   <div class="col col-status"><div class={`status-badge ${statusClass(t.status)}`}>{t.status || 'Pending'}</div></div>
                   <div class="col col-actions" style="display:flex; gap:0.5rem; justify-content:center;">
                     <button class="action-link" type="button" on:click={() => openViewTask(t)}>View</button>
@@ -1298,7 +1281,7 @@ function toggleEditAssigneeDropdown() {
 
               <label>
                 <span>Due Date</span>
-                <input type="text" value={formatToDDMMYYYY(viewTask?.due_date) || 'No due date'} readonly />
+                <input type="text" value={formatDateToMMDDYYYY(viewTask?.due_date) || 'No due date'} readonly />
               </label>
 
               <label>
