@@ -231,9 +231,10 @@
   /* ══ SIDEBAR ══ */
   .ims-sidebar {
     width: 240px;
+    box-sizing: border-box;
     flex-shrink: 0;
     background: var(--s);
-    border-right: 1px solid var(--b);
+    border-right: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
     box-shadow: var(--sh);
     display: flex;
     flex-direction: column;

@@ -157,7 +157,7 @@
 <style>
   .header {
      background: #fff !important;
-    border-bottom: none !important;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent) !important;
     box-shadow: none !important;
     outline: none !important;
   }

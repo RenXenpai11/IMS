@@ -131,12 +131,6 @@ button {
 }
 
 
-.layout-content > * {
-  box-sizing: border-box;
-  min-height: 100%;
-  padding: 1.5rem;
-}
-
 .sidebar {
   position: relative;
   width: 15rem;

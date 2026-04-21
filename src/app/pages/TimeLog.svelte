@@ -1037,7 +1037,7 @@
     display: flex;
     flex-direction: column;
     gap: 22px;
-    padding: 16px 32px 28px;
+    min-width: 0;
     min-height: 0;
   }
 
@@ -1111,10 +1111,11 @@
   .tl-stat-label {
     font-size: 11px;
     font-weight: 600;
-    color: var(--tl-text2);
+    color: #000000;
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
+  :global(.dark) .tl-stat-label { color: #ffffff; }
   .tl-stat-value {
     font-size: 24px;
     font-weight: 700;
@@ -1639,7 +1640,7 @@
     .tl-card-chart { grid-column: 1 / -1; }
   }
   @media (max-width: 680px) {
-    .tl-page { padding: 18px 16px; gap: 16px; }
+    .tl-page { gap: 16px; }
     .tl-stat-grid { grid-template-columns: 1fr 1fr; }
     .tl-three-col { grid-template-columns: 1fr; }
     .tl-card-chart { grid-column: auto; }
