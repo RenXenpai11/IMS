@@ -675,6 +675,13 @@
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
   $: remainingHours = Math.max(0, requiredHours - completedHours);
   $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
+  $: progressStatus = progressPercent < 40
+    ? { tone: 'danger', label: 'Getting started' }
+    : progressPercent < 70
+      ? { tone: 'warning', label: 'In progress' }
+      : progressPercent < 90
+        ? { tone: 'success', label: 'On track' }
+        : { tone: 'success', label: 'Almost complete' };
   $: completedEntries = entries.filter((entry) => entry.timeOut && Number(entry.hours) > 0);
   
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
@@ -808,7 +815,13 @@
     <div class="tl-progress-section">
       <div class="tl-progress-header">
         <div>
-          <div class="tl-progress-title">Hours Progress</div>
+          <div class="tl-progress-title-row">
+            <div class="tl-progress-title">Hours Progress</div>
+            <span class="tl-progress-state tl-progress-state-{progressStatus.tone}">
+              <span class="tl-progress-state-dot"></span>
+              {progressStatus.label}
+            </span>
+          </div>
           <div class="tl-progress-meta">{formatHours(completedHours)} of {formatHours(requiredHours)} required hours completed</div>
           <div class="tl-progress-detail">All logged entries are counted immediately toward your OJT hours.</div>
         </div>
@@ -1144,8 +1157,47 @@
     margin-bottom: 14px;
   }
   .tl-progress-title { font-size: 14px; font-weight: 600; color: var(--tl-text); }
+  .tl-progress-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
   .tl-progress-meta  { font-size: 12px; color: var(--tl-text2); margin-top: 3px; }
   .tl-progress-detail { font-size: 12px; color: var(--tl-accent); margin-top: 4px; font-weight: 500; }
+  .tl-progress-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    line-height: 1;
+  }
+  .tl-progress-state-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .tl-progress-state-danger {
+    color: var(--tl-red);
+    background: var(--tl-red-dim);
+    border-color: color-mix(in srgb, var(--tl-red) 28%, transparent);
+  }
+  .tl-progress-state-warning {
+    color: var(--tl-amber);
+    background: var(--tl-amber-dim);
+    border-color: color-mix(in srgb, var(--tl-amber) 30%, transparent);
+  }
+  .tl-progress-state-success {
+    color: var(--tl-green);
+    background: var(--tl-green-dim);
+    border-color: color-mix(in srgb, var(--tl-green) 28%, transparent);
+  }
   .tl-progress-badge {
     background: var(--tl-accent);
     color: #fff;

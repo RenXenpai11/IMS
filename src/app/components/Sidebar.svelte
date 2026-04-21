@@ -281,9 +281,9 @@
     gap: 10px;
     padding: 9px 10px;
     border-radius: var(--r);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
-    color: var(--t2);
+    color: color-mix(in srgb, var(--t2) 78%, var(--t) 22%);
     cursor: pointer;
     transition: all .15s;
     position: relative;
@@ -295,7 +295,7 @@
     text-align: left;
   }
   .ims-nav-item:hover        { background: var(--s2); color: var(--t); }
-  .ims-nav-item.active       { background: var(--ag); color: var(--a2); }
+  .ims-nav-item.active       { background: var(--ag); color: color-mix(in srgb, var(--t) 92%, var(--a2) 8%); font-weight: 600; }
   .ims-nav-item.active::before {
     content: '';
     position: absolute;
