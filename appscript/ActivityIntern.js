@@ -25,7 +25,9 @@ function addActivityWorklog(payload) {
 		payload.notes || '',
 		payload.learnings || '',
 		payload.date || '',
-		payload.created_at || now.toISOString(),
+		// ensure status column exists (matches ACTIVITY_WORKLOG_HEADERS_ layout)
+		String(payload.status || 'Pending').trim(),
+		formatTimestamp_(payload.created_at || now),
 		payload.created_by || '',
 		payload.updated_by || ''
 	];
@@ -43,7 +45,7 @@ function addWorklogAttachment(payload) {
 		var userId = String(payload.user_id || '').trim();
 		var fileType = String(payload.file_type || '').trim();
 		var fileSize = String(payload.file_size || '').trim();
-		var uploadedAt = new Date(payload.uploaded_at || new Date()).toISOString();
+		var uploadedAt = formatTimestamp_(payload.uploaded_at || new Date());
 		var uploadedBy = String(payload.uploaded_by || '').trim();
 		var fileName = String(payload.file_name || 'upload').trim();
 		var fileDataBase64 = String(payload.file_data_base64 || '').trim();
@@ -76,8 +78,20 @@ function addWorklogAttachment(payload) {
 				var blob = Utilities.newBlob(bytes, mimeType, fileName || 'upload');
 				var uploadFolder = getOrCreateWorklogAttachmentsFolder_();
 				var createdFile = uploadFolder.createFile(blob);
-				createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-				link = createdFile.getUrl();
+				// setSharing or getUrl may fail if the executing account lacks Drive permission
+				// or if the deployment authorization doesn't include Drive scopes. Fail gracefully
+				// and continue by leaving `link` empty so the attachment record still saves.
+				try {
+					createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+				} catch (shareErr) {
+					// Do not abort the whole operation for a sharing permission error.
+				}
+				// Always capture the file URL regardless of whether sharing setup succeeded.
+				try {
+					link = createdFile.getUrl();
+				} catch (urlErr) {
+					link = '';
+				}
 			} catch (uploadErr) {
 				return { ok: false, error: 'Unable to save attachment to Drive: ' + (uploadErr.message || String(uploadErr)) };
 			}
@@ -97,17 +111,17 @@ function addWorklogAttachment(payload) {
 
 		return {
 			ok: true,
-			attachment: {
-				attachment_id: attachmentId,
-				task_id: taskId,
-				user_id: userId,
-				file_type: fileType,
-				file_size: fileSize,
-				file_name: fileName,
-				link: link,
-				uploaded_at: uploadedAt,
-				uploaded_by: uploadedBy
-			}
+				attachment: {
+					attachment_id: attachmentId,
+					task_id: taskId,
+					user_id: userId,
+					file_type: fileType,
+					file_size: fileSize,
+					file_name: fileName,
+					link: link,
+					uploaded_at: uploadedAt,
+					uploaded_by: uploadedBy
+				}
 		};
 	} catch (err) {
 		return { ok: false, error: err.message || String(err) };
@@ -172,12 +186,28 @@ function getActivityWorklogs(payload) {
 				}
 				
 				if (!alreadyExists) {
+					var existingLink = String(attachRow.link || '').trim();
+					// if there's no stored link, try to find file by name in the attachments folder
+					if (!existingLink) {
+						try {
+							var folder = getOrCreateWorklogAttachmentsFolder_();
+							var filesByName = folder.getFilesByName(String(attachRow.file_name || '').trim());
+							if (filesByName.hasNext()) {
+								var f = filesByName.next();
+								try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+								existingLink = f.getUrl();
+							}
+						} catch (e) {
+							existingLink = String(attachRow.link || '').trim();
+						}
+					}
+
 					worklogsMap[attachTaskId].attachments.push({
 						attachment_id: attachmentId,
 						file_type: fileType,
 						file_size: fileSize,
 						file_name: String(attachRow.file_name || '').trim(),
-						link: String(attachRow.link || '').trim(),
+						link: existingLink,
 						uploaded_at: String(attachRow.uploaded_at || '').trim()
 					});
 				}
@@ -225,8 +255,8 @@ function backfillWorklogAttachmentLinks() {
 			var files = folder.getFilesByName(fileName);
 			if (files.hasNext()) {
 				var file = files.next();
-				file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-				row[linkIdx] = file.getUrl();
+				try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+				try { row[linkIdx] = file.getUrl(); } catch (e) { row[linkIdx] = row[linkIdx] || ''; }
 				sheet.getRange(r + 1, 1, 1, row.length).setValues([row]);
 				updated++;
 			}
@@ -265,7 +295,7 @@ function logUserActivity(activity) {
 			id,
 			activity.user || '',
 			activity.message || '',
-			activity.timestamp || now.toISOString()
+			formatTimestamp_(activity.timestamp || now)
 		];
 		sheet.appendRow(row);
 		// Clean up old activities to keep sheet manageable (keep last 100)
@@ -922,9 +952,8 @@ function handleCreateActivityTask_(payload) {
 		return { ok: false, error: 'title is required.' };
 	}
 	var ownerEmail = String(payload.owner_email || payload.email || '').trim();
-	var dueDate = String(payload.due_date || '').trim();
-	// dateCreated logic removed
-	var createdAt = String(payload.created_at || isoNow_());
+	var dueDate = formatDateYMD_(payload.due_date || payload.dueDate || '');
+	var createdAt = formatTimestamp_(payload.created_at || new Date());
 	var userInfo = getUserInfoByEmail_(ownerEmail);
 	var user_id = userInfo ? String(userInfo.user_id).trim() : '';
 	var full_name = userInfo ? String(userInfo.full_name).trim() : ownerEmail;
@@ -965,7 +994,10 @@ function handleCreateActivityTask_(payload) {
 	appendObjectRow_(sheet, rowObject);
 
 	var assignedBy = String(payload.assigned_by || '').trim();
-	if (assignedBy && user_id) {
+	// Only create a supervisor_task row when the caller hasn't already created one.
+	// `createSupervisorTasks` creates the supervisor_task itself and passes
+	// `skipSupervisorCreate=true` to avoid duplicates.
+	if (assignedBy && user_id && !payload.skipSupervisorCreate) {
 		try {
 			var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
 			var supTaskId = (typeof createId_ === 'function') ? createId_('SUP') : ('SUP_' + new Date().getTime());

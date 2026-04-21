@@ -32,7 +32,7 @@ function createSupervisorTasks(payload) {
   try {
     var title = String(payload.title || '').trim();
     var description = String(payload.description || '').trim();
-    var dueDate = String(payload.due_date || '').trim();
+    var dueDate = formatDateYMD_(payload.due_date || payload.dueDate || '');
     var supervisorId = String(payload.supervisor_user_id || '').trim();
     var assignees = Array.isArray(payload.assigned_student_ids) ? payload.assigned_student_ids : [];
 
@@ -43,14 +43,14 @@ function createSupervisorTasks(payload) {
     var now = isoNow_();
     var created = 0;
     // Also record a supervisor-level task record in 'supervisor_task' sheet
-    var supRow = null;
+      var supRow = null;
     try {
       var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
       supRow = {
         sup_taskid: createId_('SUP'),
         task: title,
         description: description,
-        due_date: dueDate,
+          due_date: dueDate,
         status: String(payload.status || 'Pending').trim(),
         assigned_to: JSON.stringify(assignees || []),
         created_at: now,
@@ -86,6 +86,8 @@ function createSupervisorTasks(payload) {
         owner_email: userEmail,
         assigned_by: supervisorId,
         created_at: now,
+        // signal to internal handler that supervisor-level row already created
+        skipSupervisorCreate: true,
         status: String(payload.status || 'Pending').trim()
       };
 
@@ -181,6 +183,8 @@ function getSupervisorTasks(payload) {
         assigned_student_ids: Array.isArray(assigned) ? assigned : []
       });
     }
+    // Reverse so that the most recently created task (last row in sheet) appears first.
+    tasks.reverse();
     return { ok: true, tasks: tasks };
   } catch (err) {
     return { ok: false, error: err && err.message ? String(err.message) : String(err) };
@@ -226,3 +230,4 @@ function updateSupervisorTask(payload) {
     return { ok: false, error: err && err.message ? String(err.message) : String(err) };
   }
 }
+ 

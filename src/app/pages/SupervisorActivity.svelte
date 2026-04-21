@@ -224,12 +224,13 @@
         const tasksRes = await callGetSupervisorTasks({ supervisor_user_id: currentUser.user_id });
         if (tasksRes && tasksRes.ok && Array.isArray(tasksRes.tasks)) {
           const mapped = tasksRes.tasks.map(t => ({
-            id: String(t.id || t.sup_taskid || ''),
+            id: String(t.id || t.sup_taskid || t.task_id || ''),
             title: String(t.title || t.task || ''),
             description: String(t.description || ''),
-            due_date: String(t.due_date || ''),
+            // tolerate multiple possible server field names for due date
+            due_date: String(t.due_date || t.dueDate || t.due || t.date || t.due_date_formatted || t.dueDateFormatted || ''),
             status: String(t.status || ''),
-            assigned_student_ids: Array.isArray(t.assigned_student_ids) ? t.assigned_student_ids : []
+            assigned_student_ids: Array.isArray(t.assigned_student_ids) ? t.assigned_student_ids : (Array.isArray(t.assigned_ids) ? t.assigned_ids : [])
           }));
           supervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() !== 'archived');
           archivedSupervisorTasks = mapped.filter(x => String(x.status || '').toLowerCase() === 'archived');
@@ -426,6 +427,18 @@
     }
   }
 
+  // Keep `viewTask` synchronized with the authoritative `supervisorTasks` list
+  $: if (viewTask && supervisorTasks && supervisorTasks.length) {
+    const vid = String(viewTask.id || viewTask.sup_taskid || viewTask.task_id || '');
+    const fresh = supervisorTasks.find(t => String(t.id) === vid);
+    if (fresh) {
+      // only replace when fields differ to avoid stomping local edits
+      if (String(fresh.due_date || '') !== String(viewTask.due_date || '')) {
+        viewTask = fresh;
+      }
+    }
+  }
+
   function previewText(txt, max = 80) {
     if (!txt) return '';
     const s = String(txt || '');
@@ -472,22 +485,12 @@
     if (!newTaskTitle.trim() || newTaskAssignees.length === 0) return;
     isCreatingTask = true;
     try {
-      function formatDateToDDMMYY(dateStr) {
-        if (!dateStr) return '';
-        const d = new Date(dateStr);
-        if (Number.isNaN(d.getTime())) return '';
-        const dd = String(d.getDate()).padStart(2, '0');
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const yy = String(d.getFullYear()).slice(-2);
-        return `${dd}-${mm}-${yy}`;
-      }
-
-      const formattedDue = formatDateToDDMMYY(newTaskDueDate);
-
+      // Send YYYY-MM-DD directly — backend formatDateYMD_ handles this format correctly.
+      // Do NOT convert to dd-mm-yy: parseDateLike_ on the server cannot parse that format.
       const payload = {
         title: newTaskTitle.trim(),
         description: newTaskDescription.trim(),
-        due_date: formattedDue,
+        due_date: newTaskDueDate || '',  // already YYYY-MM-DD from <input type="date">
         status: newTaskStatus,
         supervisor_user_id: currentUser?.user_id || '',
         assigned_student_ids: Array.isArray(newTaskAssignees) ? newTaskAssignees : (newTaskAssignees ? [newTaskAssignees] : []),
@@ -498,24 +501,43 @@
       await maybeDelay();
       const res = await callCreateSupervisorTasks(payload);
       if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Unable to create tasks.');
-      // add to local task list so it appears in List view immediately
+
+      // Build a local representation using the due_date we sent (YYYY-MM-DD).
+      const savedId = (res.task && (res.task.id || res.task.task_id)) || res.task_id || String(Date.now());
       const savedTask = {
-        id: (res.task && (res.task.id || res.task.task_id)) || (res.task_id || String(Date.now())),
+        id: String(savedId),
         title: payload.title,
         description: payload.description,
-        due_date: payload.due_date,
+        due_date: payload.due_date,   // YYYY-MM-DD
         status: payload.status,
         created_by: payload.created_by,
         assigned_student_ids: Array.isArray(payload.assigned_student_ids) ? payload.assigned_student_ids : []
       };
-      supervisorTasks = [savedTask, ...supervisorTasks];
 
+      // Optimistically pin the new task at the very top.
+      supervisorTasks = [savedTask, ...supervisorTasks.filter(t => String(t.id) !== String(savedTask.id))];
+
+      // Reset form and close modal.
       newTaskTitle = '';
       newTaskDescription = '';
       newTaskDueDate = '';
       newTaskAssignees = [];
       showAddTask = false;
+
+      // Refresh other data (worklogs, KPIs) but merge the server task list so the
+      // new task stays on top and retains its due_date if the server echoes empty.
       await refreshOverview();
+      // After refresh, supervisorTasks is replaced by the server list (oldest-first).
+      // Re-pin the saved task at the top, preserving the local due_date if server returns empty.
+      const createdId = String(savedTask.id);
+      const serverTask = supervisorTasks.find(t => String(t.id) === createdId);
+      if (serverTask) {
+        if (!serverTask.due_date) serverTask.due_date = savedTask.due_date;
+        supervisorTasks = [serverTask, ...supervisorTasks.filter(t => String(t.id) !== createdId)];
+      } else {
+        // Server didn't return the task yet — keep the optimistic one at top.
+        supervisorTasks = [savedTask, ...supervisorTasks.filter(t => String(t.id) !== createdId)];
+      }
     } catch (err) {
       loadError = err?.message || 'Unable to create tasks.';
     } finally {
@@ -534,7 +556,11 @@
   }
 
   function openViewTask(task) {
-    viewTask = task || null;
+    if (!task) return;
+    const id = String(task.id || task.sup_taskid || task.task_id || '');
+    // prefer the authoritative task object from supervisorTasks (fresh from server)
+    const found = supervisorTasks.find(t => String(t.id) === id) || task;
+    viewTask = found || null;
     showViewTask = true;
   }
 
@@ -545,9 +571,13 @@
 
   function formatDateToMMDDYYYY(dateStr) {
     if (!dateStr) return '';
-    // If stored as dd-mm-yy or dd-mm-yyyy, parse it
+    const s = String(dateStr).trim();
+    // Fast-path: pure ISO YYYY-MM-DD — avoid timezone shift from new Date()
+    const isoM = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (isoM) return `${isoM[2]}-${isoM[3]}-${isoM[1]}`;
+    // dd-mm-yy or dd-mm-yyyy
     const ddmmRegex = /^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/;
-    const m = String(dateStr).match(ddmmRegex);
+    const m = s.match(ddmmRegex);
     if (m) {
       let dd = parseInt(m[1], 10);
       let mm = parseInt(m[2], 10);
@@ -558,46 +588,15 @@
       if (!Number.isNaN(d.getTime())) {
         const mmStr = String(d.getMonth() + 1).padStart(2, '0');
         const ddStr = String(d.getDate()).padStart(2, '0');
-        const yyyyStr = d.getFullYear();
-        return `${mmStr}-${ddStr}-${yyyyStr}`;
+        return `${mmStr}-${ddStr}-${d.getFullYear()}`;
       }
       return '';
     }
-
-    const parsed = new Date(dateStr);
+    const parsed = new Date(s);
     if (Number.isNaN(parsed.getTime())) return '';
     const mm = String(parsed.getMonth() + 1).padStart(2, '0');
     const dd = String(parsed.getDate()).padStart(2, '0');
-    const yyyy = parsed.getFullYear();
-    return `${mm}-${dd}-${yyyy}`;
-  }
-
-  // Unified display format for dates: DD-MM-YYYY
-  function formatToDDMMYYYY(dateStr) {
-    if (!dateStr) return '';
-    // Handle dd-mm-yy / dd-mm-yyyy input
-    const ddmm = /^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/.exec(String(dateStr));
-    if (ddmm) {
-      let dd = String(ddmm[1]).padStart(2, '0');
-      let mm = String(ddmm[2]).padStart(2, '0');
-      let yy = ddmm[3];
-      if (yy.length === 2) yy = '20' + yy;
-      return `${dd}-${mm}-${yy}`;
-    }
-
-    // Try ISO date (YYYY-MM-DD or full ISO)
-    const isoMatch = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoMatch) {
-      const [, y, m, d] = isoMatch;
-      return `${String(d).padStart(2, '0')}-${String(m).padStart(2, '0')}-${y}`;
-    }
-
-    const parsed = new Date(dateStr);
-    if (Number.isNaN(parsed.getTime())) return '';
-    const dd = String(parsed.getDate()).padStart(2, '0');
-    const mm = String(parsed.getMonth() + 1).padStart(2, '0');
-    const yyyy = parsed.getFullYear();
-    return `${dd}-${mm}-${yyyy}`;
+    return `${mm}-${dd}-${parsed.getFullYear()}`;
   }
 
   function assignedNames(ids) {
@@ -609,19 +608,33 @@
     return names.join(', ');
   }
 
-  // keep for compatibility: two-digit year variant
   function formatDateToDDMMYY(dateStr) {
-    const full = formatToDDMMYYYY(dateStr);
-    if (!full) return '';
-    const parts = full.split('-');
-    if (parts.length !== 3) return full;
-    return `${parts[0]}-${parts[1]}-${parts[2].slice(-2)}`;
+    if (!dateStr) return '';
+    // If already in dd-mm-yy or dd-mm-yyyy, normalize to dd-mm-yy (two-digit year)
+    const ddmm = /^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/.exec(String(dateStr));
+    if (ddmm) {
+      let dd = String(ddmm[1]).padStart(2, '0');
+      let mm = String(ddmm[2]).padStart(2, '0');
+      let yy = ddmm[3];
+      if (yy.length === 4) yy = yy.slice(-2);
+      return `${dd}-${mm}-${yy}`;
+    }
+    // try ISO parse
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${dd}-${mm}-${yy}`;
   }
 
   function toISOInputDate(dateStr) {
     if (!dateStr) return '';
+    const s = String(dateStr).trim();
+    // Already YYYY-MM-DD — return as-is (avoids timezone shift from new Date())
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
     // handle dd-mm-yy / dd-mm-yyyy
-    const m = String(dateStr).match(/^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/);
+    const m = s.match(/^\s*(\d{1,2})-(\d{1,2})-(\d{2,4})\s*$/);
     if (m) {
       let dd = String(m[1]).padStart(2, '0');
       let mm = String(m[2]).padStart(2, '0');
@@ -630,7 +643,7 @@
       return `${yy}-${mm}-${dd}`;
     }
     // try Date parse
-    const d = new Date(dateStr);
+    const d = new Date(s);
     if (Number.isNaN(d.getTime())) return '';
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -672,12 +685,12 @@
     if (!editTaskForm || !editTaskForm.title.trim()) return;
     isSavingEdit = true;
     try {
-      const formattedDue = formatDateToDDMMYY(editTaskForm.due_date);
+      // Send YYYY-MM-DD directly — same reason as submitNewTask.
       const payload = {
         sup_taskid: editTaskForm.id,
         title: editTaskForm.title.trim(),
         description: editTaskForm.description.trim(),
-        due_date: formattedDue,
+        due_date: editTaskForm.due_date || '',  // YYYY-MM-DD from <input type="date">
         status: editTaskForm.status,
         assigned_student_ids: Array.isArray(editTaskAssignees) ? editTaskAssignees : [],
         updated_by: currentUser?.user_id || ''
@@ -1129,7 +1142,7 @@ function toggleEditAssigneeDropdown() {
               <li style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem; border-radius:0.6rem; background:var(--surface); border:1px solid var(--border);">
                 <div style="min-width:0">
                   <div style="font-weight:700">{a.title}</div>
-                  <div class="muted" style="font-size:0.9rem">{formatToDDMMYYYY(a.due_date) || ''} — {a.status || ''}</div>
+                  <div class="muted" style="font-size:0.9rem">{formatDateToMMDDYYYY(a.due_date) || ''} — {a.status || ''}</div>
                 </div>
                 <div style="display:flex; gap:0.4rem; align-items:center;">
                   <button class="ghost btn-compact" type="button" on:click={() => restoreTask(a.id)}>Restore</button>
@@ -1256,7 +1269,7 @@ function toggleEditAssigneeDropdown() {
                   <div class="col col-title" style="text-align:left;">
                     <div style="font-weight:700">{t.title}</div>
                   </div>
-                  <div class="col col-due">{formatToDDMMYYYY(t.due_date) || 'No due date'}</div>
+                  <div class="col col-due">{formatDateToMMDDYYYY(t.due_date) || 'No due date'}</div>
                   <div class="col col-status"><div class={`status-badge ${statusClass(t.status)}`}>{t.status || 'Pending'}</div></div>
                   <div class="col col-actions" style="display:flex; gap:0.5rem; justify-content:center;">
                     <button class="action-link" type="button" on:click={() => openViewTask(t)}>View</button>
@@ -1298,7 +1311,7 @@ function toggleEditAssigneeDropdown() {
 
               <label>
                 <span>Due Date</span>
-                <input type="text" value={formatToDDMMYYYY(viewTask?.due_date) || 'No due date'} readonly />
+                <input type="text" value={formatDateToMMDDYYYY(viewTask?.due_date) || 'No due date'} readonly />
               </label>
 
               <label>

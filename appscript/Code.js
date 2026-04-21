@@ -2073,7 +2073,7 @@ function handleCreateRequest_(payload) {
   }
 
   var requestId = 'REQ-' + Date.now();
-  var createdAt = new Date().toISOString();
+  var createdAt = formatTimestamp_(new Date());
 
   var sheet = getRequestsSheet_();
   var headers = getHeaders_(sheet);
@@ -3622,9 +3622,40 @@ function escapeHtml_(value) {
 }
 
 function isoNow_() {
-  // Return an ISO-8601 timestamp in UTC. Frontend expects ISO strings
-  // (e.g. 2026-04-21T12:34:56.789Z) so normalize server timestamps to this format.
-  return new Date().toISOString();
+  // Return server timestamp in space-separated format: "YYYY-MM-DD HH:MM:SS"
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+}
+
+// Parse common date/time input variants into a Date object.
+function parseDateLike_(input) {
+  if (!input) return null;
+  if (Object.prototype.toString.call(input) === '[object Date]') return input;
+  var raw = String(input || '').trim();
+  if (!raw) return null;
+  // support 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS' or 'YYYY-MM-DD HH:MM:SS' or ISO strings
+  // Normalize space to T for Date parsing when possible
+  var candidate = raw.replace(' ', 'T');
+  var d = new Date(candidate);
+  if (!Number.isNaN(d.getTime())) return d;
+  // try appending time if only date provided
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return new Date(raw + 'T00:00:00');
+  }
+  return null;
+}
+
+// Format a Date-like input to 'YYYY-MM-DD HH:MM:SS' in script timezone
+function formatTimestamp_(input) {
+  var d = input instanceof Date ? input : parseDateLike_(input);
+  if (!d) return '';
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+}
+
+// Format a Date-like input to 'YYYY-MM-DD' (date-only)
+function formatDateYMD_(input) {
+  var d = input instanceof Date ? input : parseDateLike_(input);
+  if (!d) return '';
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
 // Normalize created_at/updated_at values in `activity_logs` to ISO-8601
@@ -3761,6 +3792,7 @@ var DOCUMENT_FOLDERS_SHEET_ = 'document_folders';
 var DOCUMENT_FOLDERS_HEADERS_ = ['id', 'user_id', 'folder_name', 'path', 'created_date', 'is_default'];
 var DOCUMENT_UPLOADS_FOLDER_ = 'IMS Documents Uploads';
 var WORKLOG_ATTACHMENTS_FOLDER_ = 'IMS Worklog Attachments';
+ 
 
 // Add a new attachment to act_attachments with sequential ATT_0001 IDs
 function addActivityTaskAttachment(payload) {
@@ -3960,11 +3992,25 @@ function getOrCreateDocumentUploadsFolder_() {
 function getOrCreateWorklogAttachmentsFolder_() {
   var folders = DriveApp.getFoldersByName(WORKLOG_ATTACHMENTS_FOLDER_);
   if (folders.hasNext()) {
-    return folders.next();
+    var f = folders.next();
+    // try to ensure folder is shareable by link so interns/supervisors can view attachments
+    try {
+      f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (e) {
+      // ignore if permission or scope not available
+    }
+    return f;
   }
 
-  return DriveApp.createFolder(WORKLOG_ATTACHMENTS_FOLDER_);
+  var created = DriveApp.createFolder(WORKLOG_ATTACHMENTS_FOLDER_);
+  try {
+    created.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) {
+    // ignore if permission or scope not available
+  }
+  return created;
 }
+
 
 function handleGetAllDocuments_(payload) {
   try {
@@ -4044,7 +4090,7 @@ function handleUploadDocument_(payload) {
     var fileDataBase64 = String(payload.file_data_base64 || '').trim();
     var mimeType = String(payload.mime_type || 'application/octet-stream').trim();
     var fileName = String(payload.file_name || name || 'upload').trim();
-    var uploadedDate = String(payload.uploaded_date || new Date().toISOString().split('T')[0]).trim();
+    var uploadedDate = String(payload.uploaded_date || formatDateYMD_(new Date())).trim();
 
     if (!userId || !name) {
       return { ok: false, error: 'Missing user_id or name.' };
@@ -4097,7 +4143,7 @@ function handleUploadDocument_(payload) {
       'private',
       '[]',
       userId,
-      new Date().toISOString().split('T')[0]
+      formatDateYMD_(new Date())
     ];
 
     sheet.appendRow(newRow);
@@ -4117,7 +4163,7 @@ function handleUploadDocument_(payload) {
         access_level: 'private',
         shared_with: [],
         created_by: userId,
-        created_date: new Date().toISOString().split('T')[0]
+        created_date: formatDateYMD_(new Date())
       }
     };
   } catch (err) {
@@ -4193,7 +4239,7 @@ function handleShareDocument_(payload) {
           sharedWith.push({
             email: email,
             role: role,
-            sharedDate: new Date().toISOString().split('T')[0]
+            sharedDate: formatDateYMD_(new Date())
           });
         }
 
@@ -4283,7 +4329,7 @@ function handleCreateFolder_(payload) {
 
     var folderId = 'fld_' + Date.now();
     var folderPath = '/' + folderName;
-    var createdDate = new Date().toISOString().split('T')[0];
+    var createdDate = formatDateYMD_(new Date());
 
     sheet.appendRow([
       folderId,
@@ -4614,7 +4660,7 @@ function sendDailyTimeLogReminders() {
     return;
   }
 
-  var todayISOStr = new Date().toISOString().slice(0, 10);
+  var todayISOStr = formatDateYMD_(new Date());
   
   var logsSheet = getSheet_(TIME_LOGS_SHEET_);
   var logs = readSheetObjects_(logsSheet);

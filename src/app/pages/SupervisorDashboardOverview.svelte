@@ -1,12 +1,14 @@
 <script>
 // @ts-nocheck
-  import { CheckCircle, AlertCircle, FileText, Users, Clock3 } from 'lucide-svelte';
+  import { CheckCircle, AlertCircle, FileText, Users, Clock3, ChevronDown } from 'lucide-svelte';
   import { subscribeToCurrentUser, listSupervisorAssignedStudents, listSupervisorTimeLogs, listAssignedStudentRequests, listTasksByUser } from '../lib/auth.js';
 
   export let currentUser = null;
 
   let loading = true;
   let errorMessage = '';
+  let selectedInterns = new Set();
+  let selectAllChecked = false;
 
   let pendingRequests = [];
   let recentSubmissions = [];
@@ -182,6 +184,26 @@
     return { label: 'Present today', tone: 'success' };
   }
 
+  function toggleInternSelection(internId) {
+    if (selectedInterns.has(internId)) {
+      selectedInterns.delete(internId);
+    } else {
+      selectedInterns.add(internId);
+    }
+    selectedInterns = selectedInterns;
+  }
+
+  function toggleSelectAll() {
+    if (selectAllChecked) {
+      selectedInterns.clear();
+      selectAllChecked = false;
+    } else {
+      assignedStudents.forEach(student => selectedInterns.add(student.user_id));
+      selectAllChecked = true;
+    }
+    selectedInterns = selectedInterns;
+  }
+
   async function loadData() {
     loading = true;
     errorMessage = '';
@@ -328,6 +350,10 @@
         <p class="today-heading">{normalizeDate(today)}</p>
         <p class="text-muted text-sm">Status and clock in/out summary for today.</p>
       </div>
+      <button class="select-btn">
+        <span>Select</span>
+        <ChevronDown size={16} />
+      </button>
     </div>
 
     {#if loading}
@@ -342,8 +368,18 @@
           {@const clock = getClockStatus(intern?.user_id)}
           {@const schedule = getScheduleDisplay(intern)}
           {@const pendingTasks = getPendingTaskCount(intern?.user_id)}
+          {@const isSelected = selectedInterns.has(intern.user_id)}
 
-          <article class="intern-card">
+          <article class="intern-card" class:selected={isSelected}>
+            <div class="intern-checkbox-wrapper">
+              <input
+                type="checkbox"
+                class="intern-checkbox"
+                checked={isSelected}
+                on:change={() => toggleInternSelection(intern.user_id)}
+              />
+            </div>
+            
             <header class="intern-head">
               <div class="intern-title">
                 <p class="intern-name">{intern.full_name}</p>
@@ -359,14 +395,17 @@
 
             <div class="intern-body">
               <div class="intern-row">
+                <span class="row-icon"><Clock3 size={14} /></span>
                 <span class="row-label">Clock</span>
                 <span class={`row-value tone-${clock.tone}`}>{clock.label}</span>
               </div>
               <div class="intern-row">
+                <span class="row-icon"><FileText size={14} /></span>
                 <span class="row-label">Tasks</span>
                 <span class="row-value">{pendingTasks} pending</span>
               </div>
               <div class="intern-row">
+                <span class="row-icon"><CheckCircle size={14} /></span>
                 <span class="row-label">Schedule</span>
                 <span class={`row-value tone-${schedule.tone}`}>{schedule.label}</span>
               </div>
@@ -494,6 +533,28 @@
     margin-bottom: 1rem;
   }
 
+  .select-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .select-btn:hover {
+    background: var(--surface-soft);
+    border-color: #3b82f6;
+    color: #3b82f6;
+  }
+
   .card-title {
     margin: 0 0 0.35rem 0;
     font-size: 1.125rem;
@@ -547,6 +608,32 @@
     background: var(--surface-soft);
     border-radius: 1rem;
     padding: 1rem;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+
+  .intern-card:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+  }
+
+  .intern-card.selected {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.05);
+  }
+
+  .intern-checkbox-wrapper {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    z-index: 10;
+  }
+
+  .intern-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #3b82f6;
   }
 
   .intern-head {
@@ -555,6 +642,7 @@
     justify-content: space-between;
     gap: 0.75rem;
     margin-bottom: 0.85rem;
+    margin-left: 2rem;
   }
 
   .intern-title {
@@ -590,14 +678,21 @@
   .intern-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 0.75rem;
     font-size: 0.85rem;
+  }
+
+  .row-icon {
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
   }
 
   .row-label {
     color: var(--text-muted);
     font-weight: 600;
+    min-width: 50px;
   }
 
   .row-value {
@@ -707,8 +802,35 @@
     background: rgba(59, 130, 246, 0.2);
   }
 
-  :global(.dark) .pill {
-    color: #7cc3ff;
+  :global(.dark) .select-btn {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
+
+  :global(.dark) .select-btn:hover {
+    background: var(--surface-soft);
+    border-color: #60a5fa;
+    color: #60a5fa;
+  }
+
+  :global(.dark) .intern-card {
+    background: var(--surface-soft);
+    border-color: var(--border);
+  }
+
+  :global(.dark) .intern-card:hover {
+    border-color: #60a5fa;
+    box-shadow: 0 2px 8px rgba(96, 165, 250, 0.2);
+  }
+
+  :global(.dark) .intern-card.selected {
+    border-color: #60a5fa;
+    background: rgba(96, 165, 250, 0.1);
+  }
+
+  :global(.dark) .row-icon {
+    color: var(--text-muted);
   }
 
   :global(.dark) .tone-success {
