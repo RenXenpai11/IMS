@@ -490,6 +490,43 @@
               </tbody>
             </table>
           </div>
+
+          <!-- Timeline History Section -->
+          <div class="log-history-timeline mt-8">
+            <h4 class="supervisor-heading mb-4 text-base font-semibold">Login/Logout History</h4>
+            <div class="timeline-container">
+              {#each logs as row, idx (row.timelog_id)}
+                <div class="timeline-item">
+                  <div class="timeline-marker">
+                    <div class="timeline-dot"></div>
+                    {#if idx !== logs.length - 1}
+                      <div class="timeline-line"></div>
+                    {/if}
+                  </div>
+                  <div class="timeline-content">
+                    <div class="timeline-date">{formatDate(row.log_date)}</div>
+                    <div class="timeline-events">
+                      <div class="event login-event">
+                        <div class="event-time">
+                          <span class="event-label">Logged In</span>
+                          <span class="event-hour">{toTimeText(row.time_in)}</span>
+                        </div>
+                      </div>
+                      {#if row.time_out}
+                        <div class="event logout-event">
+                          <div class="event-time">
+                            <span class="event-label">Logged Out</span>
+                            <span class="event-hour">{toTimeText(row.time_out)}</span>
+                          </div>
+                          <div class="event-duration">Duration: {row.hours_rendered}h</div>
+                        </div>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
         {/if}
       </section>
     {:else}
@@ -960,5 +997,151 @@
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+  }
+
+  /* Timeline History Styles */
+  .log-history-timeline {
+    margin-top: 2rem;
+  }
+
+  .timeline-container {
+    position: relative;
+    padding: 1rem 0;
+  }
+
+  .timeline-item {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+    position: relative;
+  }
+
+  .timeline-marker {
+    position: relative;
+    width: 2.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .timeline-dot {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: #3b82f6;
+    border: 3px solid #ffffff;
+    box-shadow: 0 0 0 2px #3b82f6;
+    position: relative;
+    z-index: 2;
+  }
+
+  .timeline-line {
+    width: 2px;
+    flex: 1;
+    background: linear-gradient(180deg, #3b82f6 0%, #93c5fd 100%);
+    margin-top: 0.5rem;
+  }
+
+  .timeline-content {
+    flex: 1;
+    padding-top: 0.2rem;
+  }
+
+  .timeline-date {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--sp-heading);
+    margin-bottom: 0.8rem;
+    opacity: 0.8;
+  }
+
+  .timeline-events {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .event {
+    padding: 0.75rem 1rem;
+    border-radius: 0.6rem;
+    border-left: 3px solid;
+  }
+
+  .login-event {
+    background: #ecfdf5;
+    border-left-color: #10b981;
+  }
+
+  .logout-event {
+    background: #eff6ff;
+    border-left-color: #3b82f6;
+  }
+
+  .event-time {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .event-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--sp-text);
+  }
+
+  .event-hour {
+    font-weight: 700;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.95rem;
+  }
+
+  .login-event .event-label {
+    color: #047857;
+  }
+
+  .login-event .event-hour {
+    color: #059669;
+  }
+
+  .logout-event .event-label {
+    color: #1e40af;
+  }
+
+  .logout-event .event-hour {
+    color: #1d4ed8;
+  }
+
+  .event-duration {
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+    color: var(--sp-text);
+    opacity: 0.7;
+  }
+
+  :global(.dark) .timeline-dot {
+    background: #60a5fa;
+    box-shadow: 0 0 0 2px #60a5fa;
+  }
+
+  :global(.dark) .timeline-line {
+    background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+  }
+
+  :global(.dark) .login-event {
+    background: rgba(16, 185, 129, 0.15);
+  }
+
+  :global(.dark) .logout-event {
+    background: rgba(59, 130, 246, 0.15);
+  }
+
+  :global(.dark) .timeline-date {
+    color: var(--sp-heading);
+  }
+
+  :global(.dark) .event-label {
+    color: var(--sp-text);
   }
 </style>

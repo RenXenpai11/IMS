@@ -386,6 +386,8 @@
     // No longer needed - removed
   }
 
+  let refreshTimer = null;
+
   onMount(() => {
     currentUser = currentUser || getCurrentUser();
 
@@ -395,10 +397,16 @@
     });
 
     loadData();
+
+    // Refresh days remaining every minute so it's always up-to-date
+    refreshTimer = setInterval(() => {
+      assignedStudents = assignedStudents; // Trigger reactivity
+    }, 60000); // Update every 60 seconds
   });
 
   onDestroy(() => {
     if (typeof unsubscribe === 'function') unsubscribe();
+    if (refreshTimer) clearInterval(refreshTimer);
   });
 
   $: currentRole = String(currentUser?.role || '').trim().toLowerCase();
