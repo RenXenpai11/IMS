@@ -47,6 +47,10 @@ export const pageMeta = {
     title: 'Intern Requests',
     description: 'Approve or reject assigned student requests.',
   },
+  '/supervisor/projects': {
+    title: 'Projects',
+    description: 'Manage and oversee intern projects.',
+  },
   '/supervisor/activity': {
     title: 'Activity Log',
     description: 'Review activity logs of assigned students.',

@@ -13,6 +13,7 @@
   import SupervisorTimeLog from './app/pages/SupervisorTimeLog.svelte';
   import SupervisorActivity from './app/pages/SupervisorActivity.svelte';
   import SupervisorInternManagement from './app/pages/SupervisorInternManagement.svelte';
+  import SupervisorProjects from './app/pages/SupervisorProjects.svelte';
   import TimeLog from './app/pages/TimeLog.svelte';
   import { getPageMeta, normalizePath } from './app/routes.js';
   import {
@@ -37,6 +38,7 @@
     '/supervisor/interns': SupervisorInternManagement,
     '/supervisor/time-logs': SupervisorTimeLog,
     '/supervisor/requests': Requests,
+    '/supervisor/projects': SupervisorProjects,
     '/supervisor/activity': SupervisorActivity,
     '/supervisor/documents': Documents,
   };
@@ -58,6 +60,7 @@
     '/supervisor/interns',
     '/supervisor/time-logs',
     '/supervisor/requests',
+    '/supervisor/projects',
     '/supervisor/activity',
     '/documents',
     '/settings',

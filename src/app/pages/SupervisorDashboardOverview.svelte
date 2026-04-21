@@ -138,12 +138,25 @@
     const timeIn = String(row?.time_in || '').trim();
     const timeOut = String(row?.time_out || '').trim();
 
-    if (timeIn && timeOut) {
-      return { label: `Clocked out (${timeOut})`, tone: 'success' };
+    const extractTime = (dateString) => {
+      if (!dateString) return '';
+      // Extract HH:MM from various date formats
+      const timeMatch = dateString.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (timeMatch) {
+        return `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+      }
+      return '';
+    };
+
+    const formattedTimeOut = extractTime(timeOut);
+    const formattedTimeIn = extractTime(timeIn);
+
+    if (formattedTimeIn && formattedTimeOut) {
+      return { label: `Clocked out (${formattedTimeOut})`, tone: 'success' };
     }
 
-    if (timeIn) {
-      return { label: `Clocked in (${timeIn})`, tone: 'warning' };
+    if (formattedTimeIn) {
+      return { label: `Clocked in (${formattedTimeIn})`, tone: 'warning' };
     }
 
     return { label: 'No clock-in yet', tone: 'muted' };
@@ -546,6 +559,11 @@
 
   .intern-title {
     min-width: 0;
+    appearance: none;
+  }
+
+  .intern-title::before {
+    display: none;
   }
 
   .intern-name {
@@ -553,6 +571,11 @@
     font-weight: 700;
     font-size: 0.95rem;
     color: var(--text-primary);
+    appearance: none;
+  }
+
+  .intern-name::before {
+    display: none;
   }
 
   .intern-meta {
