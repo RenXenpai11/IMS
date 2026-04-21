@@ -783,13 +783,15 @@
 
   <!-- Tab Row -->
   <div class="tab-row">
-    <button
-      class="tab-btn"
-      class:active={activeTab === "my-requests"}
-      on:click={() => setTab("my-requests")}
-    >
-      {listTabLabel}
-    </button>
+    {#if !isSupervisor}
+      <button
+        class="tab-btn"
+        class:active={activeTab === "my-requests"}
+        on:click={() => setTab("my-requests")}
+      >
+        {listTabLabel}
+      </button>
+    {/if}
     {#if !isSupervisor}
       <button
         class="tab-btn"
