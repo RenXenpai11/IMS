@@ -3622,11 +3622,13 @@ function escapeHtml_(value) {
 }
 
 function isoNow_() {
-  // Use space-separated timestamp (no 'T') to match UI expectation: "YYYY-MM-DD HH:MM:SS"
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+  // Return an ISO-8601 timestamp in UTC. Frontend expects ISO strings
+  // (e.g. 2026-04-21T12:34:56.789Z) so normalize server timestamps to this format.
+  return new Date().toISOString();
 }
 
-// Normalize created_at/updated_at values in `activity_logs` to 'YYYY-MM-DD HH:MM:SS'
+// Normalize created_at/updated_at values in `activity_logs` to ISO-8601
+// (YYYY-MM-DDTHH:MM:SS.sssZ). This helper is for migration/cleanup.
 function standardizeActivityLogTimestamps() {
   try {
     var sheet = getSheet_('activity_logs');
