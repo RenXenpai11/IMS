@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
-  import { Users, Clock3, CheckCircle, AlertCircle } from 'lucide-svelte';
+  import { Users, Clock3, CheckCircle, AlertCircle, Download, ExternalLink } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -21,6 +21,9 @@
   };
   let students = [];
   let selectedStudentId = 'all';
+  // Overview dropdowns should be independent: separate selections for the worklogs and tasks panels
+  let overviewSelectedStudentId = 'all';
+  let tasksSelectedStudentId = 'all';
   let selectedInternId = '';
   let activeView = 'Overview';
   let selectedStatus = 'all';
@@ -86,6 +89,15 @@
     if (diffDays === 1) return 'yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
     return activityDate.toLocaleDateString();
+  }
+
+  function getDriveDownloadUrl(link) {
+    const url = String(link || '').trim();
+    if (!url) return '';
+    if (url.includes('uc?export=download')) return url;
+    const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    const fileId = idMatch ? idMatch[1] : '';
+    return fileId ? `https://drive.google.com/uc?export=download&id=${fileId}` : url;
   }
 
   function callSupervisorOverview(payload) {
@@ -343,19 +355,76 @@
     return matchesStudent && matchesStatus && matchesSearch;
   });
 
+  // Overview-specific worklogs: do not apply status/search filters (only student selection)
+  $: overviewWorkLogs = workLogs.filter((log) => {
+    const isApproved = String(log.status || '').toLowerCase() === 'approved';
+    if (isApproved) return false;
+    const matchesStudent = overviewSelectedStudentId === 'all' || String(log.user_id || '') === overviewSelectedStudentId;
+    return matchesStudent;
+  });
+
   $: selectedIntern = students.find((student) => String(student.user_id || '') === String(selectedInternId || ''));
   $: selectedInternLogs = workLogs.filter((log) => String(log.user_id || '') === String(selectedInternId || ''));
 
-  // tasks assigned to the currently selected intern (or all)
+  // tasks assigned to the currently selected intern in the Overview tasks panel (independent selection)
   $: internTasks = supervisorTasks.filter(t => {
     if (!t) return false;
     if (!t.assigned_student_ids || !Array.isArray(t.assigned_student_ids)) return false;
-    // only include tasks assigned to the selected intern (or all)
-    const assignedMatch = selectedStudentId === 'all' || t.assigned_student_ids.includes(selectedStudentId);
+    // only include tasks assigned to the tasksSelectedStudentId (or all)
+    const assignedMatch = tasksSelectedStudentId === 'all' || t.assigned_student_ids.includes(tasksSelectedStudentId);
     // if the task includes created_by, ensure it matches current supervisor; otherwise allow (server already scopes tasks)
     const createdByMatch = t.created_by ? String(t.created_by) === String(currentUser?.user_id || '') : true;
     return assignedMatch && createdByMatch;
   });
+
+  // Helper to match task status filter (select uses lowercase 'all', 'completed', 'in progress', ...)
+  function matchesTaskStatus(task, filter) {
+    if (!filter || String(filter).toLowerCase() === 'all') return true;
+    if (!task) return false;
+    return String(task.status || '').toLowerCase() === String(filter || '').toLowerCase();
+  }
+
+  // Filtered lists used by UI when a status filter or search is active
+  $: filteredInternTasks = internTasks.filter((t) => {
+    if (!t) return false;
+    const matchesStatus = matchesTaskStatus(t, selectedStatus);
+    const q = (searchTerm || '').trim().toLowerCase();
+    const matchesSearch = !q || String(t.title || '').toLowerCase().includes(q) || String(t.description || '').toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  });
+
+  $: filteredSupervisorTasks = supervisorTasks.filter((t) => {
+    if (!t) return false;
+    const matchesStatus = matchesTaskStatus(t, selectedStatus);
+    const q = (searchTerm || '').trim().toLowerCase();
+    const matchesSearch = !q || String(t.title || '').toLowerCase().includes(q) || String(t.description || '').toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  });
+
+  // Update supervisor task status (persist to server and update UI)
+  async function updateSupervisorTaskStatus(taskId, newStatus) {
+    if (!taskId) return;
+    try {
+      await maybeDelay();
+      const payload = {
+        sup_taskid: taskId,
+        status: newStatus,
+        updated_by: currentUser?.user_id || ''
+      };
+      const res = await callUpdateSupervisorTask(payload);
+      if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Unable to update task status.');
+
+      // reflect change locally
+      supervisorTasks = supervisorTasks.map((t) => (String(t.id) === String(taskId) ? { ...t, status: newStatus } : t));
+
+      // update viewTask if open
+      if (viewTask && String(viewTask.id) === String(taskId)) {
+        viewTask = supervisorTasks.find(x => String(x.id) === String(taskId)) || viewTask;
+      }
+    } catch (err) {
+      loadError = err?.message || 'Unable to update task status.';
+    }
+  }
 
   function previewText(txt, max = 80) {
     if (!txt) return '';
@@ -850,16 +919,22 @@ function toggleEditAssigneeDropdown() {
       <label for="task-desc">Description</label>
       <textarea id="task-desc" rows="6" bind:value={newTaskDescription}></textarea>
 
-      <label for="task-status">Status</label>
-      <select id="task-status" bind:value={newTaskStatus} style="width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--soft); margin-bottom:0.4rem;">
-        <option value="Pending">Pending</option>
-        <option value="In Progress">In Progress</option>
-        <option value="Overdue">Overdue</option>
-        <option value="Completed">Completed</option>
-      </select>
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0.6rem; align-items:end;">
+        <div>
+          <label for="task-status">Status</label>
+          <select id="task-status" bind:value={newTaskStatus} style="width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--soft); margin-bottom:0;">
+            <option value="Pending">Pending</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Overdue">Overdue</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
 
-      <label for="task-due">Due Date</label>
-      <input id="task-due" type="date" bind:value={newTaskDueDate} />
+        <div>
+          <label for="task-due">Due Date</label>
+          <input id="task-due" type="date" bind:value={newTaskDueDate} style="width:100%;" />
+        </div>
+      </div>
 
       <label for="task-assigned">Assigned To</label>
       <div style="position:relative;">
@@ -900,7 +975,7 @@ function toggleEditAssigneeDropdown() {
           <h3>Intern work logs</h3>
         </div>
         <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
-          <select class="small-select" bind:value={selectedStudentId} aria-label="Filter interns">
+          <select class="small-select" bind:value={overviewSelectedStudentId} aria-label="Filter interns">
             <option value="all">All interns</option>
             {#each students as student}
               <option value={student.user_id}>{student.full_name}</option>
@@ -912,10 +987,10 @@ function toggleEditAssigneeDropdown() {
         </div>
       
       <div class="log-list">
-        {#if filteredWorkLogs.length === 0}
+        {#if overviewWorkLogs.length === 0}
           <p class="empty">No work logs found.</p>
         {:else}
-          {#each filteredWorkLogs as log}
+          {#each overviewWorkLogs as log}
             <div class="log-card {expandedLogIds.indexOf(log.task_id) !== -1 ? 'expanded' : 'collapsed'}" on:click={() => toggleExpand(log.task_id)} role="button" tabindex="0">
               <div class="log-meta">
                 <div>
@@ -929,13 +1004,53 @@ function toggleEditAssigneeDropdown() {
                 <div class="log-details">
                   <div class="detail-row"><span class="row-label">Notes:</span> <div class="detail-value">{log.notes || 'No notes'}</div></div>
                   <div class="detail-row"><span class="row-label">Learnings:</span> <div class="detail-value">{log.learnings || 'No learnings'}</div></div>
+                  {#if log.attachments && log.attachments.length > 0}
+                    <div class="detail-row log-attachments">
+                      <span class="row-label">Attachments:</span>
+                      <div class="detail-value">
+                        <ul class="log-attachment-list">
+                          {#each log.attachments as file}
+                            <li class="log-attachment-item">
+                              <div class="log-attachment-main">
+                                <span class="log-attachment-name">{file.file_name || file.file_type || 'file'}</span>
+                                <span class="log-attachment-meta">{file.file_type || 'file'}{file.file_size ? ` • ${file.file_size}` : ''}</span>
+                              </div>
+                              <div class="log-attachment-actions">
+                                {#if file.link}
+                                  <a
+                                    class="log-attachment-action"
+                                    href={file.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="View attachment"
+                                    title="View"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </a>
+                                  <a
+                                    class="log-attachment-action"
+                                    href={getDriveDownloadUrl(file.link)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Download attachment"
+                                    title="Download"
+                                  >
+                                    <Download size={14} />
+                                  </a>
+                                {:else}
+                                  <span class="log-attachment-empty">No link</span>
+                                {/if}
+                              </div>
+                            </li>
+                          {/each}
+                        </ul>
+                      </div>
+                    </div>
+                  {/if}
                 </div>
 
-                <div class="log-foot">
-                  <div class="attachments"><span class="row-label">Attachment:</span>&nbsp;<span class="detail-value">{log.attachments?.length || 0}</span></div>
-                  <div class="log-actions">
-                    <button class="primary btn-compact" on:click|stopPropagation={() => approveWorklog(log)} disabled={isLoading}>Approve</button>
-                  </div>
+                <div class="log-actions">
+                  <button class="primary btn-compact" on:click|stopPropagation={() => approveWorklog(log)} disabled={isLoading}>Approve</button>
                 </div>
               </div>
             </div>
@@ -950,7 +1065,7 @@ function toggleEditAssigneeDropdown() {
           <h3>Intern Tasks</h3>
         </div>
         <div class="filters" style="display:flex; align-items:center; gap:0.6rem;">
-          <select class="small-select" bind:value={selectedStudentId} aria-label="Filter interns">
+          <select class="small-select" bind:value={tasksSelectedStudentId} aria-label="Filter interns">
             <option value="all">All interns</option>
             {#each students as student}
               <option value={student.user_id}>{student.full_name}</option>
@@ -966,9 +1081,9 @@ function toggleEditAssigneeDropdown() {
             <button type="button" class="intern-row-button intern-tasks-compact" on:click={() => openViewTask(item)} aria-label={`View ${item.title}`}>
               <div style="flex:1; min-width:0">
                 <div class="title-text">{item.title}</div>
-                <div style="color:var(--muted); font-size:0.85rem; margin-top:0.25rem">Due: {formatDateToMMDDYYYY(item.due_date) || 'No due date'}</div>
               </div>
-              <div style="display:flex; gap:0.6rem; align-items:center;">
+              <div style="display:flex; gap:0.8rem; align-items:center;">
+                <div style="color:var(--muted); font-size:0.85rem">{formatDateToMMDDYYYY(item.due_date) || 'No due date'}</div>
                 <div class={`status-badge ${statusClass(item.status)}`}>{item.status}</div>
               </div>
             </button>
@@ -1042,11 +1157,52 @@ function toggleEditAssigneeDropdown() {
                 <div class="log-details">
                   <div class="detail-row"><span class="row-label">Notes:</span> <div class="detail-value">{log.notes || 'No notes'}</div></div>
                   <div class="detail-row"><span class="row-label">Learnings:</span> <div class="detail-value">{log.learnings || 'No learnings'}</div></div>
+                  {#if log.attachments && log.attachments.length > 0}
+                    <div class="detail-row log-attachments">
+                      <span class="row-label">Attachments:</span>
+                      <div class="detail-value">
+                        <ul class="log-attachment-list">
+                          {#each log.attachments as file}
+                            <li class="log-attachment-item">
+                              <div class="log-attachment-main">
+                                <span class="log-attachment-name">{file.file_name || file.file_type || 'file'}</span>
+                                <span class="log-attachment-meta">{file.file_type || 'file'}{file.file_size ? ` • ${file.file_size}` : ''}</span>
+                              </div>
+                              <div class="log-attachment-actions">
+                                {#if file.link}
+                                  <a
+                                    class="log-attachment-action"
+                                    href={file.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="View attachment"
+                                    title="View"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </a>
+                                  <a
+                                    class="log-attachment-action"
+                                    href={getDriveDownloadUrl(file.link)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Download attachment"
+                                    title="Download"
+                                  >
+                                    <Download size={14} />
+                                  </a>
+                                {:else}
+                                  <span class="log-attachment-empty">No link</span>
+                                {/if}
+                              </div>
+                            </li>
+                          {/each}
+                        </ul>
+                      </div>
+                    </div>
+                  {/if}
                 </div>
 
-                <div class="log-foot">
-                  <div class="attachments"><span class="row-label">Attachment:</span>&nbsp;<span class="detail-value">{log.attachments?.length || 0}</span></div>
-                </div>
+                
               </div>
             </div>
           {/each}
@@ -1073,13 +1229,13 @@ function toggleEditAssigneeDropdown() {
 
       <!-- Tasks list (supervisor-created tasks) -->
       <div class="tasks-list-panel">
-        {#if supervisorTasks.length === 0}
+        {#if filteredSupervisorTasks.length === 0}
           <p class="empty">No tasks yet. Add a task to see it here.</p>
         {:else}
           <div class="tasks-table">
             <!-- header labels moved to panel head for cleaner top alignment -->
             <ul class="intern-list">
-              {#each supervisorTasks as t}
+              {#each filteredSupervisorTasks as t}
                 <li class="intern-list-item task-row">
                   <div class="col col-title" style="text-align:left;">
                     <div style="font-weight:700">{t.title}</div>
@@ -1140,18 +1296,7 @@ function toggleEditAssigneeDropdown() {
               <textarea rows="3" readonly>{viewTask?.description || 'No description'}</textarea>
             </label>
 
-            <div class="task-view-section">
-              <span>Attachments</span>
-              {#if viewTask?.attachments && viewTask.attachments.length > 0}
-                <ul class="attachment-list">
-                  {#each viewTask.attachments as a}
-                    <li><span>{a}</span></li>
-                  {/each}
-                </ul>
-              {:else}
-                <p class="overview-empty-copy">No attachments.</p>
-              {/if}
-            </div>
+            <!-- Attachments removed as requested -->
           </div>
         </div>
       {/if}
@@ -1646,8 +1791,43 @@ function toggleEditAssigneeDropdown() {
 
   /* collapse animation */
   .log-collapse { max-height: 0; overflow: hidden; transition: max-height 220ms ease; }
-  .log-card.expanded .log-collapse { max-height: 420px; }
+  .log-card.expanded .log-collapse { max-height: 800px; }
   .log-card.collapsed { min-height: 96px; }
+
+  .log-attachments { align-items: flex-start; }
+  .log-attachment-list { list-style: none; padding: 0; margin: 0.2rem 0 0 0; display: grid; gap: 0.45rem; }
+  .log-attachment-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--border) 35%, var(--surface));
+    border: 1px solid var(--border);
+  }
+  .log-attachment-main { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+  .log-attachment-name { font-size: 0.9rem; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-attachment-meta { font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+  .log-attachment-actions { display: inline-flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+  .log-attachment-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 0.55rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--accent);
+    transition: transform 0.12s, background 0.12s, border-color 0.12s;
+  }
+  .log-attachment-action:hover {
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .log-attachment-empty { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
 
   .progress-list {
     display: grid;

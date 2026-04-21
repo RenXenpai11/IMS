@@ -1,14 +1,21 @@
 <script>
   import { onDestroy, onMount, tick } from "svelte";
   import {
+    AlertTriangle,
     Calendar,
+    CheckCircle2,
     Clock3,
     FileText,
     ShieldCheck,
     Loader2,
+    Pencil,
+    Send,
+    Timer,
+    Trash2,
+    User,
+    XCircle,
     X,
     Archive,
-    Trash2,
   } from "lucide-svelte";
   import {
     callApiAction,
@@ -21,13 +28,13 @@
 
   const STATUS_META = {
     Pending: {
-      badgeClass: "status-badge status-pending",
+      badgeClass: "status-badge pending",
     },
     Approved: {
-      badgeClass: "status-badge status-approved",
+      badgeClass: "status-badge approved",
     },
     Rejected: {
-      badgeClass: "status-badge status-rejected",
+      badgeClass: "status-badge rejected",
     },
   };
 
@@ -802,7 +809,7 @@
 
   <!-- My Requests Tab -->
   {#if activeTab === "my-requests"}
-    <div class="panel">
+    <div class="requests-section">
       {#if isLoading}
         <div class="empty-requests">
           <div class="empty-icon"><Loader2 size={22} /></div>
@@ -817,89 +824,29 @@
           </div>
         </div>
       {:else}
-        <!-- Filter Chips -->
+        <!-- Filter Pills -->
         <div class="filter-row">
-          <div class="filter-chips-left">
-            <button
-              class="filter-chip"
-              class:active={requestFilter === "all"}
-              on:click={() => (requestFilter = "all")}
-            >
-              All
-            </button>
-            <button
-              class="filter-chip"
-              class:active={requestFilter === "absence"}
-              on:click={() => (requestFilter = "absence")}
-            >
-              <Calendar size={14} /> Absence
-            </button>
-            <button
-              class="filter-chip"
-              class:active={requestFilter === "overtime"}
-              on:click={() => (requestFilter = "overtime")}
-            >
-              <Clock3 size={14} /> Overtime
-            </button>
-            <button
-              class="filter-chip"
-              class:active={requestFilter === "archive"}
-              on:click={() => (requestFilter = "archive")}
-            >
-              <Archive size={14} /> Archive
-            </button>
-          </div>
-          
-          {#if isSupervisor}
-            <div class="filter-chips-right">
-              <button
-                class="filter-chip select-mode-btn"
-                class:active={bulkArchiveMode}
-                on:click={() => {
-                  bulkArchiveMode = !bulkArchiveMode;
-                  if (!bulkArchiveMode) {
-                    selectedRequestsForArchive.clear();
-                    selectedRequestsForArchive = selectedRequestsForArchive;
-                  }
-                }}
-              >
-                {bulkArchiveMode ? "Cancel" : "Select"}
-              </button>
-              
-              {#if bulkArchiveMode && selectedRequestsForArchive.size > 0}
-                <div class="bulk-actions-menu">
-                  <button
-                    class="bulk-action-btn archive-action"
-                    on:click={confirmBulkArchiveRequests}
-                    disabled={isArchiving}
-                  >
-                    {#if isArchiving}
-                      <span class="spinning-icon"><Loader2 size={14} /></span>
-                      {requestFilter === "archive" ? "Recovering..." : "Archiving..."}
-                    {:else}
-                      <Archive size={14} />
-                      {requestFilter === "archive" ? "Recover" : "Archive"} ({selectedRequestsForArchive.size})
-                    {/if}
-                  </button>
-                  {#if requestFilter === "archive"}
-                    <button
-                      class="bulk-action-btn delete-action"
-                      on:click={() => (showBulkDeleteModal = true)}
-                      disabled={isBulkDeleting}
-                    >
-                      {#if isBulkDeleting}
-                        <span class="spinning-icon"><Loader2 size={14} /></span>
-                        Deleting...
-                      {:else}
-                        <Trash2 size={14} />
-                        Delete ({selectedRequestsForArchive.size})
-                      {/if}
-                    </button>
-                  {/if}
-                </div>
-              {/if}
-            </div>
-          {/if}
+          <button
+            class="filter-chip"
+            class:active={requestFilter === "all"}
+            on:click={() => (requestFilter = "all")}
+          >
+            All
+          </button>
+          <button
+            class="filter-chip"
+            class:active={requestFilter === "absence"}
+            on:click={() => (requestFilter = "absence")}
+          >
+            📅 Absence
+          </button>
+          <button
+            class="filter-chip"
+            class:active={requestFilter === "overtime"}
+            on:click={() => (requestFilter = "overtime")}
+          >
+            ⏱️ Overtime
+          </button>
         </div>
 
         {#if filteredRequests.length === 0}
@@ -922,33 +869,8 @@
                 class:request-card-pending={statusTone === "pending"}
                 class:request-card-approved={statusTone === "approved"}
                 class:request-card-rejected={statusTone === "rejected"}
-                class:bulk-mode-active={bulkArchiveMode && isSupervisor}
-                class:checked={selectedRequestsForArchive.has(request.id)}
-                role="button"
-                tabindex="0"
-                on:click={() => {
-                  if (bulkArchiveMode && isSupervisor) {
-                    toggleBulkArchiveSelection(request.id);
-                  }
-                }}
-                on:keydown={(e) => {
-                  if (bulkArchiveMode && isSupervisor && (e.key === 'Enter' || e.key === ' ')) {
-                    e.preventDefault();
-                    toggleBulkArchiveSelection(request.id);
-                  }
-                }}
               >
                 <div class="request-card-header">
-                  {#if bulkArchiveMode && isSupervisor}
-                    <input
-                      type="checkbox"
-                      class="bulk-checkbox"
-                      checked={selectedRequestsForArchive.has(request.id)}
-                      on:change={() => toggleBulkArchiveSelection(request.id)}
-                      on:click|stopPropagation
-                      title="Select request for bulk archive"
-                    />
-                  {/if}
                   <div class="request-type-badge">
                     {#if request.requestType === "Overtime"}
                       <Clock3 size={14} /> Overtime
@@ -956,73 +878,76 @@
                       <Calendar size={14} /> Absence
                     {/if}
                   </div>
-                  <span class={statusMeta.badgeClass}>{request.status}</span>
+                  <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
                 </div>
 
-                <div class="request-card-dates">
-                  <div class="date-row">
-                    <span class="label">📅 For:</span>
-                    <span class="value">{formatDate(request.date)}</span>
+                <div class="req-card-body">
+                  <div class="req-meta">
+                    <div class="req-meta-item">
+                      <Calendar size={13} />
+                      <span class="label">For:</span>
+                      <strong>{formatCreatedDate(request.date)}</strong>
+                    </div>
+
+                    {#if request.requestType === "Overtime" && request.total_hours}
+                      <div class="req-meta-item">
+                        <Timer size={13} />
+                        <span class="label">Duration:</span>
+                        <strong>{request.total_hours}h</strong>
+                      </div>
+                    {/if}
+
+                    {#if request.created_at}
+                      <div class="req-meta-item">
+                        <Clock3 size={13} />
+                        <span class="label">Submitted:</span>
+                        <strong>{formatCreatedDate(request.created_at)}</strong>
+                      </div>
+                    {/if}
+
+                    {#if isSupervisor}
+                      <div class="req-meta-item">
+                        <User size={13} />
+                        <span class="label">Requester:</span>
+                        <strong>{request.requester_name || "Unknown"}</strong>
+                      </div>
+                    {/if}
                   </div>
-                  {#if request.requestType === "Overtime" && request.total_hours}
-                    <div class="date-row">
-                      <span class="label">⏳ Duration:</span>
-                      <span class="value">{request.total_hours}h</span>
-                    </div>
-                  {/if}
-                  {#if request.created_at}
-                    <div class="date-row">
-                      <span class="label">Submitted:</span>
-                      <span class="value"
-                        >{formatCreatedDate(request.created_at)}</span
-                      >
-                    </div>
-                  {/if}
-                  {#if isSupervisor}
-                    <div class="date-row">
-                      <span class="label">👤 Requester:</span>
-                      <span class="value"
-                        >{request.requester_name || "Unknown"}</span
-                      >
-                    </div>
-                  {/if}
+
+                  <div class="req-reason-block">
+                    <div class="req-reason-label">Reason</div>
+                    <p class="req-reason-text">{previewReason(request.reason)}</p>
+                  </div>
                 </div>
 
-                <div class="reason-box">
-                  <div class="reason-label">Reason</div>
-                  <p class="reason-text">{previewReason(request.reason)}</p>
-                </div>
-
-                <div class="request-card-actions">
+                <div class="req-card-footer">
                   {#if isSupervisor && request.status === "Pending"}
                     <button
                       class="action-btn approve"
-                      disabled={approvingRequestId === request.id}
                       on:click={() =>
                         updateRequestStatus(request.id, "Approved")}
                     >
-                      {#if approvingRequestId === request.id}
-                        <Loader2 size={13} class="spin" />
-                      {:else}
-                        <ShieldCheck size={13} />
-                      {/if}
-                      {approvingRequestId === request.id ? "Approving..." : "Approve"}
+                      <ShieldCheck size={13} /> Approve
                     </button>
                     <button
-                      class="action-btn reject"
+                      class="btn-reject"
                       on:click={() => openRejectModal(request)}
                     >
-                      Reject
+                      <XCircle size={12} /> Reject
                     </button>
                   {:else if !isSupervisor && request.status === "Pending"}
                     <button
-                      class="action-btn edit"
-                      on:click={() => editRequest(request)}>Edit</button
+                      class="btn-edit"
+                      on:click={() => editRequest(request)}
                     >
+                      <Pencil size={12} /> Edit
+                    </button>
                     <button
-                      class="action-btn delete"
-                      on:click={() => openDeleteModal(request)}>Delete</button
+                      class="btn-delete"
+                      on:click={() => openDeleteModal(request)}
                     >
+                      <Trash2 size={12} /> Delete
+                    </button>
                   {/if}
                 </div>
               </div>
@@ -1046,7 +971,7 @@
 
         <!-- Request Type -->
         <div class="form-group">
-          <label class="form-label">Request Type</label>
+          <div class="form-label">Request Type</div>
           <div class="type-toggle">
             <button
               class="type-btn"
@@ -1057,23 +982,7 @@
                 form.endTime = "";
               }}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                ><rect x="3" y="4" width="18" height="18" rx="2" /><line
-                  x1="16"
-                  y1="2"
-                  x2="16"
-                  y2="6"
-                /><line x1="8" y1="2" x2="8" y2="6" /><line
-                  x1="3"
-                  y1="10"
-                  x2="21"
-                  y2="10"
-                /></svg
-              >
+              <Calendar size={14} />
               Absence
             </button>
             <button
@@ -1083,15 +992,7 @@
                 form.requestType = "Overtime";
               }}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                ><circle cx="12" cy="12" r="10" /><polyline
-                  points="12 6 12 12 16 14"
-                /></svg
-              >
+              <Clock3 size={14} />
               Overtime
             </button>
           </div>
@@ -1099,8 +1000,9 @@
 
         <!-- Date -->
         <div class="form-group">
-          <label class="form-label">Date</label>
+          <label class="form-label" for="request-date">Date</label>
           <input
+            id="request-date"
             type="date"
             bind:value={form.date}
             min={minDate}
@@ -1114,23 +1016,32 @@
           <!-- Start / End Time -->
           <div class="row-2">
             <div class="form-group">
-              <label class="form-label">Start Time</label>
+              <label class="form-label" for="request-start-time">Start Time</label>
               <input
+                id="request-start-time"
                 type="time"
                 bind:value={form.startTime}
                 class="form-input"
               />
             </div>
             <div class="form-group">
-              <label class="form-label">End Time</label>
-              <input type="time" bind:value={form.endTime} class="form-input" />
+              <label class="form-label" for="request-end-time">End Time</label>
+              <input
+                id="request-end-time"
+                type="time"
+                bind:value={form.endTime}
+                class="form-input"
+              />
             </div>
           </div>
 
           <!-- Lunch Break -->
           <div class="form-group">
-            <label class="form-label">Lunch Break (minutes)</label>
+            <label class="form-label" for="request-lunch-break">
+              Lunch Break (minutes)
+            </label>
             <input
+              id="request-lunch-break"
               type="number"
               bind:value={form.lunchBreak}
               min="0"
@@ -1156,15 +1067,19 @@
         <!-- Weekend warning -->
         {#if form.requestType === "Absence" && isWeekend && form.date}
           <div class="weekend-warning">
-            ⚠️ This date is a weekend/day off. Absence requests cannot be
-            submitted for weekends.
+            <AlertTriangle size={14} />
+            <span>
+              This date is a weekend/day off. Absence requests cannot be
+              submitted for weekends.
+            </span>
           </div>
         {/if}
 
         <!-- Reason / Notes -->
         <div class="form-group">
-          <label class="form-label">Reason / Notes</label>
+          <label class="form-label" for="request-reason">Reason / Notes</label>
           <textarea
+            id="request-reason"
             bind:value={form.reason}
             rows="5"
             class="form-textarea"
@@ -1187,17 +1102,7 @@
               <span class="spinning-icon"><Loader2 size={14} /></span>
               Submitting...
             {:else}
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                ><line x1="22" y1="2" x2="11" y2="13" /><polygon
-                  points="22 2 15 22 11 13 2 9 22 2"
-                /></svg
-              >
+              <Send size={14} />
               Submit Request
             {/if}
           </button>
@@ -1608,13 +1513,13 @@
     color: var(--green);
   }
   .stat-value {
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 700;
     letter-spacing: -0.4px;
     line-height: 1;
   }
   .stat-label {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text2);
     margin-top: 2px;
     font-weight: 500;
@@ -1630,7 +1535,7 @@
     padding: 8px 18px;
     border-radius: var(--radius-sm);
     font-family: inherit;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
@@ -1655,6 +1560,12 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
     overflow: hidden;
+  }
+
+  .requests-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   /* ========== EMPTY STATE ========== */
@@ -1693,45 +1604,33 @@
   /* ========== FILTER ROW ========== */
   .filter-row {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
     gap: 8px;
     flex-wrap: wrap;
-    padding: 16px 16px 0;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
-
-  .filter-chips-left {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .filter-chips-right {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
   .filter-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
     padding: 6px 14px;
-    border-radius: 30px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    font-size: 12.5px;
-    font-weight: 500;
+    border-radius: 40px;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.18s;
+    border: 1px solid var(--border2);
+    background: transparent;
     color: var(--text2);
   }
-  .filter-chip.active {
+  .filter-pill:hover {
+    background: var(--surface2);
+    color: var(--text);
+  }
+  .filter-pill.active {
     background: var(--accent);
-    color: white;
+    color: #fff;
     border-color: var(--accent);
+  }
+  .filter-pill :global(svg) {
+    flex-shrink: 0;
   }
 
   /* ========== REQUEST CARDS ========== */
@@ -1739,192 +1638,173 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 0 16px 16px;
   }
-  .request-card {
+  .req-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 16px;
-    transition: all 0.2s;
-    position: relative;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
     overflow: hidden;
+    transition:
+      box-shadow 0.2s,
+      transform 0.2s,
+      border-color 0.2s;
   }
-  .request-card::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 3px;
-    background: var(--accent);
-  }
-  .request-card-pending::before {
-    background: var(--amber);
-  }
-  .request-card-approved::before {
-    background: var(--green);
-  }
-  .request-card-rejected::before {
-    background: var(--red);
-  }
-  .request-card:hover {
-    transform: translateY(-2px);
+  .req-card:hover {
     box-shadow: var(--shadow);
+    transform: translateY(-1px);
   }
-
-  .request-card.bulk-mode-active {
-    cursor: pointer;
-  }
-
-  .request-card.bulk-mode-active:hover {
-    background: var(--surface2);
-    border-color: var(--accent);
-  }
-
-  .request-card.bulk-mode-active.checked {
-    background: var(--accent-glow);
-    border-color: var(--accent);
-  }
-
   .request-card-focused {
     border-color: var(--accent2);
     box-shadow: 0 0 0 3px var(--accent-glow);
   }
-  .request-card-header {
+  .req-card-header {
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
+    gap: 12px;
+    padding: 13px 18px 10px;
+    border-bottom: 1px solid var(--border);
   }
-  .request-type-badge {
-    display: inline-flex;
+  .req-type-badge {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    background: var(--surface2);
-    padding: 4px 12px;
-    border-radius: 30px;
-    font-size: 12px;
-    font-weight: 600;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 700;
     color: var(--text2);
   }
-
-  .warning-text {
-    color: var(--red);
-    font-weight: 600;
-    margin-bottom: 8px;
-  }
-
   .request-card-dates {
     display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 12px;
-    font-size: 13px;
+    flex-direction: column;
+    gap: 10px;
   }
-  .date-row {
+  .req-meta {
     display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .req-meta-item {
+    display: flex;
+    align-items: center;
     gap: 6px;
-    align-items: baseline;
+    font-size: 13.5px;
+    color: var(--text2);
   }
-  .date-row .label {
+  .req-meta-item :global(svg) {
     color: var(--text3);
-    font-weight: 500;
+    flex-shrink: 0;
   }
-  .date-row .value {
+  .req-meta-item strong {
     color: var(--text);
-    font-weight: 500;
+    font-weight: 700;
   }
-  .reason-box {
+  .req-meta-item .label {
+    color: var(--text3);
+    font-size: 12.5px;
+  }
+  .req-reason-block {
     background: var(--surface2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 12px;
-    margin: 12px 0;
+    padding: 10px 14px;
   }
-  .reason-label {
-    font-size: 10px;
-    font-weight: 600;
+  .req-reason-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
     color: var(--text3);
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
-  .reason-text {
-    font-size: 13px;
-    color: var(--text);
-    line-height: 1.4;
+  .req-reason-text {
+    font-size: 14px;
+    color: var(--text2);
+    line-height: 1.5;
   }
-  .request-card-actions {
+  .req-card-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 12px;
-    margin-top: 8px;
+    gap: 8px;
+    padding: 0 18px 14px;
   }
-  .action-btn {
-    display: inline-flex;
+
+  .btn-edit,
+  .btn-delete,
+  .btn-approve,
+  .btn-reject {
+    display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 6px 14px;
-    border-radius: 30px;
-    font-size: 12px;
-    font-weight: 600;
+    gap: 6px;
+    padding: 7px 15px;
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
     border: none;
     cursor: pointer;
     transition: all 0.2s;
   }
-  .action-btn.approve {
-    background: var(--green);
-    color: white;
-  }
-  .action-btn.approve:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
+  .btn-edit,
+  .btn-approve {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--accent-glow);
   }
   .action-btn.reject {
     background: var(--red);
-    color: white;
-  }
-  .action-btn.recover {
-    background: var(--green);
-    color: white;
-  }
-  .action-btn.recover:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
+    color: #fff;
+    box-shadow: 0 2px 6px var(--red-dim);
   }
   .action-btn.edit {
     background: var(--accent);
     color: white;
   }
-  .action-btn.delete {
-    background: var(--red);
-    color: white;
+  .btn-edit :global(svg),
+  .btn-delete :global(svg),
+  .btn-approve :global(svg),
+  .btn-reject :global(svg) {
+    flex-shrink: 0;
   }
 
   /* ========== STATUS BADGES ========== */
   .status-badge {
     display: inline-flex;
     align-items: center;
-    border-radius: 30px;
-    padding: 4px 12px;
-    font-size: 11px;
+    gap: 5px;
+    padding: 4px 11px;
+    border-radius: 40px;
+    font-size: 12.5px;
     font-weight: 700;
-    border: 1px solid transparent;
+    letter-spacing: 0.02em;
   }
-  .status-pending {
+  .status-badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .status-badge.pending {
     background: var(--amber-dim);
-    border-color: var(--amber);
     color: var(--amber);
   }
-  .status-approved {
+  .status-badge.pending::before {
+    background: var(--amber);
+  }
+  .status-badge.approved {
     background: var(--green-dim);
-    border-color: var(--green);
     color: var(--green);
   }
-  .status-rejected {
+  .status-badge.approved::before {
+    background: var(--green);
+  }
+  .status-badge.rejected {
     background: var(--red-dim);
-    border-color: var(--red);
     color: var(--red);
+  }
+  .status-badge.rejected::before {
+    background: var(--red);
   }
 
   /* ========== FORM PANEL ========== */
@@ -1950,7 +1830,7 @@
     gap: 8px;
   }
   .form-label {
-    font-size: 12.5px;
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text2);
   }
@@ -1975,7 +1855,7 @@
     background: transparent;
     color: var(--text2);
   }
-  .type-btn svg {
+  .type-btn :global(svg) {
     width: 14px;
     height: 14px;
     flex-shrink: 0;
@@ -1998,7 +1878,7 @@
     border-radius: var(--radius-sm);
     padding: 10px 14px;
     font-family: "DM Mono", monospace;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text);
     width: 100%;
     outline: none;
@@ -2020,7 +1900,7 @@
     resize: vertical;
     min-height: 110px;
     font-family: "DM Sans", sans-serif;
-    font-size: 13px;
+    font-size: 14px;
   }
   .lunch-input {
     max-width: 400px;
@@ -2047,12 +1927,19 @@
 
   /* Weekend warning */
   .weekend-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
     background: var(--amber-dim);
     border: 1px solid var(--amber);
     border-radius: var(--radius-sm);
     padding: 12px;
     font-size: 13px;
     color: var(--amber);
+  }
+  .weekend-warning :global(svg) {
+    flex-shrink: 0;
+    margin-top: 1px;
   }
 
   /* Submit footer */
@@ -2070,7 +1957,7 @@
     background: var(--accent);
     color: #fff;
     font-family: inherit;
-    font-size: 13.5px;
+    font-size: 14.5px;
     font-weight: 700;
     border: none;
     cursor: pointer;

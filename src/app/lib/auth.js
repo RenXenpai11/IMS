@@ -290,8 +290,6 @@ export async function updateUserProfile(profileInput) {
     full_name: String(profileInput?.full_name || '').trim(),
     phone: String(profileInput?.phone || '').trim(),
     department: String(profileInput?.department || '').trim(),
-    location: String(profileInput?.location || '').trim(),
-    bio: String(profileInput?.bio || '').trim(),
   });
 
   if (result?.user && currentUser && String(currentUser.user_id || '') === String(result.user.user_id || '')) {
@@ -385,10 +383,14 @@ export async function listTimeLogsByUser(userId) {
   return Array.isArray(result.logs) ? result.logs : [];
 }
 
-export async function deleteTimeLog(userId, timelogId) {
+export async function deleteTimeLog(userId, timelogId, details = {}) {
   const result = await postAction('delete_time_log', {
     user_id: String(userId || '').trim(),
     timelog_id: String(timelogId || '').trim(),
+    session_id: String(details.session_id || '').trim(),
+    log_date: String(details.log_date || '').trim(),
+    time_in: String(details.time_in || '').trim(),
+    time_out: String(details.time_out || '').trim(),
   });
 
   return result;

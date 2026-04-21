@@ -34,7 +34,8 @@ function addActivityWorklog(payload) {
 }
 
 var WORKLOG_ATTACHMENTS_SHEET_ = 'worklogs_attachment';
-var WORKLOG_ATTACHMENTS_HEADERS_ = ['attachment_id', 'task_id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
+// include file_name so worklog attachments store filename in sheet
+var WORKLOG_ATTACHMENTS_HEADERS_ = ['attachment_id', 'task_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'];
 
 function addWorklogAttachment(payload) {
 	try {
@@ -42,9 +43,12 @@ function addWorklogAttachment(payload) {
 		var userId = String(payload.user_id || '').trim();
 		var fileType = String(payload.file_type || '').trim();
 		var fileSize = String(payload.file_size || '').trim();
-		var uploadedAt = String(payload.uploaded_at || new Date().toISOString()).trim();
+		var uploadedAt = new Date(payload.uploaded_at || new Date()).toISOString();
 		var uploadedBy = String(payload.uploaded_by || '').trim();
 		var fileName = String(payload.file_name || 'upload').trim();
+		var fileDataBase64 = String(payload.file_data_base64 || '').trim();
+		var mimeType = String(payload.mime_type || 'application/octet-stream').trim();
+		var link = String(payload.link || '').trim();
 
 		if (!fileType && !fileSize && fileName === 'upload') {
 			return { ok: true, skipped: true };
@@ -64,13 +68,29 @@ function addWorklogAttachment(payload) {
 		} else {
 			var sheet = getOrCreateSheetWithHeaders_(WORKLOG_ATTACHMENTS_SHEET_, WORKLOG_ATTACHMENTS_HEADERS_);
 		}
+
+		// Upload file to Drive if base64 data is provided
+		if (fileDataBase64) {
+			try {
+				var bytes = Utilities.base64Decode(fileDataBase64);
+				var blob = Utilities.newBlob(bytes, mimeType, fileName || 'upload');
+				var uploadFolder = getOrCreateWorklogAttachmentsFolder_();
+				var createdFile = uploadFolder.createFile(blob);
+				createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+				link = createdFile.getUrl();
+			} catch (uploadErr) {
+				return { ok: false, error: 'Unable to save attachment to Drive: ' + (uploadErr.message || String(uploadErr)) };
+			}
+		}
+
 		sheet.appendRow([
 			attachmentId,
 			taskId,
 			userId,
 			fileType,
 			fileSize,
-			'',
+			fileName || '',
+			link || '',
 			uploadedAt,
 			uploadedBy
 		]);
@@ -84,6 +104,7 @@ function addWorklogAttachment(payload) {
 				file_type: fileType,
 				file_size: fileSize,
 				file_name: fileName,
+				link: link,
 				uploaded_at: uploadedAt,
 				uploaded_by: uploadedBy
 			}
@@ -155,6 +176,8 @@ function getActivityWorklogs(payload) {
 						attachment_id: attachmentId,
 						file_type: fileType,
 						file_size: fileSize,
+						file_name: String(attachRow.file_name || '').trim(),
+						link: String(attachRow.link || '').trim(),
 						uploaded_at: String(attachRow.uploaded_at || '').trim()
 					});
 				}
@@ -171,6 +194,48 @@ function getActivityWorklogs(payload) {
 	});
 
 	return { ok: true, worklogs: worklogs };
+}
+
+// Backfill links for existing worklog attachments by matching file_name in the Worklog attachments folder.
+function backfillWorklogAttachmentLinks() {
+	try {
+		var sheet = getOrCreateSheetWithHeaders_(WORKLOG_ATTACHMENTS_SHEET_, WORKLOG_ATTACHMENTS_HEADERS_);
+		var values = sheet.getDataRange().getValues();
+		if (!values || values.length < 2) {
+			return { ok: true, updated: 0 };
+		}
+
+		var headers = values[0].map(function(h) { return String(h || '').trim(); });
+		var fileNameIdx = headers.indexOf('file_name');
+		var linkIdx = headers.indexOf('link');
+		if (fileNameIdx === -1 || linkIdx === -1) {
+			return { ok: false, error: 'Missing file_name or link column.' };
+		}
+
+		var folder = getOrCreateWorklogAttachmentsFolder_();
+		var updated = 0;
+		for (var r = 1; r < values.length; r++) {
+			var row = values[r];
+			var fileName = String(row[fileNameIdx] || '').trim();
+			var link = String(row[linkIdx] || '').trim();
+			if (!fileName || link) {
+				continue;
+			}
+
+			var files = folder.getFilesByName(fileName);
+			if (files.hasNext()) {
+				var file = files.next();
+				file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+				row[linkIdx] = file.getUrl();
+				sheet.getRange(r + 1, 1, 1, row.length).setValues([row]);
+				updated++;
+			}
+		}
+
+		return { ok: true, updated: updated };
+	} catch (err) {
+		return { ok: false, error: err.message || String(err) };
+	}
 }
 
 function parseActivityJsonArray_(value) {
