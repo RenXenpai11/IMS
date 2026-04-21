@@ -6,6 +6,9 @@ let isLoadingWorkLogs = false;
 let workLogsError = '';
 
 let allUsers = [];
+let assignedSupervisors = [];
+let isLoadingAssignedSupervisors = false;
+let assignedSupervisorsError = '';
 
 let expandedWorkLog = null;
 let hoveredWorkLog = null;
@@ -150,9 +153,11 @@ onMount(async () => {
 onMount(() => {
   fetchAssignedTasks();
   fetchWorkLogs();
+  fetchAssignedSupervisors();
   stopUserSubscription = subscribeToCurrentUser(() => {
     fetchAssignedTasks();
     fetchWorkLogs();
+    fetchAssignedSupervisors();
   });
 });
 
@@ -189,6 +194,10 @@ function getUserFullName(idOrEmail) {
   if (byId) return byId.full_name || byId.user_id || '';
   const byEmail = allUsers.find(u => String(u.email || '').toLowerCase() === String(idOrEmail).toLowerCase());
   if (byEmail) return byEmail.full_name || byEmail.email || '';
+  const supervisorById = assignedSupervisors.find(s => String(s.user_id || '') === String(idOrEmail));
+  if (supervisorById) return supervisorById.full_name || supervisorById.email || supervisorById.user_id || '';
+  const supervisorByEmail = assignedSupervisors.find(s => String(s.email || '').toLowerCase() === String(idOrEmail).toLowerCase());
+  if (supervisorByEmail) return supervisorByEmail.full_name || supervisorByEmail.email || supervisorByEmail.user_id || '';
   return String(idOrEmail);
 }
 
@@ -252,6 +261,20 @@ function callGetAllStudents(payload = {}) {
     run.withSuccessHandler(resolve).withFailureHandler((error) => reject(new Error(error?.message || String(error)))).getAllStudents(payload);
   });
 }
+
+  function callGetStudentSupervisors(payload = {}) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => reject(new Error(error?.message || String(error))))
+        .getStudentSupervisors(payload);
+    });
+  }
 
 function mapWorklogToUi(row) {
   const source = row || {};
@@ -578,6 +601,7 @@ let assignedTasksError = '';
     status: 'Pending',
     dueDate: '',
     description: '',
+    assignedBy: '',
     dailyChecklist: [],
     attachments: [],
   };
@@ -622,8 +646,9 @@ let assignedTasksError = '';
       return true;
     }
 
-    return [task.title, task.status, task.dueDate, task.owner].some((value) =>
-      value.toLowerCase().includes(normalized)
+    const ownerLabel = getUserFullName(task.owner);
+    return [task.title, task.status, task.dueDate, ownerLabel].some((value) =>
+      String(value || '').toLowerCase().includes(normalized)
     );
   }
 
@@ -805,10 +830,11 @@ let assignedTasksError = '';
   }
 
   function resetAddTaskForm() {
+    const defaultSupervisorId = assignedSupervisors[0]?.user_id || '';
     addTaskForm = {
       title: '',
       status: 'Pending',
-      owner: '',
+      owner: defaultSupervisorId,
       dueDate: '',
       description: '',
       dailyChecklist: [],
@@ -831,6 +857,9 @@ let assignedTasksError = '';
       const nowDate = new Date();
       const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       addTaskForm.dateCreated = `${MONTH_NAMES[nowDate.getMonth()]} ${nowDate.getDate()}, ${nowDate.getFullYear()}`;
+      if (!addTaskForm.owner && assignedSupervisors.length > 0) {
+        addTaskForm.owner = assignedSupervisors[0].user_id;
+      }
     } else {
       resetAddTaskForm();
     }
@@ -1011,6 +1040,35 @@ let assignedTasksError = '';
     }
   }
 
+  async function fetchAssignedSupervisors() {
+    const user = getCurrentUser();
+    if (!user?.user_id) {
+      assignedSupervisors = [];
+      assignedSupervisorsError = '';
+      return;
+    }
+
+    isLoadingAssignedSupervisors = true;
+    assignedSupervisorsError = '';
+
+    try {
+      const result = await callGetStudentSupervisors({ student_user_id: user.user_id });
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Unable to load supervisors.');
+      }
+
+      assignedSupervisors = Array.isArray(result.supervisors) ? result.supervisors : [];
+      if (!addTaskForm.owner && assignedSupervisors.length > 0) {
+        addTaskForm.owner = assignedSupervisors[0].user_id;
+      }
+    } catch (error) {
+      assignedSupervisors = [];
+      assignedSupervisorsError = error?.message || 'Unable to load supervisors.';
+    } finally {
+      isLoadingAssignedSupervisors = false;
+    }
+  }
+
   async function addNewTask() {
     const rawTitle = addTaskForm.title.trim();
     const assignedBy = addTaskForm.owner.trim();
@@ -1020,6 +1078,13 @@ let assignedTasksError = '';
     const cleanedAttachments = getAttachmentNames(addTaskForm.attachments);
 
     if (!rawTitle || !addTaskForm.dueDate) {
+      return;
+    }
+
+    if (!assignedBy) {
+      addTaskError = assignedSupervisors.length === 0
+        ? 'No supervisor assigned yet.'
+        : 'Select a supervisor.';
       return;
     }
 
@@ -1178,6 +1243,7 @@ let assignedTasksError = '';
       status: 'Pending',
       dueDate: '',
       description: '',
+      assignedBy: '',
       dailyChecklist: [],
       attachments: [],
     };
@@ -1204,6 +1270,7 @@ let assignedTasksError = '';
       status: viewedTask.status,
       dueDate: toInputDate(viewedTask.dueDate),
       description: viewedTask.description,
+      assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
       dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
       attachments: getAttachmentNames(viewedTask.attachments),
     };
@@ -1217,6 +1284,7 @@ let assignedTasksError = '';
         status: viewedTask.status,
         dueDate: toInputDate(viewedTask.dueDate),
         description: viewedTask.description,
+        assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
         dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
         attachments: getAttachmentNames(viewedTask.attachments),
       };
@@ -1329,7 +1397,7 @@ let assignedTasksError = '';
       status: formState.status || task.status,
       due_date: formState.dueDate || toInputDate(task.dueDate),
       description: formState.description.trim() || task.description,
-      assigned_by: task.owner,
+      assigned_by: formState.assignedBy || task.owner,
       checklist: cleanedChecklist,
       attachments: cleanedAttachments,
       priority: task.priority || 'medium',
@@ -1786,7 +1854,19 @@ let assignedTasksError = '';
 
             <label>
               <span>Assigned by</span>
-              <input type="text" bind:value={addTaskForm.owner} placeholder="Who is assigning this task?" />
+              <select bind:value={addTaskForm.owner} disabled={isLoadingAssignedSupervisors || assignedSupervisors.length === 0}>
+                {#if isLoadingAssignedSupervisors}
+                  <option value="">Loading supervisors...</option>
+                {:else if assignedSupervisors.length === 0}
+                  <option value="">No supervisor assigned</option>
+                {:else}
+                  {#each assignedSupervisors as supervisor}
+                    <option value={supervisor.user_id}>
+                      {supervisor.full_name || supervisor.email || supervisor.user_id}
+                    </option>
+                  {/each}
+                {/if}
+              </select>
             </label>
           </div>
 
@@ -2649,7 +2729,23 @@ let assignedTasksError = '';
 
         <label>
           <span>Assigned by</span>
-          <input type="text" value={getUserFullName(viewedTask.owner) || viewedTask.owner} readonly />
+          {#if isEditingViewedTask}
+            <select bind:value={taskViewEditForm.assignedBy} disabled={isLoadingAssignedSupervisors || assignedSupervisors.length === 0}>
+              {#if isLoadingAssignedSupervisors}
+                <option value="">Loading supervisors...</option>
+              {:else if assignedSupervisors.length === 0}
+                <option value="">No supervisor assigned</option>
+              {:else}
+                {#each assignedSupervisors as supervisor}
+                  <option value={supervisor.user_id}>
+                    {supervisor.full_name || supervisor.email || supervisor.user_id}
+                  </option>
+                {/each}
+              {/if}
+            </select>
+          {:else}
+            <input type="text" value={getUserFullName(viewedTask.owner) || viewedTask.owner} readonly />
+          {/if}
         </label>
       </div>
 

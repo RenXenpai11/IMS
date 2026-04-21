@@ -847,6 +847,68 @@ function getUserInfoByEmail_(email) {
 	}
 	return null;
 }
+
+function getSupervisorInfoMap_(userIds) {
+	var infoMap = {};
+	if (!userIds || !userIds.length) return infoMap;
+
+	var sheet = getSheet_('users');
+	var values = getSheetValues_(sheet) || [];
+	if (values.length < 2) return infoMap;
+	var headers = values[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+	var userIdIdx = headers.indexOf('user_id');
+	var fullNameIdx = headers.indexOf('full_name');
+	var emailIdx = headers.indexOf('email');
+	var roleIdx = headers.indexOf('role');
+	if (userIdIdx === -1) return infoMap;
+
+	for (var i = 1; i < values.length; i++) {
+		var row = values[i] || [];
+		var uid = String(row[userIdIdx] || '').trim();
+		if (!uid || userIds.indexOf(uid) === -1) continue;
+		var role = roleIdx !== -1 ? String(row[roleIdx] || '').trim().toLowerCase() : '';
+		if (role && role !== 'supervisor') continue;
+		infoMap[uid] = {
+			user_id: uid,
+			full_name: fullNameIdx !== -1 ? String(row[fullNameIdx] || '').trim() : '',
+			email: emailIdx !== -1 ? String(row[emailIdx] || '').trim() : ''
+		};
+	}
+
+	return infoMap;
+}
+
+function getStudentSupervisors(payload) {
+	var studentId = String(payload.student_user_id || '').trim();
+	if (!studentId) {
+		return { ok: false, error: 'student_user_id is required.' };
+	}
+
+	var assignments = readSheetObjects_(getSheet_(SUPERVISOR_ASSIGNMENTS_SHEET_));
+	var supervisorIds = {};
+	for (var i = 0; i < assignments.length; i++) {
+		var row = assignments[i] || {};
+		if (String(row.student_user_id || '').trim() !== studentId) continue;
+		if (String(row.status || '').trim().toLowerCase() === 'inactive') continue;
+		var supId = String(row.supervisor_user_id || '').trim();
+		if (supId) supervisorIds[supId] = true;
+	}
+
+	var ids = Object.keys(supervisorIds);
+	var infoMap = getSupervisorInfoMap_(ids);
+	var supervisors = ids.map(function(id) {
+		var info = infoMap[id] || { user_id: id, full_name: '', email: '' };
+		return {
+			user_id: String(info.user_id || id).trim(),
+			full_name: String(info.full_name || '').trim(),
+			email: String(info.email || '').trim()
+		};
+	}).sort(function(a, b) {
+		return String(a.full_name || a.user_id || '').localeCompare(String(b.full_name || b.user_id || ''));
+	});
+
+	return { ok: true, supervisors: supervisors };
+}
 // Create a new activity task
 function createActivityTask(payload) {
 	return handleCreateActivityTask_(payload || {});
@@ -901,6 +963,27 @@ function handleCreateActivityTask_(payload) {
 	};
 
 	appendObjectRow_(sheet, rowObject);
+
+	var assignedBy = String(payload.assigned_by || '').trim();
+	if (assignedBy && user_id) {
+		try {
+			var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+			var supTaskId = (typeof createId_ === 'function') ? createId_('SUP') : ('SUP_' + new Date().getTime());
+			appendObjectRow_(supSheet, {
+				sup_taskid: supTaskId,
+				task: taskName,
+				description: String(payload.description || '').trim(),
+				due_date: dueDate,
+				status: String(payload.status || 'Pending').trim(),
+				assigned_to: JSON.stringify([user_id]),
+				created_at: createdAt,
+				created_by: assignedBy,
+				updated_by: assignedBy
+			});
+		} catch (e) {
+			// non-fatal if supervisor task creation fails
+		}
+	}
 
 	return {
 		ok: true,
