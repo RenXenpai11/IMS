@@ -44,8 +44,12 @@ export const pageMeta = {
     description: 'Review and manage assigned student time entries.',
   },
   '/supervisor/requests': {
-    title: 'Requests',
+    title: 'Intern Requests',
     description: 'Approve or reject assigned student requests.',
+  },
+  '/supervisor/projects': {
+    title: 'Projects',
+    description: 'Manage and oversee intern projects.',
   },
   '/supervisor/activity': {
     title: 'Activity Log',

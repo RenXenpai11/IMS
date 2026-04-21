@@ -18,7 +18,28 @@
   <div class="layout-main">
     <Header pageTitle={pageMeta.title} pageDescription={pageMeta.description} />
     <main class="layout-content">
-      <slot />
+      <div class="layout-content-inner">
+        <slot />
+      </div>
     </main>
   </div>
 </div>
+
+<style>
+  .layout-content-inner {
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 100%;
+    padding: 1.5rem;
+  }
+
+  .layout-content-inner > :global(*) {
+    min-width: 0;
+  }
+
+  @media (max-width: 720px) {
+    .layout-content-inner {
+      padding: 1rem;
+    }
+  }
+</style>

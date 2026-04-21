@@ -18,6 +18,7 @@
   const DEFAULT_REQUIRED_HOURS = 500;
   const AVERAGE_DAILY_HOURS = 8;
   const INITIAL_COMPLETED_HOURS = 0;
+  const ACTIVE_SESSION_STORAGE_PREFIX = 'ims-active-time-session';
   
   // ---- Skeleton loading flag ----
   let isLoading = true;
@@ -42,6 +43,7 @@
   let isLoggingIn = false;
   let isLoggingOut = false;
   let isLoggedIn = false;
+  let isDeletingEntry = false;
   
   let includeLunch = (() => {
     if (typeof window !== 'undefined') {
@@ -52,6 +54,53 @@
   
   let showDeleteConfirm = false;
   let deleteConfirmEntry = null;
+  let unsubscribeAuth = null;
+  let queuedAuthRefresh = false;
+
+  function getActiveSessionStorageKey(userId) {
+    const normalizedUserId = String(userId || '').trim();
+    return normalizedUserId ? `${ACTIVE_SESSION_STORAGE_PREFIX}:${normalizedUserId}` : '';
+  }
+
+  function saveLocalActiveSession(userId, sessionDate, sessionTimeIn) {
+    if (typeof window === 'undefined') return;
+    const storageKey = getActiveSessionStorageKey(userId);
+    if (!storageKey) return;
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        log_date: normalizeDateOnly(sessionDate),
+        time_in: normalizeTimeValue(sessionTimeIn, timeIn || '08:00'),
+      }),
+    );
+  }
+
+  function clearLocalActiveSession(userId) {
+    if (typeof window === 'undefined') return;
+    const storageKey = getActiveSessionStorageKey(userId);
+    if (storageKey) window.localStorage.removeItem(storageKey);
+  }
+
+  function restoreLocalActiveSession(userId) {
+    if (typeof window === 'undefined') return false;
+    const storageKey = getActiveSessionStorageKey(userId);
+    if (!storageKey) return false;
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(storageKey) || 'null');
+      if (!stored || typeof stored !== 'object') return false;
+      const storedDate = normalizeDateOnly(stored.log_date);
+      const storedTimeIn = normalizeTimeValue(stored.time_in, '');
+      if (!storedDate || !storedTimeIn) return false;
+      date = storedDate;
+      timeIn = storedTimeIn;
+      timeOut = '';
+      isLoggedIn = true;
+      return true;
+    } catch {
+      clearLocalActiveSession(userId);
+      return false;
+    }
+  }
 
   function addWorkingDays(startDate, days) {
     const result = new Date(startDate);
@@ -97,6 +146,12 @@
 
   function formatTableDate(value) {
     return formatDate(value, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function formatHours(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '0';
+    return num.toFixed(1).replace(/\.0$/, '');
   }
 
   function parseIsoDateOnly(value) {
@@ -168,8 +223,12 @@
   }
 
   function mapApiLogToEntry(row) {
+    const sessionId = String(row?.session_id || '').trim();
+    const timelogId = String(row?.timelog_id || '').trim();
     return {
-      id: String(row?.timelog_id || Date.now()),
+      id: timelogId || sessionId || `${normalizeDateOnly(row?.log_date)}-${normalizeTimeValue(row?.time_in, '')}`,
+      sessionId,
+      timelogId,
       date: normalizeDateOnly(row?.log_date),
       timeIn: normalizeTimeValue(row?.time_in, '08:00'),
       timeOut: normalizeTimeValue(row?.time_out, '17:00'),
@@ -231,10 +290,16 @@
       });
       if (response && response.ok === true) {
         isLoggedIn = true;
+        saveLocalActiveSession(user.user_id, response.session?.log_date || date, response.session?.time_in || timeIn);
         logSyncError = '';
       } else {
         logSyncError = response?.error || 'Failed to start session';
-        isLoggedIn = false;
+        if (String(logSyncError || '').toLowerCase().includes('active session')) {
+          await checkForActiveSession();
+          if (isLoggedIn) logSyncError = '';
+        } else {
+          isLoggedIn = false;
+        }
       }
       isLoggingIn = false;
     } catch (err) {
@@ -273,6 +338,7 @@
         logSyncError = '';
         isLoggedIn = false;
         timeOut = '';
+        clearLocalActiveSession(user.user_id);
         await loadEntriesFromApi();
       } else {
         logSyncError = response?.error || 'Unable to complete session.';
@@ -293,6 +359,7 @@
 
   async function confirmDelete() {
     if (!deleteConfirmEntry) return;
+    if (isDeletingEntry) return;
     const user = authApi.getCurrentUser();
     if (!user?.user_id) {
       logSyncError = 'Please log in again before deleting a time log.';
@@ -301,18 +368,26 @@
       return;
     }
     try {
-      await authApi.deleteTimeLog(user.user_id, deleteConfirmEntry.id);
+      isDeletingEntry = true;
+      await authApi.deleteTimeLog(user.user_id, deleteConfirmEntry.id, {
+        session_id: deleteConfirmEntry.sessionId,
+        log_date: deleteConfirmEntry.date,
+        time_in: deleteConfirmEntry.timeIn,
+        time_out: deleteConfirmEntry.timeOut,
+      });
       entries = entries.filter((entry) => String(entry.id) !== String(deleteConfirmEntry.id));
       logSyncError = '';
     } catch (err) {
       logSyncError = err?.message || 'Unable to delete this time log right now.';
     } finally {
+      isDeletingEntry = false;
       showDeleteConfirm = false;
       deleteConfirmEntry = null;
     }
   }
 
   function cancelDelete() {
+    if (isDeletingEntry) return;
     showDeleteConfirm = false;
     deleteConfirmEntry = null;
   }
@@ -326,18 +401,34 @@
     try {
       const response = await authApi.callApiAction('get_active_session', {
         user_id: user.user_id,
-        log_date: date,
       });
       if (response && response.ok === true && response.session) {
-        timeIn = response.session.time_in || timeIn;
+        const sessionDate = normalizeDateOnly(response.session.log_date);
+        if (sessionDate) date = sessionDate;
+        timeIn = normalizeTimeValue(response.session.time_in, timeIn);
+        timeOut = '';
         isLoggedIn = true;
+        saveLocalActiveSession(user.user_id, date, timeIn);
       } else {
-        isLoggedIn = false;
+        if (!restoreLocalActiveSession(user.user_id)) {
+          isLoggedIn = false;
+        }
       }
     } catch (err) {
       console.error('Error checking active session:', err);
-      isLoggedIn = false;
+      if (!restoreLocalActiveSession(user.user_id)) {
+        isLoggedIn = false;
+      }
     }
+  }
+
+  async function refreshTimeLogForCurrentUser() {
+    const user = authApi.getCurrentUser();
+    if (user?.user_id) restoreLocalActiveSession(user.user_id);
+    syncRequiredHoursFromAccount();
+    await loadEntriesFromApi();
+    await checkForActiveSession();
+    requestTlChartInit();
   }
 
   // ---- Chart logic (unchanged) ----
@@ -532,12 +623,28 @@
       logSyncError = err?.message || 'Failed to load time log data.';
     } finally {
       isLoading = false;
+      if (queuedAuthRefresh) {
+        queuedAuthRefresh = false;
+        try {
+          await refreshTimeLogForCurrentUser();
+        } catch (err) {
+          console.error('Error refreshing time log after auth restore:', err);
+        }
+      }
     }
   }
 
   let _themeObserver = null;
   onMount(() => {
     loadAllData();
+    unsubscribeAuth = authApi.subscribeToCurrentUser(async (user) => {
+      if (!user?.user_id) return;
+      if (isLoading) {
+        queuedAuthRefresh = true;
+        return;
+      }
+      await refreshTimeLogForCurrentUser();
+    });
     // Watch for theme changes to redraw chart
     _themeObserver = new MutationObserver(() => requestTlChartInit());
     _themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
@@ -545,6 +652,7 @@
   });
   
   onDestroy(() => {
+    if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     if (_themeObserver) _themeObserver.disconnect();
     if (_chartInitRaf) cancelAnimationFrame(_chartInitRaf);
     if (_chartRetryTimer) clearTimeout(_chartRetryTimer);
@@ -567,6 +675,13 @@
   $: completedHours = INITIAL_COMPLETED_HOURS + entries.reduce((sum, entry) => sum + entry.hours, 0);
   $: remainingHours = Math.max(0, requiredHours - completedHours);
   $: progressPercent = Math.min(100, Math.round((completedHours / requiredHours) * 100));
+  $: progressStatus = progressPercent < 40
+    ? { tone: 'danger', label: 'Getting started' }
+    : progressPercent < 70
+      ? { tone: 'warning', label: 'In progress' }
+      : progressPercent < 90
+        ? { tone: 'success', label: 'On track' }
+        : { tone: 'success', label: 'Almost complete' };
   $: completedEntries = entries.filter((entry) => entry.timeOut && Number(entry.hours) > 0);
   
   $: if (typeof window !== 'undefined' && completedHours >= 0 && completedHoursStorageKey) {
@@ -584,8 +699,8 @@
   })();
   
   $: statCards = [
-    { label: 'Total Hours Required', value: `${Number(requiredHours || 0).toFixed(1)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
-    { label: 'Hours Completed', value: `${Number(completedHours || 0).toFixed(1)}h`, sub: `${Number(remainingHours || 0).toFixed(1)}h remaining`, icon: CheckCircle2, tone: 'success' },
+    { label: 'Total Hours Required', value: `${formatHours(requiredHours || 0)}h`, sub: 'Per internship agreement', icon: Target, tone: 'primary' },
+    { label: 'Hours Completed', value: `${formatHours(completedHours || 0)}h`, sub: `${formatHours(remainingHours || 0)}h remaining`, icon: CheckCircle2, tone: 'success' },
     { label: 'Avg. Daily Hours', value: `${AVERAGE_DAILY_HOURS}h`, sub: 'Based on schedule', icon: Clock, tone: 'info' },
     { label: 'Est. Completion', value: getEstimatedCompletionDate(remainingHours, AVERAGE_DAILY_HOURS), sub: new Date().getFullYear(), icon: Calendar, tone: 'forecast' },
   ];
@@ -700,8 +815,14 @@
     <div class="tl-progress-section">
       <div class="tl-progress-header">
         <div>
-          <div class="tl-progress-title">Hours Progress</div>
-          <div class="tl-progress-meta">{Number(completedHours).toFixed(1)} of {Number(requiredHours).toFixed(1)} required hours completed</div>
+          <div class="tl-progress-title-row">
+            <div class="tl-progress-title">Hours Progress</div>
+            <span class="tl-progress-state tl-progress-state-{progressStatus.tone}">
+              <span class="tl-progress-state-dot"></span>
+              {progressStatus.label}
+            </span>
+          </div>
+          <div class="tl-progress-meta">{formatHours(completedHours)} of {formatHours(requiredHours)} required hours completed</div>
           <div class="tl-progress-detail">All logged entries are counted immediately toward your OJT hours.</div>
         </div>
         <span class="tl-progress-badge">{progressPercent}%</span>
@@ -711,8 +832,8 @@
       </div>
       <div class="tl-progress-labels">
         <span>0h</span>
-        <span class="tl-progress-remaining">{Number(remainingHours).toFixed(1)}h remaining</span>
-        <span>{Number(requiredHours).toFixed(1)}h</span>
+        <span class="tl-progress-remaining">{formatHours(remainingHours)}h remaining</span>
+        <span>{formatHours(requiredHours)}h</span>
       </div>
     </div>
 
@@ -840,7 +961,7 @@
                 <td><span class="tl-tag tl-tag-blue">TIME ENTRY</span></td>
                 <td class="tl-mono">{entry.timeIn}</td>
                 <td class="tl-mono">{entry.timeOut || '—'}</td>
-                <td class="tl-mono tl-hours-val">{entry.hours}h</td>
+                <td class="tl-mono tl-hours-val">{formatHours(entry.hours)}h</td>
                 <td class="tl-mono tl-created-val">{entry.createdAt || '—'}</td>
                 <td>
                   <span class="tl-tag tl-tag-green">
@@ -879,13 +1000,20 @@
             <div class="tl-preview-row"><span class="tl-preview-label">Date</span><span class="tl-preview-val">{formatTableDate(deleteConfirmEntry.date)}</span></div>
             <div class="tl-preview-row"><span class="tl-preview-label">Time In</span><span class="tl-preview-val">{deleteConfirmEntry.timeIn}</span></div>
             <div class="tl-preview-row"><span class="tl-preview-label">Time Out</span><span class="tl-preview-val">{deleteConfirmEntry.timeOut || '—'}</span></div>
-            <div class="tl-preview-row"><span class="tl-preview-label">Hours</span><span class="tl-preview-val tl-preview-bold">{deleteConfirmEntry.hours}h</span></div>
+            <div class="tl-preview-row"><span class="tl-preview-label">Hours</span><span class="tl-preview-val tl-preview-bold">{formatHours(deleteConfirmEntry.hours)}h</span></div>
           </div>
           <p class="tl-modal-warning">This action cannot be undone.</p>
         </div>
         <div class="tl-modal-footer">
-          <button class="tl-modal-cancel" on:click={cancelDelete}>Cancel</button>
-          <button class="tl-modal-delete" on:click={confirmDelete}>Delete Entry</button>
+          <button class="tl-modal-cancel" on:click={cancelDelete} disabled={isDeletingEntry}>Cancel</button>
+          <button class="tl-modal-delete" on:click={confirmDelete} disabled={isDeletingEntry}>
+            {#if isDeletingEntry}
+              <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+              Deleting...
+            {:else}
+              Delete Entry
+            {/if}
+          </button>
         </div>
       </div>
     </div>
@@ -922,7 +1050,7 @@
     display: flex;
     flex-direction: column;
     gap: 22px;
-    padding: 16px 32px 28px;
+    min-width: 0;
     min-height: 0;
   }
 
@@ -996,10 +1124,11 @@
   .tl-stat-label {
     font-size: 11px;
     font-weight: 600;
-    color: var(--tl-text2);
+    color: #000000;
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
+  :global(.dark) .tl-stat-label { color: #ffffff; }
   .tl-stat-value {
     font-size: 24px;
     font-weight: 700;
@@ -1028,8 +1157,47 @@
     margin-bottom: 14px;
   }
   .tl-progress-title { font-size: 14px; font-weight: 600; color: var(--tl-text); }
+  .tl-progress-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
   .tl-progress-meta  { font-size: 12px; color: var(--tl-text2); margin-top: 3px; }
   .tl-progress-detail { font-size: 12px; color: var(--tl-accent); margin-top: 4px; font-weight: 500; }
+  .tl-progress-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    line-height: 1;
+  }
+  .tl-progress-state-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .tl-progress-state-danger {
+    color: var(--tl-red);
+    background: var(--tl-red-dim);
+    border-color: color-mix(in srgb, var(--tl-red) 28%, transparent);
+  }
+  .tl-progress-state-warning {
+    color: var(--tl-amber);
+    background: var(--tl-amber-dim);
+    border-color: color-mix(in srgb, var(--tl-amber) 30%, transparent);
+  }
+  .tl-progress-state-success {
+    color: var(--tl-green);
+    background: var(--tl-green-dim);
+    border-color: color-mix(in srgb, var(--tl-green) 28%, transparent);
+  }
   .tl-progress-badge {
     background: var(--tl-accent);
     color: #fff;
@@ -1458,6 +1626,12 @@
     box-shadow: 0 4px 12px var(--tl-red-dim);
   }
   .tl-modal-delete:hover { opacity: 0.9; transform: translateY(-1px); }
+  .tl-modal-cancel:disabled,
+  .tl-modal-delete:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+  .tl-modal-delete:disabled { transform: none; box-shadow: none; }
 
   /* ---- NEW SKELETON STYLES ---- */
   .skeleton, .skeleton-text, .skeleton-icon, .skeleton-field, .skeleton-btn, .skeleton-chart, .skeleton-progress-track, .skeleton-icon-sm {
@@ -1518,7 +1692,7 @@
     .tl-card-chart { grid-column: 1 / -1; }
   }
   @media (max-width: 680px) {
-    .tl-page { padding: 18px 16px; gap: 16px; }
+    .tl-page { gap: 16px; }
     .tl-stat-grid { grid-template-columns: 1fr 1fr; }
     .tl-three-col { grid-template-columns: 1fr; }
     .tl-card-chart { grid-column: auto; }

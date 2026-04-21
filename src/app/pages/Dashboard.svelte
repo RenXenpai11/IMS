@@ -681,7 +681,7 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
-    padding: 12px 12px 20px;
+    min-width: 0;
   }
 
   .error-banner,
@@ -1420,7 +1420,6 @@
 
   @media (max-width: 720px) {
     .dashboard-shell {
-      padding: 8px 8px 16px;
       gap: 16px;
     }
 

@@ -1,11 +1,19 @@
 <script>
   import { onDestroy, onMount, tick } from "svelte";
   import {
+    AlertTriangle,
     Calendar,
+    CheckCircle2,
     Clock3,
     FileText,
     ShieldCheck,
     Loader2,
+    Pencil,
+    Send,
+    Timer,
+    Trash2,
+    User,
+    XCircle,
     X,
     CheckCircle,
   } from "lucide-svelte";
@@ -20,13 +28,13 @@
 
   const STATUS_META = {
     Pending: {
-      badgeClass: "status-badge status-pending",
+      badgeClass: "status-badge pending",
     },
     Approved: {
-      badgeClass: "status-badge status-approved",
+      badgeClass: "status-badge approved",
     },
     Rejected: {
-      badgeClass: "status-badge status-rejected",
+      badgeClass: "status-badge rejected",
     },
   };
 
@@ -42,6 +50,22 @@
   let isSubmitting = false;
   let deepLinkRequestId = "";
   let highlightedRequestId = "";
+
+  // Bulk archive state
+  let bulkArchiveMode = false;
+  let selectedRequestsForArchive = new Set();
+
+  // Archive confirmation modal state
+  let showArchiveModal = false;
+  let requestToArchive = null;
+  let isArchiving = false;
+
+  // Delete archived request modal state
+  let showDeleteArchivedModal = false;
+  let requestToDeletePermanently = null;
+  let isDeletingPermanently = false;
+  let showBulkDeleteModal = false;
+  let isBulkDeleting = false;
 
   // Delete confirmation modal state
   let showDeleteModal = false;
@@ -684,13 +708,15 @@
 
   <!-- Tab Row -->
   <div class="tab-row">
-    <button
-      class="tab-btn"
-      class:active={activeTab === "my-requests"}
-      on:click={() => setTab("my-requests")}
-    >
-      {listTabLabel}
-    </button>
+    {#if !isSupervisor}
+      <button
+        class="tab-btn"
+        class:active={activeTab === "my-requests"}
+        on:click={() => setTab("my-requests")}
+      >
+        {listTabLabel}
+      </button>
+    {/if}
     {#if !isSupervisor}
       <button
         class="tab-btn"
@@ -708,7 +734,7 @@
 
   <!-- My Requests Tab -->
   {#if activeTab === "my-requests"}
-    <div class="panel">
+    <div class="requests-section">
       {#if isLoading}
         <div class="empty-requests">
           <div class="empty-icon"><Loader2 size={22} /></div>
@@ -723,7 +749,7 @@
           </div>
         </div>
       {:else}
-        <!-- Filter Chips -->
+        <!-- Filter Pills -->
         <div class="filter-row">
           <div class="filter-chips">
             <button
@@ -851,7 +877,7 @@
                       <Calendar size={14} /> Absence
                     {/if}
                   </div>
-                  <span class={statusMeta.badgeClass}>{request.status}</span>
+                  <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
                 </div>
 
                 <div class="request-card-dates">
@@ -883,12 +909,38 @@
                   {/if}
                 </div>
 
-                <div class="reason-box">
-                  <div class="reason-label">Reason</div>
-                  <p class="reason-text">{previewReason(request.reason)}</p>
+                    {#if request.requestType === "Overtime" && request.total_hours}
+                      <div class="req-meta-item">
+                        <Timer size={13} />
+                        <span class="label">Duration:</span>
+                        <strong>{request.total_hours}h</strong>
+                      </div>
+                    {/if}
+
+                    {#if request.created_at}
+                      <div class="req-meta-item">
+                        <Clock3 size={13} />
+                        <span class="label">Submitted:</span>
+                        <strong>{formatCreatedDate(request.created_at)}</strong>
+                      </div>
+                    {/if}
+
+                    {#if isSupervisor}
+                      <div class="req-meta-item">
+                        <User size={13} />
+                        <span class="label">Requester:</span>
+                        <strong>{request.requester_name || "Unknown"}</strong>
+                      </div>
+                    {/if}
+                  </div>
+
+                  <div class="req-reason-block">
+                    <div class="req-reason-label">Reason</div>
+                    <p class="req-reason-text">{previewReason(request.reason)}</p>
+                  </div>
                 </div>
 
-                <div class="request-card-actions">
+                <div class="req-card-footer">
                   {#if isSupervisor && request.status === "Pending"}
                     <button
                       class="action-btn approve"
@@ -898,20 +950,24 @@
                       <CheckCircle size={13} /> Approve
                     </button>
                     <button
-                      class="action-btn reject"
+                      class="btn-reject"
                       on:click={() => openRejectModal(request)}
                     >
-                      Reject
+                      <XCircle size={12} /> Reject
                     </button>
                   {:else if !isSupervisor && request.status === "Pending"}
                     <button
-                      class="action-btn edit"
-                      on:click={() => editRequest(request)}>Edit</button
+                      class="btn-edit"
+                      on:click={() => editRequest(request)}
                     >
+                      <Pencil size={12} /> Edit
+                    </button>
                     <button
-                      class="action-btn delete"
-                      on:click={() => openDeleteModal(request)}>Delete</button
+                      class="btn-delete"
+                      on:click={() => openDeleteModal(request)}
                     >
+                      <Trash2 size={12} /> Delete
+                    </button>
                   {/if}
                 </div>
                 </div>
@@ -936,7 +992,7 @@
 
         <!-- Request Type -->
         <div class="form-group">
-          <label class="form-label">Request Type</label>
+          <div class="form-label">Request Type</div>
           <div class="type-toggle">
             <button
               class="type-btn"
@@ -947,23 +1003,7 @@
                 form.endTime = "";
               }}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                ><rect x="3" y="4" width="18" height="18" rx="2" /><line
-                  x1="16"
-                  y1="2"
-                  x2="16"
-                  y2="6"
-                /><line x1="8" y1="2" x2="8" y2="6" /><line
-                  x1="3"
-                  y1="10"
-                  x2="21"
-                  y2="10"
-                /></svg
-              >
+              <Calendar size={14} />
               Absence
             </button>
             <button
@@ -973,15 +1013,7 @@
                 form.requestType = "Overtime";
               }}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                ><circle cx="12" cy="12" r="10" /><polyline
-                  points="12 6 12 12 16 14"
-                /></svg
-              >
+              <Clock3 size={14} />
               Overtime
             </button>
           </div>
@@ -989,8 +1021,9 @@
 
         <!-- Date -->
         <div class="form-group">
-          <label class="form-label">Date</label>
+          <label class="form-label" for="request-date">Date</label>
           <input
+            id="request-date"
             type="date"
             bind:value={form.date}
             min={minDate}
@@ -1004,23 +1037,32 @@
           <!-- Start / End Time -->
           <div class="row-2">
             <div class="form-group">
-              <label class="form-label">Start Time</label>
+              <label class="form-label" for="request-start-time">Start Time</label>
               <input
+                id="request-start-time"
                 type="time"
                 bind:value={form.startTime}
                 class="form-input"
               />
             </div>
             <div class="form-group">
-              <label class="form-label">End Time</label>
-              <input type="time" bind:value={form.endTime} class="form-input" />
+              <label class="form-label" for="request-end-time">End Time</label>
+              <input
+                id="request-end-time"
+                type="time"
+                bind:value={form.endTime}
+                class="form-input"
+              />
             </div>
           </div>
 
           <!-- Lunch Break -->
           <div class="form-group">
-            <label class="form-label">Lunch Break (minutes)</label>
+            <label class="form-label" for="request-lunch-break">
+              Lunch Break (minutes)
+            </label>
             <input
+              id="request-lunch-break"
               type="number"
               bind:value={form.lunchBreak}
               min="0"
@@ -1046,15 +1088,19 @@
         <!-- Weekend warning -->
         {#if form.requestType === "Absence" && isWeekend && form.date}
           <div class="weekend-warning">
-            ⚠️ This date is a weekend/day off. Absence requests cannot be
-            submitted for weekends.
+            <AlertTriangle size={14} />
+            <span>
+              This date is a weekend/day off. Absence requests cannot be
+              submitted for weekends.
+            </span>
           </div>
         {/if}
 
         <!-- Reason / Notes -->
         <div class="form-group">
-          <label class="form-label">Reason / Notes</label>
+          <label class="form-label" for="request-reason">Reason / Notes</label>
           <textarea
+            id="request-reason"
             bind:value={form.reason}
             rows="5"
             class="form-textarea"
@@ -1077,17 +1123,7 @@
               <span class="spinning-icon"><Loader2 size={14} /></span>
               Submitting...
             {:else}
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                ><line x1="22" y1="2" x2="11" y2="13" /><polygon
-                  points="22 2 15 22 11 13 2 9 22 2"
-                /></svg
-              >
+              <Send size={14} />
               Submit Request
             {/if}
           </button>
@@ -1202,6 +1238,165 @@
             {#if isRejectingRequest}<span class="spinning-icon"
                 ><Loader2 size={14} /></span
               > Rejecting...{:else}Confirm Rejection{/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Archive Modal -->
+  {#if showArchiveModal && requestToArchive}
+    <div class="modal-overlay">
+      <div class="modal-container">
+        <div class="modal-header">
+          <h2>{requestToArchive.archived ? "Recover Request" : "Move to Trash"}</h2>
+          <button class="modal-close" on:click={closeArchiveModal}
+            >&times;</button
+          >
+        </div>
+        <div class="modal-body">
+          {#if requestToArchive.archived}
+            <p>Are you sure you want to recover this request?</p>
+            <p class="modal-subtitle">The request will be moved back to the active list.</p>
+          {:else}
+            <p>Are you sure you want to move this request to trash?</p>
+            <p class="modal-subtitle">Trashed requests can be viewed in the Archive tab.</p>
+          {/if}
+          <div class="modal-details">
+            <div>
+              <span>Type:</span>
+              {requestToArchive.requestType || requestToArchive.request_type}
+            </div>
+            <div>
+              <span>Date:</span>
+              {new Date(
+                requestToArchive.date || requestToArchive.request_date,
+              ).toLocaleDateString()}
+            </div>
+            <div>
+              <span>Status:</span>
+              {requestToArchive.status || "Pending"}
+            </div>
+            <div>
+              <span>Requester:</span>
+              {requestToArchive.requester_name || "Unknown"}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn-secondary"
+            on:click={closeArchiveModal}
+            disabled={isArchiving}>Cancel</button
+          >
+          <button
+            class="btn-primary"
+            on:click={confirmArchiveRequest}
+            disabled={isArchiving}
+          >
+            {#if isArchiving}
+              <span class="spinning-icon"><Loader2 size={14} /></span>
+              {requestToArchive.archived ? "Recovering..." : "Moving..."}
+            {:else}
+              <Archive size={14} />
+              <span>{requestToArchive.archived ? "Recover" : "Move to Trash"}</span>
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Delete Archived Modal -->
+  {#if showDeleteArchivedModal && requestToDeletePermanently}
+    <div class="modal-overlay">
+      <div class="modal-container">
+        <div class="modal-header">
+          <h2>Delete Request Permanently</h2>
+          <button class="modal-close" on:click={closeDeleteArchivedModal}
+            >&times;</button
+          >
+        </div>
+        <div class="modal-body">
+          <p class="warning-text">⚠️ This action cannot be undone.</p>
+          <p>Are you sure you want to permanently delete this request from the database?</p>
+          <div class="modal-details">
+            <div>
+              <span>Type:</span>
+              {requestToDeletePermanently.requestType || requestToDeletePermanently.request_type}
+            </div>
+            <div>
+              <span>Date:</span>
+              {new Date(
+                requestToDeletePermanently.date || requestToDeletePermanently.request_date,
+              ).toLocaleDateString()}
+            </div>
+            <div>
+              <span>Status:</span>
+              {requestToDeletePermanently.status || "Pending"}
+            </div>
+            <div>
+              <span>Requester:</span>
+              {requestToDeletePermanently.requester_name || "Unknown"}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn-secondary"
+            on:click={closeDeleteArchivedModal}
+            disabled={isDeletingPermanently}>Cancel</button
+          >
+          <button
+            class="btn-danger"
+            on:click={confirmDeleteArchived}
+            disabled={isDeletingPermanently}
+          >
+            {#if isDeletingPermanently}
+              <span class="spinning-icon"><Loader2 size={14} /></span>
+              Deleting...
+            {:else}
+              <Trash2 size={14} />
+              <span>Delete Permanently</span>
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Bulk Delete Confirmation Modal -->
+  {#if showBulkDeleteModal}
+    <div class="modal-overlay">
+      <div class="modal-container">
+        <div class="modal-header">
+          <h2>Delete {selectedRequestsForArchive.size} Request(s) Permanently</h2>
+          <button class="modal-close" on:click={() => (showBulkDeleteModal = false)}>
+            &times;
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="warning-text">⚠️ This action cannot be undone.</p>
+          <p>Are you sure you want to permanently delete {selectedRequestsForArchive.size} request(s) from the database?</p>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn-secondary"
+            on:click={() => (showBulkDeleteModal = false)}
+            disabled={isBulkDeleting}>Cancel</button
+          >
+          <button
+            class="btn-danger"
+            on:click={confirmBulkDeleteRequests}
+            disabled={isBulkDeleting}
+          >
+            {#if isBulkDeleting}
+              <span class="spinning-icon"><Loader2 size={14} /></span>
+              Deleting...
+            {:else}
+              <Trash2 size={14} />
+              <span>Delete Permanently</span>
+            {/if}
           </button>
         </div>
       </div>
@@ -1339,13 +1534,13 @@
     color: var(--green);
   }
   .stat-value {
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 700;
     letter-spacing: -0.4px;
     line-height: 1;
   }
   .stat-label {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text2);
     margin-top: 2px;
     font-weight: 500;
@@ -1361,7 +1556,7 @@
     padding: 8px 18px;
     border-radius: var(--radius-sm);
     font-family: inherit;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
@@ -1386,6 +1581,12 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
     overflow: hidden;
+  }
+
+  .requests-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   /* ========== EMPTY STATE ========== */
@@ -1443,18 +1644,23 @@
     align-items: center;
     gap: 6px;
     padding: 6px 14px;
-    border-radius: 30px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    font-size: 12.5px;
-    font-weight: 500;
+    border-radius: 40px;
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.18s;
+    border: 1px solid var(--border2);
+    background: transparent;
     color: var(--text2);
   }
-  .filter-chip.active {
+  .filter-pill:hover {
+    background: var(--surface2);
+    color: var(--text);
+  }
+  .filter-pill.active {
     background: var(--accent);
-    color: white;
+    color: #fff;
     border-color: var(--accent);
   }
   
@@ -1481,15 +1687,12 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 0 16px 16px;
   }
-  .request-card {
+  .req-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 16px;
-    transition: all 0.2s;
-    position: relative;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
     overflow: hidden;
     cursor: default;
   }
@@ -1528,6 +1731,7 @@
   .request-card:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow);
+    transform: translateY(-1px);
   }
   .request-card-focused {
     border-color: var(--accent2);
@@ -1542,119 +1746,151 @@
   }
   .request-card-header {
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
+    gap: 12px;
+    padding: 13px 18px 10px;
+    border-bottom: 1px solid var(--border);
   }
-  .request-type-badge {
-    display: inline-flex;
+  .req-type-badge {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    background: var(--surface2);
-    padding: 4px 12px;
-    border-radius: 30px;
-    font-size: 12px;
-    font-weight: 600;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 700;
     color: var(--text2);
   }
   .request-card-dates {
     display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 12px;
-    font-size: 13px;
+    flex-direction: column;
+    gap: 10px;
   }
-  .date-row {
+  .req-meta {
     display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .req-meta-item {
+    display: flex;
+    align-items: center;
     gap: 6px;
-    align-items: baseline;
+    font-size: 13.5px;
+    color: var(--text2);
   }
-  .date-row .label {
+  .req-meta-item :global(svg) {
     color: var(--text3);
-    font-weight: 500;
+    flex-shrink: 0;
   }
-  .date-row .value {
+  .req-meta-item strong {
     color: var(--text);
-    font-weight: 500;
+    font-weight: 700;
   }
-  .reason-box {
+  .req-meta-item .label {
+    color: var(--text3);
+    font-size: 12.5px;
+  }
+  .req-reason-block {
     background: var(--surface2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 12px;
-    margin: 12px 0;
+    padding: 10px 14px;
   }
-  .reason-label {
-    font-size: 10px;
-    font-weight: 600;
+  .req-reason-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
     color: var(--text3);
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
-  .reason-text {
-    font-size: 13px;
-    color: var(--text);
-    line-height: 1.4;
+  .req-reason-text {
+    font-size: 14px;
+    color: var(--text2);
+    line-height: 1.5;
   }
-  .request-card-actions {
+  .req-card-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 12px;
-    margin-top: 8px;
+    gap: 8px;
+    padding: 0 18px 14px;
   }
-  .action-btn {
-    display: inline-flex;
+
+  .btn-edit,
+  .btn-delete,
+  .btn-approve,
+  .btn-reject {
+    display: flex;
     align-items: center;
-    gap: 5px;
-    padding: 6px 14px;
-    border-radius: 30px;
-    font-size: 12px;
-    font-weight: 600;
+    gap: 6px;
+    padding: 7px 15px;
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
     border: none;
     cursor: pointer;
     transition: all 0.2s;
   }
-  .action-btn.approve {
-    background: var(--green);
-    color: white;
+  .btn-edit,
+  .btn-approve {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--accent-glow);
   }
   .action-btn.reject {
     background: var(--red);
-    color: white;
+    color: #fff;
+    box-shadow: 0 2px 6px var(--red-dim);
   }
   .action-btn.edit {
     background: var(--accent);
     color: white;
   }
-  .action-btn.delete {
-    background: var(--red);
-    color: white;
+  .btn-edit :global(svg),
+  .btn-delete :global(svg),
+  .btn-approve :global(svg),
+  .btn-reject :global(svg) {
+    flex-shrink: 0;
   }
 
   /* ========== STATUS BADGES ========== */
   .status-badge {
     display: inline-flex;
     align-items: center;
-    border-radius: 30px;
-    padding: 4px 12px;
-    font-size: 11px;
+    gap: 5px;
+    padding: 4px 11px;
+    border-radius: 40px;
+    font-size: 12.5px;
     font-weight: 700;
-    border: 1px solid transparent;
+    letter-spacing: 0.02em;
   }
-  .status-pending {
+  .status-badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .status-badge.pending {
     background: var(--amber-dim);
-    border-color: var(--amber);
     color: var(--amber);
   }
-  .status-approved {
+  .status-badge.pending::before {
+    background: var(--amber);
+  }
+  .status-badge.approved {
     background: var(--green-dim);
-    border-color: var(--green);
     color: var(--green);
   }
-  .status-rejected {
+  .status-badge.approved::before {
+    background: var(--green);
+  }
+  .status-badge.rejected {
     background: var(--red-dim);
-    border-color: var(--red);
     color: var(--red);
+  }
+  .status-badge.rejected::before {
+    background: var(--red);
   }
 
   /* ========== FORM PANEL ========== */
@@ -1680,7 +1916,7 @@
     gap: 8px;
   }
   .form-label {
-    font-size: 12.5px;
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text2);
   }
@@ -1705,7 +1941,7 @@
     background: transparent;
     color: var(--text2);
   }
-  .type-btn svg {
+  .type-btn :global(svg) {
     width: 14px;
     height: 14px;
     flex-shrink: 0;
@@ -1728,7 +1964,7 @@
     border-radius: var(--radius-sm);
     padding: 10px 14px;
     font-family: "DM Mono", monospace;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text);
     width: 100%;
     outline: none;
@@ -1750,7 +1986,7 @@
     resize: vertical;
     min-height: 110px;
     font-family: "DM Sans", sans-serif;
-    font-size: 13px;
+    font-size: 14px;
   }
   .lunch-input {
     max-width: 400px;
@@ -1777,12 +2013,19 @@
 
   /* Weekend warning */
   .weekend-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
     background: var(--amber-dim);
     border: 1px solid var(--amber);
     border-radius: var(--radius-sm);
     padding: 12px;
     font-size: 13px;
     color: var(--amber);
+  }
+  .weekend-warning :global(svg) {
+    flex-shrink: 0;
+    margin-top: 1px;
   }
 
   /* Submit footer */
@@ -1800,7 +2043,7 @@
     background: var(--accent);
     color: #fff;
     font-family: inherit;
-    font-size: 13.5px;
+    font-size: 14.5px;
     font-weight: 700;
     border: none;
     cursor: pointer;
@@ -1905,6 +2148,9 @@
     border-top: 1px solid var(--border);
   }
   .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: var(--surface2);
     border: 1px solid var(--border);
     padding: 8px 16px;
@@ -1942,6 +2188,31 @@
     font-size: 13px;
     font-weight: 600;
   }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .btn-primary:hover {
+    background: var(--primary-hover);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   .btn-danger:disabled,
   .btn-warning:disabled,
   .btn-secondary:disabled {
@@ -1952,6 +2223,9 @@
   /* Spinner */
   .spinning-icon {
     display: inline-flex;
+    animation: spin 1s linear infinite;
+  }
+  .spin {
     animation: spin 1s linear infinite;
   }
   @keyframes spin {

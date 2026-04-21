@@ -34,7 +34,8 @@ function addActivityWorklog(payload) {
 }
 
 var WORKLOG_ATTACHMENTS_SHEET_ = 'worklogs_attachment';
-var WORKLOG_ATTACHMENTS_HEADERS_ = ['attachment_id', 'task_id', 'user_id', 'file_type', 'file_size', 'link', 'uploaded_at', 'uploaded_by'];
+// include file_name so worklog attachments store filename in sheet
+var WORKLOG_ATTACHMENTS_HEADERS_ = ['attachment_id', 'task_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'];
 
 function addWorklogAttachment(payload) {
 	try {
@@ -42,9 +43,12 @@ function addWorklogAttachment(payload) {
 		var userId = String(payload.user_id || '').trim();
 		var fileType = String(payload.file_type || '').trim();
 		var fileSize = String(payload.file_size || '').trim();
-		var uploadedAt = String(payload.uploaded_at || new Date().toISOString()).trim();
+		var uploadedAt = new Date(payload.uploaded_at || new Date()).toISOString();
 		var uploadedBy = String(payload.uploaded_by || '').trim();
 		var fileName = String(payload.file_name || 'upload').trim();
+		var fileDataBase64 = String(payload.file_data_base64 || '').trim();
+		var mimeType = String(payload.mime_type || 'application/octet-stream').trim();
+		var link = String(payload.link || '').trim();
 
 		if (!fileType && !fileSize && fileName === 'upload') {
 			return { ok: true, skipped: true };
@@ -64,13 +68,29 @@ function addWorklogAttachment(payload) {
 		} else {
 			var sheet = getOrCreateSheetWithHeaders_(WORKLOG_ATTACHMENTS_SHEET_, WORKLOG_ATTACHMENTS_HEADERS_);
 		}
+
+		// Upload file to Drive if base64 data is provided
+		if (fileDataBase64) {
+			try {
+				var bytes = Utilities.base64Decode(fileDataBase64);
+				var blob = Utilities.newBlob(bytes, mimeType, fileName || 'upload');
+				var uploadFolder = getOrCreateWorklogAttachmentsFolder_();
+				var createdFile = uploadFolder.createFile(blob);
+				createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+				link = createdFile.getUrl();
+			} catch (uploadErr) {
+				return { ok: false, error: 'Unable to save attachment to Drive: ' + (uploadErr.message || String(uploadErr)) };
+			}
+		}
+
 		sheet.appendRow([
 			attachmentId,
 			taskId,
 			userId,
 			fileType,
 			fileSize,
-			'',
+			fileName || '',
+			link || '',
 			uploadedAt,
 			uploadedBy
 		]);
@@ -84,6 +104,7 @@ function addWorklogAttachment(payload) {
 				file_type: fileType,
 				file_size: fileSize,
 				file_name: fileName,
+				link: link,
 				uploaded_at: uploadedAt,
 				uploaded_by: uploadedBy
 			}
@@ -155,6 +176,8 @@ function getActivityWorklogs(payload) {
 						attachment_id: attachmentId,
 						file_type: fileType,
 						file_size: fileSize,
+						file_name: String(attachRow.file_name || '').trim(),
+						link: String(attachRow.link || '').trim(),
 						uploaded_at: String(attachRow.uploaded_at || '').trim()
 					});
 				}
@@ -171,6 +194,48 @@ function getActivityWorklogs(payload) {
 	});
 
 	return { ok: true, worklogs: worklogs };
+}
+
+// Backfill links for existing worklog attachments by matching file_name in the Worklog attachments folder.
+function backfillWorklogAttachmentLinks() {
+	try {
+		var sheet = getOrCreateSheetWithHeaders_(WORKLOG_ATTACHMENTS_SHEET_, WORKLOG_ATTACHMENTS_HEADERS_);
+		var values = sheet.getDataRange().getValues();
+		if (!values || values.length < 2) {
+			return { ok: true, updated: 0 };
+		}
+
+		var headers = values[0].map(function(h) { return String(h || '').trim(); });
+		var fileNameIdx = headers.indexOf('file_name');
+		var linkIdx = headers.indexOf('link');
+		if (fileNameIdx === -1 || linkIdx === -1) {
+			return { ok: false, error: 'Missing file_name or link column.' };
+		}
+
+		var folder = getOrCreateWorklogAttachmentsFolder_();
+		var updated = 0;
+		for (var r = 1; r < values.length; r++) {
+			var row = values[r];
+			var fileName = String(row[fileNameIdx] || '').trim();
+			var link = String(row[linkIdx] || '').trim();
+			if (!fileName || link) {
+				continue;
+			}
+
+			var files = folder.getFilesByName(fileName);
+			if (files.hasNext()) {
+				var file = files.next();
+				file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+				row[linkIdx] = file.getUrl();
+				sheet.getRange(r + 1, 1, 1, row.length).setValues([row]);
+				updated++;
+			}
+		}
+
+		return { ok: true, updated: updated };
+	} catch (err) {
+		return { ok: false, error: err.message || String(err) };
+	}
 }
 
 function parseActivityJsonArray_(value) {
@@ -782,6 +847,68 @@ function getUserInfoByEmail_(email) {
 	}
 	return null;
 }
+
+function getSupervisorInfoMap_(userIds) {
+	var infoMap = {};
+	if (!userIds || !userIds.length) return infoMap;
+
+	var sheet = getSheet_('users');
+	var values = getSheetValues_(sheet) || [];
+	if (values.length < 2) return infoMap;
+	var headers = values[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+	var userIdIdx = headers.indexOf('user_id');
+	var fullNameIdx = headers.indexOf('full_name');
+	var emailIdx = headers.indexOf('email');
+	var roleIdx = headers.indexOf('role');
+	if (userIdIdx === -1) return infoMap;
+
+	for (var i = 1; i < values.length; i++) {
+		var row = values[i] || [];
+		var uid = String(row[userIdIdx] || '').trim();
+		if (!uid || userIds.indexOf(uid) === -1) continue;
+		var role = roleIdx !== -1 ? String(row[roleIdx] || '').trim().toLowerCase() : '';
+		if (role && role !== 'supervisor') continue;
+		infoMap[uid] = {
+			user_id: uid,
+			full_name: fullNameIdx !== -1 ? String(row[fullNameIdx] || '').trim() : '',
+			email: emailIdx !== -1 ? String(row[emailIdx] || '').trim() : ''
+		};
+	}
+
+	return infoMap;
+}
+
+function getStudentSupervisors(payload) {
+	var studentId = String(payload.student_user_id || '').trim();
+	if (!studentId) {
+		return { ok: false, error: 'student_user_id is required.' };
+	}
+
+	var assignments = readSheetObjects_(getSheet_(SUPERVISOR_ASSIGNMENTS_SHEET_));
+	var supervisorIds = {};
+	for (var i = 0; i < assignments.length; i++) {
+		var row = assignments[i] || {};
+		if (String(row.student_user_id || '').trim() !== studentId) continue;
+		if (String(row.status || '').trim().toLowerCase() === 'inactive') continue;
+		var supId = String(row.supervisor_user_id || '').trim();
+		if (supId) supervisorIds[supId] = true;
+	}
+
+	var ids = Object.keys(supervisorIds);
+	var infoMap = getSupervisorInfoMap_(ids);
+	var supervisors = ids.map(function(id) {
+		var info = infoMap[id] || { user_id: id, full_name: '', email: '' };
+		return {
+			user_id: String(info.user_id || id).trim(),
+			full_name: String(info.full_name || '').trim(),
+			email: String(info.email || '').trim()
+		};
+	}).sort(function(a, b) {
+		return String(a.full_name || a.user_id || '').localeCompare(String(b.full_name || b.user_id || ''));
+	});
+
+	return { ok: true, supervisors: supervisors };
+}
 // Create a new activity task
 function createActivityTask(payload) {
 	return handleCreateActivityTask_(payload || {});
@@ -836,6 +963,27 @@ function handleCreateActivityTask_(payload) {
 	};
 
 	appendObjectRow_(sheet, rowObject);
+
+	var assignedBy = String(payload.assigned_by || '').trim();
+	if (assignedBy && user_id) {
+		try {
+			var supSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+			var supTaskId = (typeof createId_ === 'function') ? createId_('SUP') : ('SUP_' + new Date().getTime());
+			appendObjectRow_(supSheet, {
+				sup_taskid: supTaskId,
+				task: taskName,
+				description: String(payload.description || '').trim(),
+				due_date: dueDate,
+				status: String(payload.status || 'Pending').trim(),
+				assigned_to: JSON.stringify([user_id]),
+				created_at: createdAt,
+				created_by: assignedBy,
+				updated_by: assignedBy
+			});
+		} catch (e) {
+			// non-fatal if supervisor task creation fails
+		}
+	}
 
 	return {
 		ok: true,

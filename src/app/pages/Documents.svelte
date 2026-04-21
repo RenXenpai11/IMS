@@ -2381,6 +2381,7 @@
     background: var(--color-app-bg);
     min-height: 100%;
     color: var(--color-text);
+    border: 0;
     border-radius: 0;
     padding: 0;
   }
@@ -2396,8 +2397,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 18px 32px 18px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    padding: 18px 0;
+    border-bottom: 0;
     gap: 12px;
   }
 
@@ -2440,7 +2441,7 @@
     display: flex;
     flex-direction: column;
     gap: 0;
-    padding: 28px 32px;
+    padding: 28px 0;
   }
 
   .btn {
@@ -3090,13 +3091,13 @@
 
   @media (max-width: 720px) {
     .topbar {
-      padding: 16px;
+      padding: 16px 0;
       flex-wrap: wrap;
       gap: 12px;
     }
 
     .documents-container {
-      padding: 16px;
+      padding: 16px 0;
     }
 
     .stats-row {

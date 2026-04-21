@@ -18,7 +18,7 @@
     subscribeToCurrentUser,
     updateProfilePhoto,
     updateUserProfile,
-    getStudentSupervisor,
+    getStudentSupervisors,
     getNotificationPreferences,
     updateNotificationPreferences,
     changePassword
@@ -54,7 +54,7 @@
   let notifInactiveStudent = false;
 
   let supervisorLoading = false;
-  let mySupervisor = null;
+  let mySupervisors = [];
 
   let isChangingPassword = false;
   let currentPassword = '';
@@ -101,6 +101,8 @@
 
     if (String(user.role || '').toLowerCase() !== 'supervisor') {
       loadSupervisorData(user.user_id);
+    } else {
+      mySupervisors = [];
     }
     loadNotificationPreferences(user.user_id);
   }
@@ -109,9 +111,10 @@
     if (supervisorLoading) return;
     try {
       supervisorLoading = true;
-      mySupervisor = await getStudentSupervisor(uid);
+      mySupervisors = await getStudentSupervisors(uid);
     } catch(e) {
       console.error(e);
+      mySupervisors = [];
     } finally {
       supervisorLoading = false;
     }
@@ -433,30 +436,34 @@
       <header class="theme-divider border-b px-6 py-4">
         <div class="flex items-center gap-2">
           <Shield size={16} class="text-indigo-600" />
-          <h2 class="theme-heading text-[15px] font-semibold">My Supervisor</h2>
+          <h2 class="theme-heading text-[15px] font-semibold">My Supervisors</h2>
         </div>
-        <p class="theme-text mt-1 text-[13px]">Your assigned internship supervisor.</p>
+        <p class="theme-text mt-1 text-[13px]">Your assigned internship supervisors.</p>
       </header>
 
       <div class="px-6 py-5">
         {#if supervisorLoading}
            <p class="theme-text text-[13px]">Loading supervisor details...</p>
-        {:else if !mySupervisor}
-           <p class="theme-text text-[13px]">No supervisor assigned yet.</p>
+        {:else if mySupervisors.length === 0}
+           <p class="theme-text text-[13px]">No supervisors assigned yet.</p>
         {:else}
-           <div class="flex items-center gap-4">
-             <div class="flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600">
-               {#if mySupervisor.profile_photo_url}
-                  <img src={mySupervisor.profile_photo_url} alt="Supervisor" class="h-12 w-12 rounded-full object-cover">
-               {:else}
-                  <span class="text-lg font-bold text-white font-medium">{mySupervisor.full_name.charAt(0).toUpperCase()}</span>
-               {/if}
-             </div>
-             <div>
-               <p class="theme-heading text-[15px] font-semibold">{mySupervisor.full_name}</p>
-               <p class="theme-text text-[13px]">{normalizeDepartment(mySupervisor.department)} Supervisor</p>
-               <p class="theme-text text-[13px] opacity-75">{mySupervisor.email}</p>
-             </div>
+           <div class="space-y-4">
+             {#each mySupervisors as supervisor (supervisor.user_id)}
+               <div class="flex items-center gap-4">
+                 <div class="flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600">
+                   {#if supervisor.profile_photo_url}
+                      <img src={supervisor.profile_photo_url} alt="Supervisor" class="h-12 w-12 rounded-full object-cover">
+                   {:else}
+                      <span class="text-lg font-bold text-white font-medium">{String(supervisor.full_name || '').charAt(0).toUpperCase()}</span>
+                   {/if}
+                 </div>
+                 <div>
+                   <p class="theme-heading text-[15px] font-semibold">{supervisor.full_name}</p>
+                   <p class="theme-text text-[13px]">{normalizeDepartment(supervisor.department)} Supervisor</p>
+                   <p class="theme-text text-[13px] opacity-75">{supervisor.email}</p>
+                 </div>
+               </div>
+             {/each}
            </div>
         {/if}
       </div>
@@ -683,18 +690,13 @@
     --st-text: #5f7188;
     --st-muted: #64748b;
     position: relative;
-    border-radius: 1.25rem;
-    padding: 0.35rem;
+    border-radius: 0;
+    padding: 0;
     isolation: isolate;
   }
 
   .settings-shell::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -2;
-    border-radius: 1.25rem;
-    background: var(--color-app-bg);
+    display: none;
   }
 
   .settings-shell::after {
@@ -702,9 +704,10 @@
   }
 
   .theme-section {
-    background: var(--st-surface);
-    border-color: var(--st-border);
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03), 0 1px 2px rgba(15, 23, 42, 0.05);
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
   }
 
   .settings-panel {
@@ -717,7 +720,16 @@
   }
 
   .theme-divider {
-    border-color: var(--st-border);
+    border-color: rgba(255,255,255,0.04);
+    border-bottom-width: 1px;
+  }
+
+  .settings-panel > .theme-divider {
+    padding: 20px 22px;
+  }
+
+  .settings-panel > :not(.theme-divider) {
+    padding: 20px 22px;
   }
 
   .theme-input {
@@ -807,8 +819,10 @@
   }
 
   :global(.dark) .theme-section {
-    background: var(--st-surface);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
   }
 
   :global(.dark) .theme-input {

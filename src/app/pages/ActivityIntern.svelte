@@ -6,6 +6,9 @@ let isLoadingWorkLogs = false;
 let workLogsError = '';
 
 let allUsers = [];
+let assignedSupervisors = [];
+let isLoadingAssignedSupervisors = false;
+let assignedSupervisorsError = '';
 
 let expandedWorkLog = null;
 let hoveredWorkLog = null;
@@ -106,6 +109,28 @@ function formatRelativeTime(timestamp) {
   return activityDate.toLocaleDateString();
 }
 
+// Format recent activity message consistently: append relative time only when message doesn't already include it
+function formatActivityLine(activity) {
+  const msg = String(activity?.message || '').trim();
+  if (!msg) {
+    return formatRelativeTime(activity?.timestamp || '') || '';
+  }
+
+  const lower = msg.toLowerCase();
+  // if message already contains a relative-time phrase or a date, don't append
+  if (lower.includes('ago') || /\b\d{4}-\d{2}-\d{2}\b/.test(msg) || /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(msg)) {
+    return msg.replace(/\s+,\s*/, ', '); // normalize any stray commas
+  }
+
+  const rel = formatRelativeTime(activity?.timestamp || '');
+  if (!rel) return msg;
+
+  // ensure punctuation spacing
+  const endsPunct = /[.!?]$/.test(msg);
+  if (endsPunct) return `${msg} ${rel}.`;
+  return `${msg}, ${rel}.`;
+}
+
 onMount(() => {
   fetchRecentActivities();
   recentActivitiesIntervalId = setInterval(() => {
@@ -128,9 +153,11 @@ onMount(async () => {
 onMount(() => {
   fetchAssignedTasks();
   fetchWorkLogs();
+  fetchAssignedSupervisors();
   stopUserSubscription = subscribeToCurrentUser(() => {
     fetchAssignedTasks();
     fetchWorkLogs();
+    fetchAssignedSupervisors();
   });
 });
 
@@ -167,6 +194,10 @@ function getUserFullName(idOrEmail) {
   if (byId) return byId.full_name || byId.user_id || '';
   const byEmail = allUsers.find(u => String(u.email || '').toLowerCase() === String(idOrEmail).toLowerCase());
   if (byEmail) return byEmail.full_name || byEmail.email || '';
+  const supervisorById = assignedSupervisors.find(s => String(s.user_id || '') === String(idOrEmail));
+  if (supervisorById) return supervisorById.full_name || supervisorById.email || supervisorById.user_id || '';
+  const supervisorByEmail = assignedSupervisors.find(s => String(s.email || '').toLowerCase() === String(idOrEmail).toLowerCase());
+  if (supervisorByEmail) return supervisorByEmail.full_name || supervisorByEmail.email || supervisorByEmail.user_id || '';
   return String(idOrEmail);
 }
 
@@ -184,7 +215,9 @@ import {
   LayoutGrid,
   FileEdit,
   BookOpen,
-  Loader2
+  Loader2,
+  Download,
+  ExternalLink
 } from 'lucide-svelte';
 
 // --- Work Log Form State and Handlers ---
@@ -229,6 +262,20 @@ function callGetAllStudents(payload = {}) {
   });
 }
 
+  function callGetStudentSupervisors(payload = {}) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+      run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((error) => reject(new Error(error?.message || String(error))))
+        .getStudentSupervisors(payload);
+    });
+  }
+
 function mapWorklogToUi(row) {
   const source = row || {};
   const attachments = Array.isArray(source.attachments) ? source.attachments : [];
@@ -246,9 +293,20 @@ function mapWorklogToUi(row) {
       attachment_id: String(a.attachment_id || '').trim(),
       file_type: String(a.file_type || '').trim(),
       file_size: String(a.file_size || '').trim(),
+      file_name: String(a.file_name || '').trim(),
+      link: String(a.link || '').trim(),
       uploaded_at: String(a.uploaded_at || '').trim()
     }))
   };
+}
+
+function getDriveDownloadUrl(link) {
+  const url = String(link || '').trim();
+  if (!url) return '';
+  if (url.includes('uc?export=download')) return url;
+  const idMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  const fileId = idMatch ? idMatch[1] : '';
+  return fileId ? `https://drive.google.com/uc?export=download&id=${fileId}` : url;
 }
 
 async function fetchWorkLogs() {
@@ -327,8 +385,22 @@ function handleWorkLogFileUpload(event) {
   if (files.length === 0) {
     return;
   }
-  workLogAttachments = [...workLogAttachments, ...files];
+  // store as objects so name can be edited before upload
+  const wrapped = files.map(f => ({ file: f, name: f.name }));
+  workLogAttachments = [...workLogAttachments, ...wrapped];
   event.target.value = '';
+}
+
+function renameWorkLogAttachment(index, newName) {
+  if (typeof index !== 'number') return;
+  workLogAttachments = workLogAttachments.map((att, i) => i === index ? { ...att, name: String(newName || '').trim() } : att);
+}
+
+function removeWorkLogAttachment(index) {
+  if (typeof index !== 'number') return;
+  workLogAttachments = workLogAttachments.filter((_, i) => i !== index);
+  // try resetting file input if empty
+  if (workLogAttachments.length === 0 && workLogFileInput) workLogFileInput.value = '';
 }
 
 function fileToBase64_(file) {
@@ -422,21 +494,27 @@ async function handleAddWorkLog() {
     const result = await callAddActivityWorklog(payload);
     const taskId = String(result?.task_id || payload.task_id || '').trim();
     const uploadErrors = [];
-    const validAttachments = workLogAttachments.filter((file) => file && file.name && file.size > 0);
+    // workLogAttachments entries are { file, name }
+    const validAttachments = workLogAttachments.filter((a) => a && a.file && a.file.size > 0);
 
     if (taskId && validAttachments.length > 0) {
-      for (const file of validAttachments) {
+      for (const entry of validAttachments) {
+        const file = entry.file;
+        const fileName = String(entry.name || file.name || '').trim();
         try {
-          const ext = getFileExtension_(file.name);
+          const ext = getFileExtension_(fileName);
           const mimeSuffix = String(file.type || '').includes('/') ? String(file.type).split('/').pop() : '';
           const sizeMb = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+          const fileDataBase64 = await fileToBase64_(file);
           const uploadResult = await callAddWorklogAttachment({
             attachment_id: '',
             task_id: taskId,
             user_id: user?.user_id || '',
             file_type: ext || mimeSuffix || String(file.type || '').trim(),
             file_size: sizeMb,
-            file_name: file.name,
+            file_name: fileName,
+            file_data_base64: fileDataBase64,
+            mime_type: file.type || 'application/octet-stream',
             uploaded_at: now.toISOString(),
             uploaded_by: user?.user_id || ''
           });
@@ -445,7 +523,7 @@ async function handleAddWorkLog() {
             throw new Error(uploadResult?.error || 'Save failed.');
           }
         } catch (uploadError) {
-          uploadErrors.push(`${file.name}: ${uploadError?.message || uploadError}`);
+          uploadErrors.push(`${fileName}: ${uploadError?.message || uploadError}`);
         }
       }
     }
@@ -523,6 +601,7 @@ let assignedTasksError = '';
     status: 'Pending',
     dueDate: '',
     description: '',
+    assignedBy: '',
     dailyChecklist: [],
     attachments: [],
   };
@@ -567,8 +646,9 @@ let assignedTasksError = '';
       return true;
     }
 
-    return [task.title, task.status, task.dueDate, task.owner].some((value) =>
-      value.toLowerCase().includes(normalized)
+    const ownerLabel = getUserFullName(task.owner);
+    return [task.title, task.status, task.dueDate, ownerLabel].some((value) =>
+      String(value || '').toLowerCase().includes(normalized)
     );
   }
 
@@ -750,10 +830,11 @@ let assignedTasksError = '';
   }
 
   function resetAddTaskForm() {
+    const defaultSupervisorId = assignedSupervisors[0]?.user_id || '';
     addTaskForm = {
       title: '',
       status: 'Pending',
-      owner: '',
+      owner: defaultSupervisorId,
       dueDate: '',
       description: '',
       dailyChecklist: [],
@@ -776,6 +857,9 @@ let assignedTasksError = '';
       const nowDate = new Date();
       const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       addTaskForm.dateCreated = `${MONTH_NAMES[nowDate.getMonth()]} ${nowDate.getDate()}, ${nowDate.getFullYear()}`;
+      if (!addTaskForm.owner && assignedSupervisors.length > 0) {
+        addTaskForm.owner = assignedSupervisors[0].user_id;
+      }
     } else {
       resetAddTaskForm();
     }
@@ -956,6 +1040,35 @@ let assignedTasksError = '';
     }
   }
 
+  async function fetchAssignedSupervisors() {
+    const user = getCurrentUser();
+    if (!user?.user_id) {
+      assignedSupervisors = [];
+      assignedSupervisorsError = '';
+      return;
+    }
+
+    isLoadingAssignedSupervisors = true;
+    assignedSupervisorsError = '';
+
+    try {
+      const result = await callGetStudentSupervisors({ student_user_id: user.user_id });
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Unable to load supervisors.');
+      }
+
+      assignedSupervisors = Array.isArray(result.supervisors) ? result.supervisors : [];
+      if (!addTaskForm.owner && assignedSupervisors.length > 0) {
+        addTaskForm.owner = assignedSupervisors[0].user_id;
+      }
+    } catch (error) {
+      assignedSupervisors = [];
+      assignedSupervisorsError = error?.message || 'Unable to load supervisors.';
+    } finally {
+      isLoadingAssignedSupervisors = false;
+    }
+  }
+
   async function addNewTask() {
     const rawTitle = addTaskForm.title.trim();
     const assignedBy = addTaskForm.owner.trim();
@@ -965,6 +1078,13 @@ let assignedTasksError = '';
     const cleanedAttachments = getAttachmentNames(addTaskForm.attachments);
 
     if (!rawTitle || !addTaskForm.dueDate) {
+      return;
+    }
+
+    if (!assignedBy) {
+      addTaskError = assignedSupervisors.length === 0
+        ? 'No supervisor assigned yet.'
+        : 'Select a supervisor.';
       return;
     }
 
@@ -1008,9 +1128,11 @@ let assignedTasksError = '';
               const ext = attachment.name.split('.').pop()?.toLowerCase() || '';
               const sizeMB = `${(attachment.size / 1024 / 1024).toFixed(2)}MB`;
               await callAddActivityTaskAttachment({
+                task_id: taskId,
                 user_id: user?.user_id || '',
                 file_type: ext || '',
                 file_size: sizeMB,
+                file_name: attachment.name,
                 link: '',
                 uploaded_at: nowDate.toISOString(),
                 uploaded_by: user?.user_id || ''
@@ -1121,6 +1243,7 @@ let assignedTasksError = '';
       status: 'Pending',
       dueDate: '',
       description: '',
+      assignedBy: '',
       dailyChecklist: [],
       attachments: [],
     };
@@ -1147,6 +1270,7 @@ let assignedTasksError = '';
       status: viewedTask.status,
       dueDate: toInputDate(viewedTask.dueDate),
       description: viewedTask.description,
+      assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
       dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
       attachments: getAttachmentNames(viewedTask.attachments),
     };
@@ -1160,6 +1284,7 @@ let assignedTasksError = '';
         status: viewedTask.status,
         dueDate: toInputDate(viewedTask.dueDate),
         description: viewedTask.description,
+        assignedBy: viewedTask.owner || assignedSupervisors[0]?.user_id || '',
         dailyChecklist: viewedTask.dailyChecklist.map((item) => ({ ...item })),
         attachments: getAttachmentNames(viewedTask.attachments),
       };
@@ -1272,7 +1397,7 @@ let assignedTasksError = '';
       status: formState.status || task.status,
       due_date: formState.dueDate || toInputDate(task.dueDate),
       description: formState.description.trim() || task.description,
-      assigned_by: task.owner,
+      assigned_by: formState.assignedBy || task.owner,
       checklist: cleanedChecklist,
       attachments: cleanedAttachments,
       priority: task.priority || 'medium',
@@ -1594,6 +1719,13 @@ let assignedTasksError = '';
 </script>
 
 <section class="activity-shell documents-page">
+
+  <style>
+    /* Use Segoe UI for this page for a professional look */
+    .activity-shell {
+      font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    }
+  </style>
   <div class="stats-grid">
     {#each summaryCards as card}
       <article class={`stat-card tone-card-${card.tone}`}>
@@ -1722,7 +1854,19 @@ let assignedTasksError = '';
 
             <label>
               <span>Assigned by</span>
-              <input type="text" bind:value={addTaskForm.owner} placeholder="Who is assigning this task?" />
+              <select bind:value={addTaskForm.owner} disabled={isLoadingAssignedSupervisors || assignedSupervisors.length === 0}>
+                {#if isLoadingAssignedSupervisors}
+                  <option value="">Loading supervisors...</option>
+                {:else if assignedSupervisors.length === 0}
+                  <option value="">No supervisor assigned</option>
+                {:else}
+                  {#each assignedSupervisors as supervisor}
+                    <option value={supervisor.user_id}>
+                      {supervisor.full_name || supervisor.email || supervisor.user_id}
+                    </option>
+                  {/each}
+                {/if}
+              </select>
             </label>
           </div>
 
@@ -1891,8 +2035,8 @@ let assignedTasksError = '';
                       <li style="margin-bottom: 0.8rem; display: flex; align-items: flex-start; gap: 0.5rem;">
                         <span style="font-size: 1.1rem; color: var(--color-primary, #0f6cbd); margin-top: 0.1rem;">•</span>
                         <div style="flex: 1;">
-                          <div style="font-size: 0.9rem; font-style: italic; color: var(--color-text); font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;">{activity.message}, {formatRelativeTime(activity.timestamp)}.</div>
-                        </div>
+                                <div style="font-size: 0.9rem; font-style: italic; color: var(--color-text);">{formatActivityLine(activity)}</div>
+                              </div>
                       </li>
                     {/each}
                   </ul>
@@ -2105,42 +2249,60 @@ let assignedTasksError = '';
 
     {#if activeView === 'Overview'}
     <!-- Daily Work Logs Card -->
-    <section class="panel daily-logs-panel" style="margin-top: 1.2rem;">
+    <section class="panel daily-logs-panel">
       <header class="panel-header">
         <h3>Daily Work Logs</h3>
       </header>
-      <div class="daily-logs-content" style="padding: 1.2rem 1.1rem; display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; background: var(--color-bg);">
+      <div class="daily-logs-content">
         <!-- Add Work Log Card -->
-        <div style="flex: 1 1 340px; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; max-width: 420px; display: flex; flex-direction: column; background: var(--color-soft); border: 1px solid var(--color-border);">
-          <h4 style="font-size: 0.93rem; font-weight: 700; margin-bottom: 1rem; font-family: inherit; display: flex; align-items: flex-start; gap: 0.5rem; min-height: 24px; color: var(--color-heading);">
-            <FileEdit size={18} style="color: var(--color-accent);" />
+        <div class="worklog-card worklog-form-card">
+          <h4 class="worklog-card-head">
+            <span class="wl-icon"><FileEdit size={13} /></span>
             Add Work Log
           </h4>
           <form on:submit|preventDefault={handleAddWorkLog}>
-              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Task</span>
-                <textarea bind:value={workLogTask} placeholder="Task worked on" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
+              <label class="form-group">
+                <span class="form-label">Task</span>
+                <textarea class="form-textarea" bind:value={workLogTask} placeholder="Task worked on" rows="2"></textarea>
               </label>
-              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Notes</span>
-                <textarea bind:value={workLogNotes} placeholder="Notes" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
+              <label class="form-group">
+                <span class="form-label">Notes</span>
+                <textarea class="form-textarea" bind:value={workLogNotes} placeholder="Notes" rows="2"></textarea>
               </label>
-              <label style="display: block; margin-bottom: 0.7rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Learnings</span>
-                <textarea bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2" style="width: 100%; margin-top: 0.2rem; font-size: 0.83rem; padding: 0.5rem 0.7rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-family: inherit;"></textarea>
+              <label class="form-group">
+                <span class="form-label">Learnings</span>
+                <textarea class="form-textarea" bind:value={workLogLearnings} placeholder="What did you learn today?" rows="2"></textarea>
               </label>
-              <label style="display: block; margin-bottom: 1.1rem; width: 100%;">
-                <span style="font-size: 0.97rem; font-weight: 700; color: var(--color-heading); font-family: inherit;">Attachment</span>
-                <br />
-                <input type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} style="margin-top: 0.2rem; font-size: 0.83rem;" />
+              <div class="form-group">
+                <span class="form-label">Attachment</span>
+                <label class="file-label" for="work-log-file-upload">
+                  <FileEdit size={13} />
+                  Upload files
+                </label>
+                <input id="work-log-file-upload" class="file-input" type="file" multiple on:change={handleWorkLogFileUpload} bind:this={workLogFileInput} />
                 {#if workLogAttachments.length > 0}
-                  <div style="margin-top: 0.3rem; display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                    {#each workLogAttachments as file}
-                      <span class="worklog-attachment-chip">{file.name}</span>
+                  <div style="margin-top: 0.6rem; display:flex; flex-direction:column; gap:0.45rem;">
+                    {#each workLogAttachments as att, idx}
+                      <div class="worklog-attachment-row" style="display:flex; align-items:center; gap:0.6rem;">
+                        <div style="flex:1; min-width:0; display:flex; gap:0.6rem; align-items:center;">
+                          <div style="font-size:0.82rem; color:var(--color-muted); width:56px; text-align:center;">{getFileExtension_(att.name) || (att.file.type || '').split('/').pop() || 'file'}</div>
+                          <input
+                            type="text"
+                            class="worklog-attachment-name-input"
+                            value={att.name}
+                            on:input={(e) => renameWorkLogAttachment(idx, e.currentTarget.value)}
+                            style="width:100%; padding:0.4rem 0.6rem; border-radius:0.45rem; border:1px solid var(--color-border); background:var(--color-surface); color:var(--color-text);"
+                          />
+                          <div style="font-size:0.82rem; color:var(--color-muted); white-space:nowrap;">{(att.file.size / 1024 / 1024).toFixed(2)} MB</div>
+                        </div>
+                        <div style="display:flex; gap:0.4rem;">
+                          <button type="button" class="ghost btn-compact" on:click={() => removeWorkLogAttachment(idx)} aria-label="Remove attachment">Remove</button>
+                        </div>
+                      </div>
                     {/each}
                   </div>
                 {/if}
-              </label>
+              </div>
               <button type="submit" class="submit-worklog-btn" disabled={isSavingWorkLog}>
                 {#if isSavingWorkLog}
                   <span class="spinning-icon"><Loader2 size={16} /></span>
@@ -2150,15 +2312,18 @@ let assignedTasksError = '';
             </form>
         </div>
         <!-- Work Logs Card -->
-        <div style="flex: 2 1 0%; min-width: 320px; border-radius: 1rem; box-shadow: 0 2px 12px 0 rgba(60, 72, 100, 0.07); padding: 1.2rem; width: 100%; max-width: none; display: flex; flex-direction: column; background: var(--color-soft); border: 1px solid var(--color-border);">
-          <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 1rem;">
-            <h4 style="font-size: 0.93rem; font-weight: 700; color: var(--color-heading); font-family: inherit; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0; min-height: 24px;">
-              <BookOpen size={18} style="color: var(--color-accent);" />
+        <div class="worklog-card worklog-list-card">
+          <div class="worklog-list-head">
+            <h4 class="worklog-card-head">
+              <span class="wl-icon"><BookOpen size={13} /></span>
               Work Logs
             </h4>
-            <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
-              <input type="text" placeholder="Search task, notes, learnings..." bind:value={workLogFilterKeyword} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-size: 0.87rem; min-width: 180px;" />
-              <input type="date" bind:value={workLogFilterDate} style="padding: 0.4rem 0.7rem; border-radius: 0.4rem; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-size: 0.87rem; min-width: 140px;" />
+            <div class="wl-filters">
+              <label class="wl-search-box">
+                <Search size={13} />
+                <input type="text" placeholder="Search task, notes, learnings..." bind:value={workLogFilterKeyword} />
+              </label>
+              <input class="wl-date-input" type="date" bind:value={workLogFilterDate} />
             </div>
           </div>
           {#if filteredWorkLogs.length === 0}
@@ -2194,7 +2359,40 @@ let assignedTasksError = '';
                           <div class="worklog-attachments">
                             {#each log.attachments as file}
                               <div class="worklog-attachment-item">
-                                <span class="worklog-attachment-chip">{file.file_type || 'file'} - {file.file_size || ''}</span>
+                                <div class="worklog-attachment-main">
+                                  <span class="worklog-attachment-name">
+                                    {file.file_name || `${file.file_type || 'file'}`}
+                                  </span>
+                                  <span class="worklog-attachment-meta">
+                                    {file.file_type || 'file'} • {file.file_size || ''}
+                                  </span>
+                                </div>
+                                <div class="worklog-attachment-actions">
+                                  {#if file.link}
+                                    <a
+                                      class="worklog-attachment-action"
+                                      href={file.link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label="View attachment"
+                                      title="View"
+                                    >
+                                      <ExternalLink size={14} />
+                                    </a>
+                                    <a
+                                      class="worklog-attachment-action"
+                                      href={getDriveDownloadUrl(file.link)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      aria-label="Download attachment"
+                                      title="Download"
+                                    >
+                                      <Download size={14} />
+                                    </a>
+                                  {:else}
+                                    <span class="worklog-attachment-chip">No link</span>
+                                  {/if}
+                                </div>
                               </div>
                             {/each}
                           </div>
@@ -2229,8 +2427,8 @@ let assignedTasksError = '';
           position: relative;
         }
         :global(html.dark) .worklog-accordion-item {
-          border: 1px solid #1e3352 !important;
-          background: #132337 !important;
+          border: 1px solid #ffffff0f !important;
+          background: #161c27 !important;
         }
         .worklog-accordion-item.expanded,
         .worklog-accordion-item:hover {
@@ -2240,7 +2438,7 @@ let assignedTasksError = '';
         :global(html.dark) .worklog-accordion-item.expanded,
         :global(html.dark) .worklog-accordion-item:hover {
           border-color: #38bdf8 !important;
-          background: #1a2f4a !important;
+          background: #1e2736 !important;
           box-shadow: 0 4px 16px -8px rgba(56,189,248,0.2) !important;
         }
         }
@@ -2331,8 +2529,8 @@ let assignedTasksError = '';
           animation: fadeIn 0.18s;
         }
         :global(html.dark) .worklog-accordion-body {
-          background: #0d1b2e !important;
-          border-top: 1px solid #1e3352 !important;
+          background: #0d1117 !important;
+          border-top: 1px solid #ffffff0f !important;
         }
         .worklog-section {
           margin-bottom: 0.1rem;
@@ -2370,9 +2568,9 @@ let assignedTasksError = '';
           border: 1px solid var(--color-border);
         }
         :global(html.dark) .worklog-attachment-chip {
-          background: #1e3352 !important;
+          background: #1e2736 !important;
           color: #38bdf8 !important;
-          border: 1px solid #2a4a6e !important;
+          border: 1px solid #ffffff1a !important;
         }
         .worklog-attachment-chip:focus,
         .worklog-attachment-chip:hover {
@@ -2383,16 +2581,83 @@ let assignedTasksError = '';
         }
         :global(html.dark) .worklog-attachment-chip:focus,
         :global(html.dark) .worklog-attachment-chip:hover {
-          background: #2a4a6e !important;
+          background: #1e2736 !important;
           border-color: #38bdf8 !important;
           outline: none;
           color: #38bdf8 !important;
         }
         .worklog-attachments {
+          display: grid;
+          gap: 0.6rem;
+          margin-top: 0.2rem;
+        }
+
+        .worklog-attachment-item {
           display: flex;
-          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.8rem;
+          padding: 0.5rem 0.7rem;
+          border-radius: 0.7rem;
+          background: color-mix(in srgb, var(--color-border) 35%, var(--color-surface));
+          border: 1px solid var(--color-border);
+        }
+
+        :global(html.dark) .worklog-attachment-item {
+          background: #1e2736 !important;
+          border: 1px solid #ffffff1a !important;
+        }
+
+        .worklog-attachment-main {
+          display: flex;
+          flex-direction: column;
+          gap: 0.1rem;
+          min-width: 0;
+        }
+
+        .worklog-attachment-name {
+          font-size: 0.9rem;
+          font-weight: 700;
+          color: var(--color-heading);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        :global(html.dark) .worklog-attachment-name {
+          color: #e5edf8 !important;
+        }
+
+        .worklog-attachment-meta {
+          font-size: 0.78rem;
+          color: var(--color-muted);
+          font-weight: 600;
+        }
+
+        .worklog-attachment-actions {
+          display: inline-flex;
+          align-items: center;
           gap: 0.4rem;
-          margin-top: 0.1rem;
+          flex-shrink: 0;
+        }
+
+        .worklog-attachment-action {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 30px;
+          height: 30px;
+          border-radius: 0.55rem;
+          border: 1px solid var(--color-border);
+          background: var(--color-surface);
+          color: var(--color-accent);
+          transition: transform 0.12s, background 0.12s, border-color 0.12s;
+        }
+
+        .worklog-attachment-action:hover {
+          background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+          border-color: var(--color-accent);
+          transform: translateY(-1px);
         }
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
@@ -2464,7 +2729,23 @@ let assignedTasksError = '';
 
         <label>
           <span>Assigned by</span>
-          <input type="text" value={getUserFullName(viewedTask.owner) || viewedTask.owner} readonly />
+          {#if isEditingViewedTask}
+            <select bind:value={taskViewEditForm.assignedBy} disabled={isLoadingAssignedSupervisors || assignedSupervisors.length === 0}>
+              {#if isLoadingAssignedSupervisors}
+                <option value="">Loading supervisors...</option>
+              {:else if assignedSupervisors.length === 0}
+                <option value="">No supervisor assigned</option>
+              {:else}
+                {#each assignedSupervisors as supervisor}
+                  <option value={supervisor.user_id}>
+                    {supervisor.full_name || supervisor.email || supervisor.user_id}
+                  </option>
+                {/each}
+              {/if}
+            </select>
+          {:else}
+            <input type="text" value={getUserFullName(viewedTask.owner) || viewedTask.owner} readonly />
+          {/if}
         </label>
       </div>
 
@@ -2577,8 +2858,8 @@ let assignedTasksError = '';
     background: var(--color-surface);
   }
   :global(html.dark) .notes-panel {
-    background: #132337 !important;
-    border: 1px solid #1e3352 !important;
+    background: #161c27 !important;
+    border: 1px solid #ffffff0f !important;
   }
   .notes-header {
     display: flex;
@@ -2624,13 +2905,13 @@ let assignedTasksError = '';
     min-height: 90px;
     resize: vertical;
     outline: none;
-    font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
+    font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     font-weight: 500;
   }
   .notes-textarea::placeholder {
     color: var(--color-muted);
     font-size: 0.9rem;
-    font-family: 'Inter', 'Roboto', 'Segoe UI', Arial, sans-serif;
+    font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif;
     font-weight: 500;
     opacity: 1;
   }
@@ -2654,16 +2935,16 @@ let assignedTasksError = '';
     scrollbar-gutter: stable;
   }
   :global(html.dark) {
-    --color-bg: #101a2b;
-    --color-surface: #162338;
-    --color-soft: #1a2c45;
-    --color-card: #1a2c45;
-    --color-border: #334b6b;
+    --color-bg: #0d1117;
+    --color-surface: #161c27;
+    --color-soft: #1e2736;
+    --color-card: #1e2736;
+    --color-border: #ffffff1a;
     --color-heading: #e5edf8;
     --color-text: #cfdceb;
     --color-muted: #9ab0cb;
     --color-accent: #7cc3ff;
-    --color-accent-bg: #1a2c45;
+    --color-accent-bg: #1e2736;
     --color-danger: #ef4444;
     --color-success: #22c55e;
     --color-warning: #f59e42;
@@ -2674,7 +2955,7 @@ let assignedTasksError = '';
   .activity-shell {
     position: relative;
     border-radius: 1.25rem;
-    padding: 0.35rem;
+    padding: 0;
     isolation: isolate;
     width: 100%;
     min-width: 0;
@@ -2743,8 +3024,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .stat-card {
-    background: #132337 !important;
-    border-color: #1e3352 !important;
+    background: #161c27 !important;
+    border-color: #ffffff0f !important;
     box-shadow: 0 18px 36px -20px rgba(0,0,0,0.5) !important;
   }
 
@@ -2779,7 +3060,7 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .stat-card:hover {
-    border-color: #2a4a6e !important;
+    border-color: #ffffff1a !important;
   }
 
   .panel {
@@ -2884,8 +3165,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .controls-bar {
-    border: 1px solid #1e3352 !important;
-    background: #132337 !important;
+    border: 1px solid #ffffff0f !important;
+    background: #161c27 !important;
   }
 
   .controls-right {
@@ -2918,8 +3199,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .search-control {
-    background: #132337 !important;
-    border-color: #1e3352 !important;
+    background: #161c27 !important;
+    border-color: #ffffff0f !important;
   }
 
   .search-control input {
@@ -2968,8 +3249,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .status-control select {
-    background: #132337 !important;
-    border: 1px solid #1e3352 !important;
+    background: #161c27 !important;
+    border: 1px solid #ffffff0f !important;
     color: #e5edf8 !important;
   }
 
@@ -3014,8 +3295,8 @@ let assignedTasksError = '';
 
   :global(html.dark) .view-toggle button {
     color: #8eaec9 !important;
-    background: #132337 !important;
-    border: 1px solid #1e3352 !important;
+    background: #161c27 !important;
+    border: 1px solid #ffffff0f !important;
   }
 
   .view-toggle button.active {
@@ -3027,7 +3308,7 @@ let assignedTasksError = '';
   :global(html.dark) .view-toggle button.active {
     color: #38bdf8 !important;
     border-color: #38bdf8 !important;
-    background: #1e3352 !important;
+    background: #1e2736 !important;
   }
 
   .view-toggle button.active span {
@@ -3043,8 +3324,8 @@ let assignedTasksError = '';
     border-bottom: 1px solid var(--color-border);
   }
   :global(html.dark) .panel-header {
-    background: #132337 !important;
-    border-bottom: 1px solid #1e3352 !important;
+    background: #161c27 !important;
+    border-bottom: 1px solid #ffffff0f !important;
   }
 
   .panel-header h3 {
@@ -3065,8 +3346,8 @@ let assignedTasksError = '';
     border: 1px solid var(--color-border);
   }
   :global(html.dark) .tasks-panel {
-    background: #0d1b2e !important;
-    border-color: #1e3352 !important;
+    background: #0d1117 !important;
+    border-color: #ffffff0f !important;
   }
 
   .tasks-header {
@@ -3093,7 +3374,7 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .overview-shell {
-    background: #0d1b2e !important;
+    background: #0d1117 !important;
   }
 
   .overview-panels {
@@ -3112,8 +3393,8 @@ let assignedTasksError = '';
   }
 
   :global(html.dark) .overview-panel {
-    border: 1px solid #1e3352 !important;
-    background: #132337 !important;
+    border: 1px solid #ffffff0f !important;
+    background: #161c27 !important;
   }
 
   .overview-panel h4 {
@@ -3167,8 +3448,8 @@ let assignedTasksError = '';
 
   :global(html.dark) .overview-task-link:hover,
   :global(html.dark) .overview-task-link.active {
-    background: #1e3352 !important;
-    border-color: #2a4a6e !important;
+    background: #1e2736 !important;
+    border-color: #ffffff1a !important;
   }
 
   .overview-panel li span {
@@ -3714,8 +3995,8 @@ let assignedTasksError = '';
     gap: 0.9rem;
   }
   :global(html.dark) .task-view-modal {
-    background: #23263a;
-    border: 1px solid #23263a;
+    background: #161c27;
+    border: 1px solid #ffffff0f;
   }
 
   .task-view-modal-head {
@@ -4166,5 +4447,991 @@ let assignedTasksError = '';
 
   .recent-activity-list::-webkit-scrollbar-thumb:hover {
     background: #0a4a8f;
+  }
+
+  /* Reference Activity Log restyle */
+  :global(html) {
+    --ims-ref-bg: #f0f4f8;
+    --ims-ref-surface: #ffffff;
+    --ims-ref-surface2: #f8fafc;
+    --ims-ref-surface3: #f1f5f9;
+    --ims-ref-border: #e2e8f0;
+    --ims-ref-border2: #cbd5e1;
+    --ims-ref-accent: #2563eb;
+    --ims-ref-accent2: #3b82f6;
+    --ims-ref-accent-glow: #2563eb20;
+    --ims-ref-green: #16a34a;
+    --ims-ref-green-dim: #16a34a18;
+    --ims-ref-amber: #d97706;
+    --ims-ref-amber-dim: #d9770618;
+    --ims-ref-red: #dc2626;
+    --ims-ref-red-dim: #dc262618;
+    --ims-ref-text: #0f172a;
+    --ims-ref-text2: #64748b;
+    --ims-ref-text3: #94a3b8;
+    --ims-ref-radius: 14px;
+    --ims-ref-radius-sm: 8px;
+    --ims-ref-shadow-sm: 0 1px 3px #0000000d, 0 1px 2px #00000008;
+    --ims-ref-shadow: 0 4px 16px #0000001a;
+    --ims-ref-input-bg: #f8fafc;
+  }
+
+  :global(html.dark),
+  :global(body.dark) {
+    --ims-ref-bg: #0d1117;
+    --ims-ref-surface: #161c27;
+    --ims-ref-surface2: #1e2736;
+    --ims-ref-surface3: #242f42;
+    --ims-ref-border: #ffffff0f;
+    --ims-ref-border2: #ffffff1a;
+    --ims-ref-accent: #3b82f6;
+    --ims-ref-accent2: #60a5fa;
+    --ims-ref-accent-glow: #3b82f630;
+    --ims-ref-green: #22c55e;
+    --ims-ref-green-dim: #22c55e22;
+    --ims-ref-amber: #f59e0b;
+    --ims-ref-amber-dim: #f59e0b18;
+    --ims-ref-red: #ef4444;
+    --ims-ref-red-dim: #ef444418;
+    --ims-ref-text: #f1f5f9;
+    --ims-ref-text2: #94a3b8;
+    --ims-ref-text3: #4b5563;
+    --ims-ref-shadow-sm: 0 1px 3px #00000030;
+    --ims-ref-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    --ims-ref-input-bg: #1e2736;
+  }
+
+  .activity-shell {
+    --color-bg: var(--ims-ref-bg);
+    --color-surface: var(--ims-ref-surface);
+    --color-soft: var(--ims-ref-surface2);
+    --color-card: var(--ims-ref-surface);
+    --color-border: var(--ims-ref-border);
+    --color-heading: var(--ims-ref-text);
+    --color-text: var(--ims-ref-text);
+    --color-muted: var(--ims-ref-text2);
+    --color-accent: var(--ims-ref-accent);
+    --color-accent-bg: var(--ims-ref-accent-glow);
+    width: 100%;
+    padding: 0;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    color: var(--ims-ref-text);
+    background: transparent;
+    font-family: 'DM Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+
+  .activity-shell::before,
+  .activity-shell::after {
+    display: none !important;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .stat-card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    min-height: 0;
+    padding: 14px 16px;
+    border-radius: var(--ims-ref-radius-sm);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    overflow: visible;
+  }
+
+  .stat-card::before {
+    display: none;
+  }
+
+  .stat-card:hover {
+    box-shadow: var(--ims-ref-shadow);
+    transform: translateY(-2px);
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    border: 0;
+  }
+
+  .tone-indigo {
+    color: #0f6cbd;
+    background: #edf4fb;
+  }
+
+  .tone-green {
+    color: #059669;
+    background: #ecfdf5;
+  }
+
+  .tone-blue {
+    color: #2563eb;
+    background: #eff6ff;
+  }
+
+  .tone-violet {
+    color: #0891b2;
+    background: #ecfeff;
+  }
+
+  :global(html.dark) .tone-indigo,
+  :global(body.dark) .tone-indigo {
+    color: #38bdf8 !important;
+    background: rgba(56, 189, 248, 0.12) !important;
+  }
+
+  :global(html.dark) .tone-green,
+  :global(body.dark) .tone-green {
+    color: #34d399 !important;
+    background: rgba(52, 211, 153, 0.12) !important;
+  }
+
+  :global(html.dark) .tone-blue,
+  :global(body.dark) .tone-blue {
+    color: #60a5fa !important;
+    background: rgba(96, 165, 250, 0.12) !important;
+  }
+
+  :global(html.dark) .tone-violet,
+  :global(body.dark) .tone-violet {
+    color: #22d3ee !important;
+    background: rgba(34, 211, 238, 0.12) !important;
+  }
+
+  .stat-value {
+    color: var(--ims-ref-text);
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.4px;
+    line-height: 1;
+    text-shadow: none;
+  }
+
+  .stat-label {
+    color: var(--ims-ref-text2);
+    font-size: 11px;
+    margin-top: 3px;
+    font-weight: 500;
+  }
+
+  .controls-bar {
+    padding: 10px 14px;
+    border-radius: var(--ims-ref-radius-sm);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    gap: 10px;
+  }
+
+  .view-toggle {
+    gap: 6px;
+  }
+
+  .view-toggle button,
+  .search-control,
+  .status-control select {
+    min-height: 0;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: transparent;
+    color: var(--ims-ref-text2);
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: none;
+  }
+
+  .view-toggle button {
+    padding: 7px 14px;
+    gap: 6px;
+  }
+
+  .view-toggle button:hover {
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text);
+  }
+
+  .view-toggle button.active {
+    background: var(--ims-ref-accent-glow);
+    color: var(--ims-ref-accent2);
+    border-color: var(--ims-ref-accent2);
+  }
+
+  .search-control {
+    padding: 7px 12px;
+    gap: 7px;
+    background: var(--ims-ref-surface2);
+  }
+
+  .search-control input {
+    width: 130px;
+    color: var(--ims-ref-text);
+    font-size: 13px;
+  }
+
+  .search-control input::placeholder {
+    color: var(--ims-ref-text3);
+  }
+
+  .status-control::after {
+    right: 10px;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid var(--ims-ref-text2);
+    border-bottom: 1.5px solid var(--ims-ref-text2);
+    transform: translateY(-65%) rotate(45deg);
+  }
+
+  .status-control select {
+    padding: 7px 30px 7px 12px;
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text);
+  }
+
+  .new-task-btn {
+    min-height: 0;
+    padding: 8px 16px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 0;
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  }
+
+  .panel {
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    overflow: hidden;
+  }
+
+  .panel:hover {
+    box-shadow: var(--ims-ref-shadow-sm);
+  }
+
+  .panel-header {
+    padding: 14px 18px;
+    background: var(--ims-ref-surface);
+    border-bottom: 1px solid var(--ims-ref-border);
+  }
+
+  .panel-header h3 {
+    color: var(--ims-ref-text);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-shadow: none;
+  }
+
+  .tasks-panel,
+  .overview-shell,
+  .task-list {
+    background: var(--ims-ref-surface);
+  }
+
+  .overview-shell {
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .overview-panels {
+    grid-template-columns: 1fr 1fr 0.9fr;
+    gap: 12px;
+  }
+
+  .overview-panel,
+  .notes-panel {
+    min-height: 180px;
+    padding: 16px;
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+    gap: 0;
+  }
+
+  .overview-panel h4,
+  .notes-title,
+  .tracker-card-heading h4 {
+    color: var(--ims-ref-text);
+    font-size: 13.5px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  .overview-panel h4 :global(svg),
+  .notes-header :global(svg),
+  .tracker-card-heading :global(svg) {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    padding: 6px;
+  }
+
+  .overview-empty-copy {
+    color: var(--ims-ref-text3);
+    font-size: 12px;
+    margin-top: 12px;
+  }
+
+  .overview-panel ul {
+    margin-top: 12px;
+    gap: 5px;
+  }
+
+  .overview-task-link {
+    padding: 8px 10px;
+    border-radius: var(--ims-ref-radius-sm);
+    color: var(--ims-ref-text2);
+    font-size: 13px;
+    background: transparent;
+    border: 1px solid transparent;
+  }
+
+  .overview-task-link span {
+    color: var(--ims-ref-text);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .overview-task-link small,
+  .worklog-date {
+    color: var(--ims-ref-text3);
+    font-family: 'DM Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 11.5px;
+  }
+
+  .overview-task-link:hover,
+  .overview-task-link.active {
+    background: var(--ims-ref-surface2);
+    border-color: var(--ims-ref-border);
+  }
+
+  .recent-activity-list li {
+    margin-bottom: 10px !important;
+    gap: 8px !important;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .recent-activity-list li > span {
+    width: 6px;
+    height: 6px;
+    min-width: 6px;
+    margin-top: 6px !important;
+    color: transparent !important;
+    background: var(--ims-ref-accent2);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .recent-activity-list li div div {
+    color: var(--ims-ref-text2) !important;
+    font-size: 12.5px !important;
+    line-height: 1.5;
+  }
+
+  .overview-tracker {
+    min-height: 0;
+    padding: 16px 18px;
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+  }
+
+  .tracker-card-head {
+    align-items: center;
+    margin-bottom: 12px;
+    padding-left: 0;
+  }
+
+  .tracker-summary {
+    border: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  .tracker-title {
+    color: var(--ims-ref-text);
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+
+  .tracker-description {
+    color: var(--ims-ref-text2) !important;
+    font-size: 12.5px;
+    margin: 0 0 8px !important;
+    line-height: 1.5;
+  }
+
+  .tracker-meta {
+    color: var(--ims-ref-text3);
+    font-size: 12px;
+    gap: 8px;
+  }
+
+  .tracker-menu-trigger,
+  .btn-more {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    color: var(--ims-ref-text2);
+    background: transparent;
+  }
+
+  .tracker-menu-trigger:hover {
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text);
+  }
+
+  .status-pill,
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 11px;
+    border-radius: 40px;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+
+  .status-pill::before,
+  .status-chip::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .status-pending {
+    color: var(--ims-ref-amber);
+    background: var(--ims-ref-amber-dim);
+  }
+
+  .status-progress {
+    color: var(--ims-ref-accent2);
+    background: var(--ims-ref-accent-glow);
+  }
+
+  .status-completed {
+    color: var(--ims-ref-green);
+    background: var(--ims-ref-green-dim);
+  }
+
+  .status-overdue {
+    color: var(--ims-ref-red);
+    background: var(--ims-ref-red-dim);
+  }
+
+  .daily-logs-panel {
+    margin-top: 0;
+  }
+
+  .daily-logs-content {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px;
+    background: var(--ims-ref-bg);
+  }
+
+  .worklog-card {
+    min-width: 0;
+    padding: 18px;
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: var(--ims-ref-shadow-sm);
+  }
+
+  .worklog-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px;
+    color: var(--ims-ref-text);
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+
+  .wl-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    color: var(--ims-ref-accent2);
+    background: var(--ims-ref-accent-glow);
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 12px;
+  }
+
+  .form-label {
+    color: var(--ims-ref-text2);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .form-input,
+  .form-textarea,
+  .task-view-grid input,
+  .task-view-grid select,
+  .task-view-description textarea,
+  .tracker-form input,
+  .tracker-form select,
+  .tracker-form textarea {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border2);
+    background: var(--ims-ref-input-bg);
+    color: var(--ims-ref-text);
+    font-family: inherit;
+    font-size: 12.5px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .form-textarea,
+  .task-view-description textarea,
+  .tracker-form textarea {
+    min-height: 60px;
+    resize: vertical;
+  }
+
+  .form-input:focus,
+  .form-textarea:focus,
+  .task-view-grid input:focus,
+  .task-view-grid select:focus,
+  .task-view-description textarea:focus,
+  .tracker-form input:focus,
+  .tracker-form select:focus,
+  .tracker-form textarea:focus {
+    border-color: var(--ims-ref-accent2);
+    box-shadow: 0 0 0 3px var(--ims-ref-accent-glow);
+  }
+
+  .file-label,
+  .attachment-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    padding: 7px 12px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px dashed var(--ims-ref-border2);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .file-label:hover,
+  .attachment-upload-btn:hover {
+    border-color: var(--ims-ref-accent2);
+    color: var(--ims-ref-accent2);
+  }
+
+  .file-input {
+    display: none;
+  }
+
+  .submit-worklog-btn,
+  .btn-submit {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 4px;
+    padding: 10px;
+    border: 0;
+    border-radius: var(--ims-ref-radius-sm);
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+  }
+
+  .submit-worklog-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .worklog-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .worklog-list-head .worklog-card-head {
+    margin-bottom: 0;
+  }
+
+  .wl-filters {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    flex-wrap: wrap;
+  }
+
+  .wl-search-box {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 160px;
+    flex: 1;
+    padding: 7px 12px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+    font-size: 12.5px;
+  }
+
+  .wl-search-box input {
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--ims-ref-text);
+    font-family: inherit;
+    font-size: 12.5px;
+  }
+
+  .wl-date-input {
+    padding: 7px 10px;
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text);
+    font-family: 'DM Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 12px;
+    outline: none;
+  }
+
+  .worklogs-empty {
+    color: var(--ims-ref-text3);
+    font-size: 12.5px;
+    text-align: center;
+    padding: 28px 0;
+    margin: 0;
+  }
+
+  .worklogs-accordion-list {
+    gap: 8px;
+  }
+
+  .worklog-accordion-item,
+  .task-accordion-item,
+  .task-row {
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    box-shadow: none;
+  }
+
+  .worklog-accordion-item:hover,
+  .worklog-accordion-item.expanded,
+  .task-accordion-item:hover,
+  .task-accordion-item.expanded {
+    border-color: var(--ims-ref-accent2);
+  }
+
+  .worklog-accordion-trigger,
+  .task-accordion-trigger {
+    padding: 12px 14px;
+    background: transparent;
+  }
+
+  .worklog-task-title,
+  .task-trigger-title {
+    color: var(--ims-ref-text);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .worklog-accordion-body,
+  .task-accordion-body-modern {
+    padding: 12px 14px 14px;
+    border-top: 1px solid var(--ims-ref-border);
+    background: transparent;
+  }
+
+  .worklog-label {
+    color: var(--ims-ref-text3);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .worklog-notes,
+  .worklog-learnings,
+  .task-description-modern {
+    color: var(--ims-ref-text2);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .worklog-attachment-chip,
+  .worklog-attachment-item,
+  .attachment-list li {
+    border-radius: var(--ims-ref-radius-sm);
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+  }
+
+  .worklog-attachment-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .task-list {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .task-view-modal {
+    width: min(500px, 100%);
+    padding: 20px;
+    border-radius: var(--ims-ref-radius);
+    background: var(--ims-ref-surface);
+    border: 1px solid var(--ims-ref-border);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
+  }
+
+  .task-view-modal-head h4 {
+    color: var(--ims-ref-text);
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .task-view-action,
+  .task-view-close,
+  .tracker-form-actions button,
+  .remove-item {
+    border-radius: 40px;
+    border: 1px solid var(--ims-ref-border);
+    background: var(--ims-ref-surface2);
+    color: var(--ims-ref-text2);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .task-view-action.primary,
+  .tracker-form-actions .primary {
+    border-color: var(--ims-ref-accent);
+    background: var(--ims-ref-accent);
+    color: #fff;
+  }
+
+  :global(html.dark) .stat-card,
+  :global(html.dark) .panel,
+  :global(html.dark) .controls-bar,
+  :global(html.dark) .panel-header,
+  :global(html.dark) .overview-panel,
+  :global(html.dark) .notes-panel,
+  :global(html.dark) .overview-tracker,
+  :global(html.dark) .worklog-card,
+  :global(html.dark) .task-view-modal,
+  :global(body.dark) .stat-card,
+  :global(body.dark) .panel,
+  :global(body.dark) .controls-bar,
+  :global(body.dark) .panel-header,
+  :global(body.dark) .overview-panel,
+  :global(body.dark) .notes-panel,
+  :global(body.dark) .overview-tracker,
+  :global(body.dark) .worklog-card,
+  :global(body.dark) .task-view-modal {
+    background: var(--ims-ref-surface) !important;
+    border-color: var(--ims-ref-border) !important;
+    color: var(--ims-ref-text) !important;
+  }
+
+  :global(html.dark) .overview-shell,
+  :global(html.dark) .daily-logs-content,
+  :global(body.dark) .overview-shell,
+  :global(body.dark) .daily-logs-content {
+    background: var(--ims-ref-bg) !important;
+  }
+
+  :global(html.dark) .view-toggle button,
+  :global(html.dark) .search-control,
+  :global(html.dark) .status-control select,
+  :global(html.dark) .wl-search-box,
+  :global(html.dark) .wl-date-input,
+  :global(html.dark) .form-input,
+  :global(html.dark) .form-textarea,
+  :global(body.dark) .view-toggle button,
+  :global(body.dark) .search-control,
+  :global(body.dark) .status-control select,
+  :global(body.dark) .wl-search-box,
+  :global(body.dark) .wl-date-input,
+  :global(body.dark) .form-input,
+  :global(body.dark) .form-textarea {
+    background: var(--ims-ref-surface2) !important;
+    border-color: var(--ims-ref-border) !important;
+    color: var(--ims-ref-text) !important;
+  }
+
+  :global(html.dark) .activity-shell,
+  :global(body.dark) .activity-shell {
+    background: #0d1117 !important;
+  }
+
+  :global(html.dark) .activity-shell .stat-card,
+  :global(html.dark) .activity-shell .controls-bar,
+  :global(html.dark) .activity-shell .panel,
+  :global(html.dark) .activity-shell .panel-header,
+  :global(html.dark) .activity-shell .tasks-panel,
+  :global(html.dark) .activity-shell .overview-panel,
+  :global(html.dark) .activity-shell .notes-panel,
+  :global(html.dark) .activity-shell .overview-tracker,
+  :global(html.dark) .activity-shell .worklog-card,
+  :global(html.dark) .activity-shell .task-view-modal,
+  :global(body.dark) .activity-shell .stat-card,
+  :global(body.dark) .activity-shell .controls-bar,
+  :global(body.dark) .activity-shell .panel,
+  :global(body.dark) .activity-shell .panel-header,
+  :global(body.dark) .activity-shell .tasks-panel,
+  :global(body.dark) .activity-shell .overview-panel,
+  :global(body.dark) .activity-shell .notes-panel,
+  :global(body.dark) .activity-shell .overview-tracker,
+  :global(body.dark) .activity-shell .worklog-card,
+  :global(body.dark) .activity-shell .task-view-modal {
+    background-color: #161c27 !important;
+    border-color: #ffffff0f !important;
+    box-shadow: 0 1px 3px #00000030 !important;
+  }
+
+  :global(html.dark) .activity-shell .overview-shell,
+  :global(html.dark) .activity-shell .daily-logs-content,
+  :global(html.dark) .activity-shell .task-list,
+  :global(body.dark) .activity-shell .overview-shell,
+  :global(body.dark) .activity-shell .daily-logs-content,
+  :global(body.dark) .activity-shell .task-list {
+    background-color: #0d1117 !important;
+  }
+
+  :global(html.dark) .activity-shell .search-control,
+  :global(html.dark) .activity-shell .status-control select,
+  :global(html.dark) .activity-shell .view-toggle button,
+  :global(html.dark) .activity-shell .form-textarea,
+  :global(html.dark) .activity-shell .form-input,
+  :global(html.dark) .activity-shell .wl-search-box,
+  :global(html.dark) .activity-shell .wl-date-input,
+  :global(html.dark) .activity-shell .file-label,
+  :global(html.dark) .activity-shell .attachment-upload-btn,
+  :global(html.dark) .activity-shell .task-accordion-item,
+  :global(html.dark) .activity-shell .worklog-accordion-item,
+  :global(html.dark) .activity-shell .worklog-attachment-item,
+  :global(html.dark) .activity-shell .attachment-list li,
+  :global(body.dark) .activity-shell .search-control,
+  :global(body.dark) .activity-shell .status-control select,
+  :global(body.dark) .activity-shell .view-toggle button,
+  :global(body.dark) .activity-shell .form-textarea,
+  :global(body.dark) .activity-shell .form-input,
+  :global(body.dark) .activity-shell .wl-search-box,
+  :global(body.dark) .activity-shell .wl-date-input,
+  :global(body.dark) .activity-shell .file-label,
+  :global(body.dark) .activity-shell .attachment-upload-btn,
+  :global(body.dark) .activity-shell .task-accordion-item,
+  :global(body.dark) .activity-shell .worklog-accordion-item,
+  :global(body.dark) .activity-shell .worklog-attachment-item,
+  :global(body.dark) .activity-shell .attachment-list li {
+    background-color: #1e2736 !important;
+    border-color: #ffffff1a !important;
+  }
+
+  :global(html.dark) .activity-shell .overview-task-link:hover,
+  :global(html.dark) .activity-shell .overview-task-link.active,
+  :global(html.dark) .activity-shell .view-toggle button:hover,
+  :global(body.dark) .activity-shell .overview-task-link:hover,
+  :global(body.dark) .activity-shell .overview-task-link.active,
+  :global(body.dark) .activity-shell .view-toggle button:hover {
+    background-color: #1e2736 !important;
+    border-color: #ffffff1a !important;
+  }
+
+  :global(html.dark) .activity-shell .view-toggle button.active,
+  :global(body.dark) .activity-shell .view-toggle button.active {
+    background-color: #3b82f630 !important;
+    border-color: #60a5fa !important;
+    color: #60a5fa !important;
+  }
+
+  @media (max-width: 980px) {
+    .overview-panels,
+    .daily-logs-content {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .activity-shell {
+      gap: 12px;
+      padding: 0;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .controls-right,
+    .view-toggle {
+      width: 100%;
+    }
+
+    .search-control,
+    .status-control,
+    .status-control select,
+    .new-task-btn,
+    .view-toggle button {
+      flex: 1;
+    }
+
+    .search-control input {
+      width: 100%;
+    }
+
+    .daily-logs-content,
+    .overview-shell {
+      padding: 12px;
+    }
   }
 </style>
