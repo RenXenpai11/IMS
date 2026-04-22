@@ -267,7 +267,10 @@
   async function approveWorklog(log) {
     if (!log || !log.task_id) return;
     // optimistic status update so it moves to archive immediately
-    log.status = 'Approved';
+    // Update the local workLogs array reactively so Svelte updates computed lists immediately.
+    const tid = String(log.task_id || '');
+    workLogs = workLogs.map(w => (String(w.task_id || '') === tid ? { ...w, status: 'Approved' } : w));
+    // persist to server (still awaited so failures can be handled)
     await handleWorklogStatus(log.task_id, 'Approved');
   }
 
