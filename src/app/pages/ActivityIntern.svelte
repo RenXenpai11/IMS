@@ -2794,10 +2794,12 @@ let assignedTasksError = '';
           align-items: center;
           justify-content: space-between;
           gap: 0.6rem;
-          padding: 0.45rem 0.6rem;
+          padding: 0.6rem 0.9rem;
           border-radius: 0.7rem;
           background: color-mix(in srgb, var(--color-border) 20%, var(--color-surface));
           border: 1px solid var(--color-border);
+          width: 100%;
+          box-sizing: border-box;
         }
 
         :global(html.dark) .attachment-row {
@@ -4005,14 +4007,11 @@ let assignedTasksError = '';
   }
 
   .attachment-list li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.45rem;
-    border: 1px solid var(--color-border);
-    border-radius: 0.5rem;
-    padding: 0.32rem 0.45rem;
-    background: var(--color-soft);
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
   }
 
   .attachment-list li span {
@@ -4353,7 +4352,8 @@ let assignedTasksError = '';
   }
 
   .task-view-section .attachment-list li {
-    background: var(--color-soft);
+    background: transparent;
+    padding: 0;
   }
 
   .task-view-section .attachment-list li span {
@@ -5428,9 +5428,8 @@ let assignedTasksError = '';
     line-height: 1.5;
   }
 
-  .worklog-attachment-chip,
-  .worklog-attachment-item,
-  .attachment-list li {
+        .worklog-attachment-chip,
+  .worklog-attachment-item {
     border-radius: var(--ims-ref-radius-sm);
     border: 1px solid var(--ims-ref-border);
     background: var(--ims-ref-surface2);
@@ -5596,9 +5595,15 @@ let assignedTasksError = '';
   :global(body.dark) .activity-shell .task-accordion-item,
   :global(body.dark) .activity-shell .worklog-accordion-item,
   :global(body.dark) .activity-shell .worklog-attachment-item,
-  :global(body.dark) .activity-shell .attachment-list li {
+  :global(body.dark) .activity-shell .worklog-attachment-item {
     background-color: #1e2736 !important;
     border-color: #ffffff1a !important;
+  }
+
+  /* Ensure task attachment list items don't get a separate box; the .attachment-row is the single box */
+  :global(body.dark) .activity-shell .attachment-list li {
+    background-color: transparent !important;
+    border-color: transparent !important;
   }
 
   :global(html.dark) .activity-shell .overview-task-link:hover,
