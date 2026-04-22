@@ -1,6 +1,7 @@
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Internship Management System');
+    .setTitle('IMS')
+    .setFaviconUrl('https://raw.githubusercontent.com/RenXenoverse11/IMS/ims-favicon-host/public/ims-logo-favicon.png');
 }
 
 var OTP_EXPIRY_MINUTES_ = 10;
