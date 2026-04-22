@@ -191,6 +191,64 @@ function getSupervisorTasks(payload) {
   }
 }
 
+// Return attachments for a given task_id from worklog or activity attachment sheets
+function getTaskAttachments(payload) {
+  try {
+    var taskId = String(payload.task_id || '').trim();
+    if (!taskId) return { ok: false, error: 'task_id is required.' };
+    var attachments = [];
+    // check worklogs attachments
+    try {
+      var wSheet = getSheet_('worklogs_attachment');
+      var wRows = readSheetObjects_(wSheet) || [];
+      for (var i = 0; i < wRows.length; i++) {
+        var r = wRows[i] || {};
+        if (String(r.task_id || '').trim() === taskId) {
+          attachments.push({
+            attachment_id: String(r.attachment_id || '').trim(),
+            task_id: String(r.task_id || '').trim(),
+            file_name: String(r.file_name || '').trim(),
+            file_type: String(r.file_type || '').trim(),
+            file_size: String(r.file_size || '').trim(),
+            link: String(r.link || '').trim(),
+            uploaded_at: String(r.uploaded_at || '').trim(),
+            uploaded_by: String(r.uploaded_by || '').trim()
+          });
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // check activity attachments (act_attachments)
+    try {
+      var aSheet = getSheet_('act_attachments');
+      var aRows = readSheetObjects_(aSheet) || [];
+      for (var j = 0; j < aRows.length; j++) {
+        var ar = aRows[j] || {};
+        if (String(ar.task_id || '').trim() === taskId) {
+          attachments.push({
+            attachment_id: String(ar.id || '').trim(),
+            task_id: String(ar.task_id || '').trim(),
+            file_name: String(ar.file_name || '').trim(),
+            file_type: String(ar.file_type || '').trim(),
+            file_size: String(ar.file_size || '').trim(),
+            link: String(ar.link || '').trim(),
+            uploaded_at: String(ar.uploaded_at || '').trim(),
+            uploaded_by: String(ar.uploaded_by || '').trim()
+          });
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return { ok: true, attachments: attachments };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? String(err.message) : String(err) };
+  }
+}
+
 // Update an existing supervisor task row by sup_taskid
 function updateSupervisorTask(payload) {
   try {

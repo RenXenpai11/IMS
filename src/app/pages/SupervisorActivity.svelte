@@ -196,6 +196,18 @@
     });
   }
 
+  function callGetTaskAttachments(payload) {
+    return new Promise((resolve, reject) => {
+      const run = globalThis?.google?.script?.run;
+      if (!run) {
+        reject(new Error('Apps Script runtime is not available in this view.'));
+        return;
+      }
+
+      run.withSuccessHandler(resolve).withFailureHandler((error) => reject(new Error(error?.message || String(error)))).getTaskAttachments(payload);
+    });
+  }
+
   async function refreshOverview() {
     if (!currentUser?.user_id) {
       loadError = 'Unable to load supervisor data.';
@@ -565,6 +577,19 @@
     const found = supervisorTasks.find(t => String(t.id) === id) || task;
     viewTask = found || null;
     showViewTask = true;
+    // fetch attachments for this task so they display in the view modal
+    (async () => {
+      try {
+        const res = await callGetTaskAttachments({ task_id: id });
+        if (res && res.ok && Array.isArray(res.attachments)) {
+          viewTask = { ...(viewTask || {}), attachments: res.attachments };
+        } else {
+          viewTask = { ...(viewTask || {}), attachments: [] };
+        }
+      } catch (e) {
+        viewTask = { ...(viewTask || {}), attachments: [] };
+      }
+    })();
   }
 
   function closeViewTask() {
@@ -946,51 +971,54 @@ function toggleEditAssigneeDropdown() {
     <div class="modal" role="dialog" aria-modal="true" aria-label="Add Task">
       <h3 style="font-weight:700; margin:0 0 0.5rem 0;">Add Task</h3>
 
-      <label for="task-title">Task</label>
-      <input id="task-title" type="text" bind:value={newTaskTitle} />
+      <div class="task-view-grid" style="margin-bottom:0.6rem;">
+        <label class="title-field">
+          <span>Task</span>
+          <input id="task-title" type="text" bind:value={newTaskTitle} />
+        </label>
 
-      <label for="task-desc">Description</label>
-      <textarea id="task-desc" rows="6" bind:value={newTaskDescription}></textarea>
-
-      <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0.6rem; align-items:end;">
-        <div>
-          <label for="task-status">Status</label>
-          <select id="task-status" bind:value={newTaskStatus} style="width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--soft); margin-bottom:0;">
+        <label class="status-field">
+          <span>Status</span>
+          <select id="task-status" bind:value={newTaskStatus}>
             <option value="Pending">Pending</option>
             <option value="In Progress">In Progress</option>
             <option value="Overdue">Overdue</option>
             <option value="Completed">Completed</option>
           </select>
-        </div>
+        </label>
 
-        <div>
-          <label for="task-due">Due Date</label>
-          <input id="task-due" type="date" bind:value={newTaskDueDate} style="width:100%;" />
-        </div>
-      </div>
+        <label class="due-field">
+          <span>Due Date</span>
+          <input id="task-due" type="date" bind:value={newTaskDueDate} />
+        </label>
 
-      <label for="task-assigned">Assigned To</label>
-      <div style="position:relative;">
-        <button bind:this={assigneeButtonEl} type="button" class="ghost btn-compact" on:click={toggleAssigneeDropdown} aria-haspopup="listbox" aria-expanded={showAssigneeDropdown} style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:0.5rem; padding:0.45rem 0.6rem;">
-          <span>{assigneeLabel()}</span>
-          <span style="opacity:0.7">▾</span>
-        </button>
-        {#if showAssigneeDropdown}
-          <div bind:this={assigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:220px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem; box-shadow: none;">
-            <!-- search removed: show checkboxes only -->
-            {#if filteredAssignees.length === 0}
-              <div style="padding:0.5rem; color:var(--muted);">No interns found.</div>
-            {:else}
-              {#each filteredAssignees as s}
-                <label style="display:flex; align-items:center; gap:0.5rem; padding:0.25rem 0.4rem; cursor:pointer;">
-                  <input type="checkbox" checked={newTaskAssignees.indexOf(s.user_id) !== -1} on:change={() => toggleAssigneeSelection(s.user_id)} />
-                  <span style="font-size:0.95rem;">{s.full_name}</span>
-                </label>
-              {/each}
+        <label class="assigned-field">
+          <span>Assigned To</span>
+          <div style="position:relative;">
+            <button bind:this={assigneeButtonEl} type="button" class="ghost btn-compact" on:click={toggleAssigneeDropdown} aria-haspopup="listbox" aria-expanded={showAssigneeDropdown} style="width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; border-radius:0.5rem; padding:0.45rem 0.6rem;">
+              <span>{assigneeLabel()}</span>
+              <span style="opacity:0.7">▾</span>
+            </button>
+            {#if showAssigneeDropdown}
+              <div bind:this={assigneeDropdownEl} role="listbox" tabindex="-1" style="position:absolute; z-index:70; left:0; right:0; max-height:220px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:0.5rem; margin-top:0.4rem; padding:0.4rem; box-shadow: none;">
+                {#if filteredAssignees.length === 0}
+                  <div style="padding:0.5rem; color:var(--muted);">No interns found.</div>
+                {:else}
+                  {#each filteredAssignees as s}
+                    <label style="display:flex; align-items:center; gap:0.5rem; padding:0.25rem 0.4rem; cursor:pointer;">
+                      <input type="checkbox" checked={newTaskAssignees.indexOf(s.user_id) !== -1} on:change={() => toggleAssigneeSelection(s.user_id)} />
+                      <span class="assignee-name">{s.full_name}</span>
+                    </label>
+                  {/each}
+                {/if}
+              </div>
             {/if}
           </div>
-        {/if}
+        </label>
       </div>
+
+      <label for="task-desc">Description</label>
+      <textarea id="task-desc" rows="5" bind:value={newTaskDescription}></textarea>
 
       <div class="modal-actions">
         <button class="ghost btn-compact" type="button" on:click={() => { showAddTask = false; }}>Cancel</button>
@@ -1304,22 +1332,22 @@ function toggleEditAssigneeDropdown() {
             </div>
 
             <div class="task-view-grid">
-              <label>
-                <span>Task Title</span>
+              <label class="title-field">
+                <span>Task</span>
                 <input type="text" value={viewTask?.title} readonly />
               </label>
 
-              <label>
+              <label class="status-field">
                 <span>Status</span>
                 <input type="text" value={viewTask?.status || 'Pending'} readonly />
               </label>
 
-              <label>
+              <label class="due-field">
                 <span>Due Date</span>
                 <input type="text" value={formatDateToMMDDYYYY(viewTask?.due_date) || 'No due date'} readonly />
               </label>
 
-              <label>
+              <label class="assigned-field">
                 <span>Assigned To</span>
                 <input type="text" value={assignedNames(viewTask?.assigned_student_ids) || '—'} readonly />
               </label>
@@ -1327,10 +1355,31 @@ function toggleEditAssigneeDropdown() {
 
             <label class="task-view-description">
               <span>Description</span>
-              <textarea rows="3" readonly>{viewTask?.description || 'No description'}</textarea>
+              <textarea rows="4" readonly style="min-height:6rem">{viewTask?.description || 'No description'}</textarea>
             </label>
 
-            <!-- Attachments removed as requested -->
+            {#if viewTask?.attachments && viewTask.attachments.length > 0}
+              <div class="task-view-section">
+                <span class="row-label">Attachments</span>
+                <ul class="attachment-list">
+                  {#each viewTask.attachments as a}
+                    <li>
+                      <div class="attachment-row">
+                        <span style="overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">{a.file_name || a.file_name || 'file'}</span>
+                        <div class="attachment-actions">
+                          {#if a.link}
+                            <a class="attachment-action" href={a.link} target="_blank" rel="noopener noreferrer" title="View"><ExternalLink size={14} /></a>
+                            <a class="attachment-action" href={getDriveDownloadUrl(a.link)} target="_blank" rel="noopener noreferrer" title="Download"><Download size={14} /></a>
+                          {:else}
+                            <span class="muted">No link</span>
+                          {/if}
+                        </div>
+                      </div>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
           </div>
         </div>
       {/if}
@@ -1999,7 +2048,7 @@ function toggleEditAssigneeDropdown() {
 
   /* Modal */
   .modal-backdrop { position:fixed; inset:0; background:rgba(2,6,23,0.4); border:none }
-  .modal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(720px,96%); background:var(--surface); border-radius:0.8rem; padding:1rem; z-index:60; box-shadow:none; border:1px solid var(--border) }
+  .modal { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width: min(calc(720px - 1.5rem), 96%); background:var(--surface); border-radius:0.8rem; padding:1rem; z-index:60; box-shadow:none; border:1px solid var(--border) }
   .modal label { display:block; margin-top:0.6rem; margin-bottom:0.25rem; font-weight:600 }
   .modal input[type="text"], .modal input[type="date"], .modal textarea { width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid var(--border); background:var(--soft) }
   .modal-actions { display:flex; justify-content:flex-end; gap:0.6rem; margin-top:0.8rem }
@@ -2111,6 +2160,7 @@ function toggleEditAssigneeDropdown() {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.65rem;
+    align-items: start;
   }
 
   .task-view-grid label,
@@ -2118,6 +2168,8 @@ function toggleEditAssigneeDropdown() {
     display: grid;
     gap: 0.35rem;
   }
+
+  .task-view-description { grid-column: 1 / -1 }
 
   .task-view-grid label span,
   .task-view-description span {
@@ -2128,25 +2180,91 @@ function toggleEditAssigneeDropdown() {
 
   .task-view-grid input,
   .task-view-grid select,
-  .task-view-description textarea {
+  .task-view-description textarea,
+  .modal input,
+  .modal select,
+  .modal textarea {
     width: 100%;
     border: 1px solid var(--border);
     border-radius: 0.55rem;
     background: var(--soft);
     color: var(--ink);
     font-size: 0.82rem;
+    font-family: inherit;
     padding: 0.45rem 0.55rem;
+    line-height: 1.25;
+    box-sizing: border-box;
+    min-height: 40px;
   }
 
-  .task-view-description textarea { resize: vertical }
+  .task-view-grid .status-field input,
+  .task-view-grid .assigned-field input {
+    text-align: left;
+  }
+
+  .task-view-grid .title-field span,
+  .task-view-grid .due-field span {
+    display:block;
+  }
+
+  .task-view-description textarea { resize: vertical; min-height: 96px; font-size:0.82rem; color:var(--ink); font-family:inherit }
+
+  .task-view-grid label span { display:block; margin-bottom:0.25rem }
 
   .task-view-section { display:grid; gap:0.4rem }
 
   .attachment-list { margin:0; padding:0; list-style:none; display:grid; gap:0.35rem }
 
   /* Edit assignee dropdown item styles */
-  .edit-assignee-item { display:flex; align-items:center; gap:0.6rem; padding:0.28rem 0.45rem; cursor:pointer }
-  .edit-assignee-item input[type='checkbox'] { width:1rem; height:1rem; margin:0; flex-shrink:0 }
-  .edit-assignee-name { font-size:0.95rem; line-height:1.1; display:block }
+  /* Assignee dropdown / options: normalize appearance and remove large avatar boxes */
+  .task-view-grid div[role="listbox"] label,
+  .task-view-modal div[role="listbox"] label,
+  .edit-assignee-item,
+  .task-view-grid div[role="listbox"] .edit-assignee-item {
+    display:flex;
+    align-items:center;
+    gap:0.5rem;
+    padding:0.28rem 0.45rem;
+    cursor:pointer;
+    box-sizing: border-box;
+  }
+
+  .task-view-grid div[role="listbox"] label input[type='checkbox'],
+  .task-view-modal div[role="listbox"] label input[type='checkbox'],
+  .edit-assignee-item input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+  }
+
+  /* option text styling to match other form fields */
+  .task-view-grid div[role="listbox"] label span,
+  .task-view-modal div[role="listbox"] label span,
+  .edit-assignee-name {
+    font-size: 0.82rem;
+    color: var(--ink);
+    font-family: inherit;
+    line-height: 1.15;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .assignee-name { font-size: 0.82rem; color: var(--ink); font-family: inherit; line-height:1.15 }
+
+  /* ensure the standalone description label in Add Task matches grid labels */
+  label[for="task-desc"],
+  .task-view-description span {
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    font-family: inherit;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
 
 </style>
