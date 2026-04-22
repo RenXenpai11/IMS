@@ -2,6 +2,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import {
     AlertTriangle,
+    Archive,
     Calendar,
     CheckCircle2,
     Clock3,
@@ -50,10 +51,6 @@
   let isSubmitting = false;
   let deepLinkRequestId = "";
   let highlightedRequestId = "";
-
-  // Debounce sync reload
-  let lastSyncReloadTime = 0;
-  const SYNC_RELOAD_DEBOUNCE_MS = 2000; // Wait 2 seconds before reloading from sync
 
   // Approve loading state
   let approvingRequestId = null;
@@ -247,32 +244,7 @@
         });
       }
       if (result && result.ok) {
-        // Deduplicate requests by ID, keeping the most recently updated one
-        const requestMap = new Map();
-        const incomingRequests = result.requests || [];
-        
-        // Add existing requests first
-        requests.forEach((req) => {
-          requestMap.set(req.id, req);
-        });
-        
-        // Update with incoming requests, overwriting if newer
-        incomingRequests.forEach((req) => {
-          const existing = requestMap.get(req.id);
-          if (!existing) {
-            // New request
-            requestMap.set(req.id, req);
-          } else {
-            // Keep the one with the newer timestamp
-            const existingTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
-            const incomingTime = new Date(req.updated_at || req.created_at || 0).getTime();
-            if (incomingTime > existingTime) {
-              requestMap.set(req.id, req);
-            }
-          }
-        });
-        
-        requests = Array.from(requestMap.values());
+        requests = result.requests || [];
         if (deepLinkRequestId) {
           await tick();
           highlightRequestCard(deepLinkRequestId);
@@ -655,13 +627,7 @@
       currentUser = user;
       if (user) loadRequests();
     });
-    unsubscribeSync = subscribeToSync(() => {
-      const now = Date.now();
-      if (now - lastSyncReloadTime >= SYNC_RELOAD_DEBOUNCE_MS) {
-        lastSyncReloadTime = now;
-        loadRequests();
-      }
-    });
+    unsubscribeSync = subscribeToSync(() => loadRequests());
     if (currentUser) loadRequests();
   });
 
@@ -699,50 +665,62 @@
       return dateB.getTime() - dateA.getTime();
     });
 
-  $: totalRequests = filteredRequests.length;
-  $: pendingRequests = filteredRequests.filter(
+  $: totalRequests = requests.filter(
+    (request) => String(request?.status || "").toLowerCase() !== "archived",
+  ).length;
+  $: pendingRequests = requests.filter(
     (request) => String(request?.status || "").toLowerCase() === "pending",
   ).length;
-  $: resolvedRequests = filteredRequests.filter((request) => {
+  $: resolvedRequests = requests.filter((request) => {
     const status = String(request?.status || "").toLowerCase();
     return status === "approved" || status === "rejected";
   }).length;
+  $: archivedRequests = requests.filter(
+    (request) => String(request?.status || "").toLowerCase() === "archived",
+  ).length;
 </script>
 
 <section class="requests-modern">
   <!-- Stat Cards -->
   <div class="stat-cards">
     <div class="stat-card blue">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon blue">
-          <FileText size={16} />
-        </div>
+      <div class="stat-icon blue">
+        <FileText size={20} />
       </div>
-      <div class="stat-value">{totalRequests}</div>
-      <div class="stat-label">Total Requests</div>
+      <div class="stat-body">
+        <div class="stat-value">{totalRequests}</div>
+        <div class="stat-label">Total Requests</div>
+      </div>
     </div>
 
     <div class="stat-card amber">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon amber">
-          <Clock3 size={16} />
-        </div>
+      <div class="stat-icon amber">
+        <Clock3 size={20} />
       </div>
-      <div class="stat-value">{pendingRequests}</div>
-      <div class="stat-label">Pending Review</div>
+      <div class="stat-body">
+        <div class="stat-value">{pendingRequests}</div>
+        <div class="stat-label">Pending Review</div>
+      </div>
     </div>
 
     <div class="stat-card green">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon green">
-          <ShieldCheck size={16} />
-        </div>
+      <div class="stat-icon green">
+        <ShieldCheck size={20} />
       </div>
-      <div class="stat-value">{resolvedRequests}</div>
-      <div class="stat-label">Resolved</div>
+      <div class="stat-body">
+        <div class="stat-value">{resolvedRequests}</div>
+        <div class="stat-label">Resolved</div>
+      </div>
+    </div>
+
+    <div class="stat-card purple">
+      <div class="stat-icon purple">
+        <Archive size={20} />
+      </div>
+      <div class="stat-body">
+        <div class="stat-value">{archivedRequests}</div>
+        <div class="stat-label">Archive</div>
+      </div>
     </div>
   </div>
 
@@ -910,80 +888,52 @@
                 
                 <div class="request-card-content">
                   <div class="request-card-header">
-                  <div class="request-type-badge">
-                    {#if request.requestType === "Overtime"}
-                      <Clock3 size={14} /> Overtime
-                    {:else}
-                      <Calendar size={14} /> Absence
-                    {/if}
-                  </div>
-                  <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
-                </div>
-
-                <div class="request-card-body">
-                <div class="request-card-dates">
-                  <div class="date-row">
-                    <span class="label">For:</span>
-                    <span class="value">{formatDate(request.date)}</span>
-                  </div>
-                  {#if request.requestType === "Overtime" && request.total_hours}
-                    <div class="date-row">
-                      <span class="label">Duration:</span>
-                      <span class="value">{request.total_hours}h</span>
+                    <div class="request-type-badge">
+                      {#if request.requestType === "Overtime"}
+                        <Clock3 size={14} /> Overtime
+                      {:else}
+                        <Calendar size={14} /> Absence
+                      {/if}
                     </div>
-                  {/if}
-                  {#if request.created_at}
-                    <div class="date-row">
-                      <span class="label">Submitted:</span>
-                      <span class="value"
-                        >{formatCreatedDate(request.created_at)}</span
-                      >
+                    <div class="request-info-inline">
+                      <span class="request-info-item">
+                        <span class="info-label">For:</span>
+                        <span class="info-value">{formatDate(request.date)}</span>
+                      </span>
+                      {#if request.created_at}
+                        <span class="request-info-item">
+                          <span class="info-label">Submitted:</span>
+                          <span class="info-value">{formatCreatedDate(request.created_at)}</span>
+                        </span>
+                      {/if}
+                      {#if isSupervisor}
+                        <span class="request-info-item">
+                          <span class="info-label">Requester:</span>
+                          <span class="info-value">{request.requester_name || "Unknown"}</span>
+                        </span>
+                      {/if}
                     </div>
-                  {/if}
-                  {#if isSupervisor}
-                    <div class="date-row">
-                      <span class="label">Requester:</span>
-                      <span class="value"
-                        >{request.requester_name || "Unknown"}</span
-                      >
-                    </div>
-                  {/if}
-                </div>
-
-                    <div class="req-meta">
-                    {#if request.requestType === "Overtime" && request.total_hours}
-                      <div class="req-meta-item">
-                        <Timer size={13} />
-                        <span class="label">Duration:</span>
-                        <strong>{request.total_hours}h</strong>
-                      </div>
-                    {/if}
-
-                    {#if request.created_at}
-                      <div class="req-meta-item">
-                        <Clock3 size={13} />
-                        <span class="label">Submitted:</span>
-                        <strong>{formatCreatedDate(request.created_at)}</strong>
-                      </div>
-                    {/if}
-
-                    {#if isSupervisor}
-                      <div class="req-meta-item">
-                        <User size={13} />
-                        <span class="label">Requester:</span>
-                        <strong>{request.requester_name || "Unknown"}</strong>
-                      </div>
-                    {/if}
+                    <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
                   </div>
 
                   <div class="req-reason-block">
-                    <div class="req-reason-label">Reason</div>
-                    <p class="req-reason-text">{previewReason(request.reason)}</p>
+                    <div class="req-reason-header">
+                      <div>
+                        <div class="req-reason-label">Reason</div>
+                        <p class="req-reason-text">{previewReason(request.reason)}</p>
+                      </div>
+                      {#if request.requestType === "Overtime" && request.total_hours}
+                        <div class="req-duration-info">
+                          <span class="info-label">Duration:</span>
+                          <span class="info-value">{request.total_hours}h</span>
+                        </div>
+                      {/if}
+                    </div>
                   </div>
                 </div>
 
                 <div class="req-card-footer">
-                  {#if isSupervisor && request.status === "Pending"}
+                  {#if isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
                     <button
                       class="action-btn approve"
                       disabled={approvingRequestId === request.id}
@@ -1002,7 +952,7 @@
                     >
                       <XCircle size={12} /> Reject
                     </button>
-                  {:else if !isSupervisor && request.status === "Pending"}
+                  {:else if !isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
                     <button
                       class="btn-edit"
                       on:click={() => editRequest(request)}
@@ -1016,7 +966,6 @@
                       <Trash2 size={12} /> Delete
                     </button>
                   {/if}
-                </div>
                 </div>
               </div>
             {/each}
@@ -1520,13 +1469,12 @@
       system-ui,
       -apple-system,
       sans-serif;
-    background: var(--bg);
+    background: transparent;
     color: var(--text);
-    padding: 20px 24px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    min-height: 100vh;
+    gap: 20px;
+    min-height: auto;
     transition:
       background 0.2s,
       color 0.2s;
@@ -1535,38 +1483,40 @@
   /* ========== STAT CARDS ========== */
   .stat-cards {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
   }
   .stat-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 10px 12px;
+    padding: 18px 20px;
     box-shadow: var(--shadow-sm);
     transition:
       box-shadow 0.2s,
       transform 0.2s;
     position: relative;
     overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 14px;
   }
   .stat-card:hover {
     box-shadow: var(--shadow);
     transform: translateY(-2px);
   }
-  .stat-card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 4px;
-  }
   .stat-icon {
-    width: 26px;
-    height: 26px;
-    border-radius: 6px;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
     display: grid;
     place-items: center;
     flex-shrink: 0;
+  }
+  .stat-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
   .stat-icon.blue {
     background: var(--accent-glow);
@@ -1580,14 +1530,18 @@
     background: var(--green-dim);
     color: var(--green);
   }
+  .stat-icon.purple {
+    background: var(--purple-dim);
+    color: var(--purple);
+  }
   .stat-value {
-    font-size: 22px;
+    font-size: 28px;
     font-weight: 700;
     letter-spacing: -0.4px;
     line-height: 1;
   }
   .stat-label {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text2);
     margin-top: 2px;
     font-weight: 500;
@@ -1633,20 +1587,25 @@
   .requests-section {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
   }
 
   /* ========== EMPTY STATE ========== */
   .empty-requests {
     border: 1.5px dashed var(--border2);
-    border-radius: var(--radius);
+    border-radius: 0;
     padding: 40px 20px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    background: var(--surface);
+    background: transparent;
   }
   .empty-icon {
     width: 48px;
@@ -1672,11 +1631,12 @@
   /* ========== FILTER ROW ========== */
   .filter-row {
     display: flex;
-    gap: 8px;
+    gap: 12px;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 16px 0;
-    margin-bottom: 16px;
+    padding: 12px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border);
   }
   
   .filter-chips {
@@ -1701,11 +1661,11 @@
     background: transparent;
     color: var(--text2);
   }
-  .filter-pill:hover {
+  .filter-chip:hover {
     background: var(--surface2);
     color: var(--text);
   }
-  .filter-pill.active {
+  .filter-chip.active {
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
@@ -1733,7 +1693,8 @@
   .requests-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0;
+    padding: 12px;
   }
   .req-card {
     background: var(--surface);
@@ -1743,11 +1704,26 @@
     overflow: hidden;
     cursor: default;
   }
+  .request-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    cursor: default;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+  .request-card + .request-card {
+    margin-top: 12px;
+  }
   .request-card[role="button"] {
     cursor: pointer;
   }
   .request-card[role="button"]:hover {
     background: rgba(59, 130, 246, 0.04);
+    border-color: var(--border2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   }
   .request-card::before {
     content: "";
@@ -1770,14 +1746,14 @@
   .request-card-selected {
     background: rgba(59, 130, 246, 0.08);
     border-color: #3b82f6;
-    border-left: 4px solid #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
   }
   .request-card-selected::before {
-    background: transparent;
+    background: #3b82f6;
+    width: 100%;
+    height: 3px;
   }
   .request-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow);
     transform: translateY(-1px);
   }
   .request-card-focused {
@@ -1795,22 +1771,45 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 13px 18px 10px;
+    gap: 16px;
+    padding: 12px 14px;
     border-bottom: 1px solid var(--border);
   }
-  .req-type-badge {
+  .request-type-badge {
     display: flex;
     align-items: center;
     gap: 7px;
     font-size: 14px;
     font-weight: 700;
     color: var(--text2);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
-  .request-card-dates {
+  .request-info-inline {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    align-items: center;
+    gap: 20px;
+    flex: 1;
+    overflow-x: auto;
+    font-size: 13px;
+  }
+  .request-info-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .info-label {
+    color: var(--text3);
+    font-weight: 500;
+  }
+  .info-value {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .status-badge {
+    flex-shrink: 0;
   }
   .req-meta {
     display: flex;
@@ -1829,38 +1828,57 @@
     color: var(--text3);
     flex-shrink: 0;
   }
-  .req-meta-item strong {
-    color: var(--text);
-    font-weight: 700;
-  }
-  .req-meta-item .label {
-    color: var(--text3);
-    font-size: 12.5px;
-  }
   .req-reason-block {
     background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border: none;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
     padding: 10px 14px;
   }
   .req-reason-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text3);
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
   .req-reason-text {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text2);
     line-height: 1.5;
+  }
+  .req-reason-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .req-duration-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .req-duration-info .info-label {
+    color: var(--text3);
+    font-weight: 500;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .req-duration-info .info-value {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 13px;
   }
   .req-card-footer {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    padding: 0 18px 14px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
   }
 
   .btn-edit,
@@ -1885,47 +1903,69 @@
     color: #fff;
     box-shadow: 0 2px 6px var(--accent-glow);
   }
+  .btn-reject {
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--red-dim);
+  }
+  .btn-reject:hover:not(:disabled) {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--red-dim);
+  }
+  
+  /* Action buttons base styling */
+  .action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 15px;
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
   .action-btn.reject {
     background: var(--red);
     color: #fff;
     box-shadow: 0 2px 6px var(--red-dim);
   }
+  .action-btn.reject:hover:not(:disabled) {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--red-dim);
+  }
+  .action-btn.approve {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--accent-glow);
+  }
+  .action-btn.approve:hover:not(:disabled) {
+    background: #1d4ed8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--accent-glow);
+  }
   .action-btn.edit {
     background: var(--accent);
     color: white;
+  }
+  .action-btn.edit:hover:not(:disabled) {
+    background: #1d4ed8;
+    transform: translateY(-1px);
+  }
+  .action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
   .btn-edit :global(svg),
   .btn-delete :global(svg),
   .btn-approve :global(svg),
   .btn-reject :global(svg) {
     flex-shrink: 0;
-  }
-
-  /* Disabled states for buttons */
-  .btn-approve:disabled,
-  .btn-reject:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-approve:disabled:hover,
-  .btn-reject:disabled:hover {
-    transform: none;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-  }
-
-  /* Spinner animation */
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .spin {
-    animation: spin 1s linear infinite;
   }
 
   /* ========== STATUS BADGES ========== */
