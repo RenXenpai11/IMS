@@ -51,6 +51,13 @@
   let deepLinkRequestId = "";
   let highlightedRequestId = "";
 
+  // Debounce sync reload
+  let lastSyncReloadTime = 0;
+  const SYNC_RELOAD_DEBOUNCE_MS = 2000; // Wait 2 seconds before reloading from sync
+
+  // Approve loading state
+  let approvingRequestId = null;
+
   // Bulk archive state
   let bulkArchiveMode = false;
   let selectedRequestsForArchive = new Set();
@@ -240,7 +247,32 @@
         });
       }
       if (result && result.ok) {
-        requests = result.requests || [];
+        // Deduplicate requests by ID, keeping the most recently updated one
+        const requestMap = new Map();
+        const incomingRequests = result.requests || [];
+        
+        // Add existing requests first
+        requests.forEach((req) => {
+          requestMap.set(req.id, req);
+        });
+        
+        // Update with incoming requests, overwriting if newer
+        incomingRequests.forEach((req) => {
+          const existing = requestMap.get(req.id);
+          if (!existing) {
+            // New request
+            requestMap.set(req.id, req);
+          } else {
+            // Keep the one with the newer timestamp
+            const existingTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+            const incomingTime = new Date(req.updated_at || req.created_at || 0).getTime();
+            if (incomingTime > existingTime) {
+              requestMap.set(req.id, req);
+            }
+          }
+        });
+        
+        requests = Array.from(requestMap.values());
         if (deepLinkRequestId) {
           await tick();
           highlightRequestCard(deepLinkRequestId);
@@ -417,6 +449,7 @@
 
   async function updateRequestStatus(requestId, nextStatus) {
     try {
+      approvingRequestId = requestId;
       console.log("Approving request:", { requestId, nextStatus, supervisorId: currentUser?.user_id });
       const result = await callBackend("update_request_status", {
         request_id: requestId,
@@ -437,6 +470,8 @@
       console.error("Update request status error:", err);
       formError = "Error updating request status";
       setTimeout(() => (formError = ""), 3000);
+    } finally {
+      approvingRequestId = null;
     }
   }
 
@@ -620,7 +655,13 @@
       currentUser = user;
       if (user) loadRequests();
     });
-    unsubscribeSync = subscribeToSync(() => loadRequests());
+    unsubscribeSync = subscribeToSync(() => {
+      const now = Date.now();
+      if (now - lastSyncReloadTime >= SYNC_RELOAD_DEBOUNCE_MS) {
+        lastSyncReloadTime = now;
+        loadRequests();
+      }
+    });
     if (currentUser) loadRequests();
   });
 
@@ -945,10 +986,15 @@
                   {#if isSupervisor && request.status === "Pending"}
                     <button
                       class="action-btn approve"
+                      disabled={approvingRequestId === request.id}
                       on:click={() =>
                         updateRequestStatus(request.id, "Approved")}
                     >
-                      <CheckCircle size={13} /> Approve
+                      {#if approvingRequestId === request.id}
+                        <Loader2 size={13} class="spin" /> Approving...
+                      {:else}
+                        <CheckCircle size={13} /> Approve
+                      {/if}
                     </button>
                     <button
                       class="btn-reject"
@@ -1853,6 +1899,33 @@
   .btn-approve :global(svg),
   .btn-reject :global(svg) {
     flex-shrink: 0;
+  }
+
+  /* Disabled states for buttons */
+  .btn-approve:disabled,
+  .btn-reject:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-approve:disabled:hover,
+  .btn-reject:disabled:hover {
+    transform: none;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Spinner animation */
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .spin {
+    animation: spin 1s linear infinite;
   }
 
   /* ========== STATUS BADGES ========== */
