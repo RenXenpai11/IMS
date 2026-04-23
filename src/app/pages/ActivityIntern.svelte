@@ -12,6 +12,21 @@ let assignedSupervisorsError = '';
 
 let expandedWorkLog = null;
 let hoveredWorkLog = null;
+
+// Toggle worklog expansion when clicking the item body (but ignore clicks on interactive children)
+function handleWorklogItemClick(event, idx) {
+  if (!event || typeof idx === 'undefined') return;
+  try {
+    const tgt = event.target || null;
+    if (tgt && tgt.closest) {
+      const interactive = tgt.closest('a, button, input, label, .worklog-attachment-action, .worklog-attachment-chip');
+      if (interactive) return; // let the element handle the interaction
+    }
+  } catch (e) {
+    // ignore
+  }
+  expandedWorkLog = expandedWorkLog === idx ? null : idx;
+}
 import { onMount, onDestroy } from 'svelte';
 import { theme } from '../context/ThemeContext.js';
 // For real-time update of 'Updated X minutes ago'
@@ -2461,7 +2476,7 @@ let assignedTasksError = '';
           {:else}
             <div class="worklogs-accordion-list">
               {#each filteredWorkLogs as log, idx}
-                <div class="worklog-accordion-item {expandedWorkLog === idx ? 'expanded' : ''}" role="group" on:mouseenter={() => hoveredWorkLog = idx} on:mouseleave={() => hoveredWorkLog = null}>
+                <div class="worklog-accordion-item {expandedWorkLog === idx ? 'expanded' : ''}" role="group" on:mouseenter={() => hoveredWorkLog = idx} on:mouseleave={() => hoveredWorkLog = null} on:click={(e) => handleWorklogItemClick(e, idx)}>
                   <button class="worklog-accordion-trigger" type="button" aria-expanded={expandedWorkLog === idx} on:click={() => expandedWorkLog = expandedWorkLog === idx ? null : idx}>
                     <span class="worklog-title-meta">
                       <span class="worklog-task-title">{log.task}</span>

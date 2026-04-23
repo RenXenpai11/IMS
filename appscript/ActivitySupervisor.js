@@ -380,33 +380,106 @@ function addSupervisorTaskAttachment(payload) {
   }
 }
 
-// Retrieve all attachments for a supervisor task from supervisor_attch
+// Retrieve all attachments for a supervisor task from supervisor_attch,
+// and also from act_attachments for intern-uploaded files linked to the same task.
 function getSupervisorTaskAttachments(payload) {
   try {
     var suptaskId = String(payload.suptask_id || '').trim();
     if (!suptaskId) return { ok: false, error: 'suptask_id is required.' };
 
-    var sheet = getOrCreateSheetWithHeaders_('supervisor_attch', [
-      'supattch_id', 'suptask_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'
-    ]);
-    var rows = readSheetObjects_(sheet) || [];
     var attachments = [];
-    for (var i = 0; i < rows.length; i++) {
-      var r = rows[i] || {};
-      if (String(r.suptask_id || '').trim() === suptaskId) {
-        attachments.push({
-          supattch_id: String(r.supattch_id || '').trim(),
-          suptask_id: String(r.suptask_id || '').trim(),
-          user_id: String(r.user_id || '').trim(),
-          file_type: String(r.file_type || '').trim(),
-          file_size: String(r.file_size || '').trim(),
-          file_name: String(r.file_name || '').trim(),
-          link: String(r.link || '').trim(),
-          uploaded_at: String(r.uploaded_at || '').trim(),
-          uploaded_by: String(r.uploaded_by || '').trim()
-        });
+
+    // 1. Fetch supervisor-uploaded attachments from supervisor_attch
+    try {
+      var sheet = getOrCreateSheetWithHeaders_('supervisor_attch', [
+        'supattch_id', 'suptask_id', 'user_id', 'file_type', 'file_size', 'file_name', 'link', 'uploaded_at', 'uploaded_by'
+      ]);
+      var rows = readSheetObjects_(sheet) || [];
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i] || {};
+        if (String(r.suptask_id || '').trim() === suptaskId) {
+          attachments.push({
+            attachment_id: String(r.supattch_id || '').trim(),
+            supattch_id: String(r.supattch_id || '').trim(),
+            suptask_id: String(r.suptask_id || '').trim(),
+            user_id: String(r.user_id || '').trim(),
+            file_type: String(r.file_type || '').trim(),
+            file_size: String(r.file_size || '').trim(),
+            file_name: String(r.file_name || '').trim(),
+            link: String(r.link || '').trim(),
+            uploaded_at: String(r.uploaded_at || '').trim(),
+            uploaded_by: String(r.uploaded_by || '').trim()
+          });
+        }
       }
+    } catch (e) {
+      // supervisor_attch sheet may not exist yet
     }
+
+    // 2. Fetch intern-uploaded attachments from act_attachments.
+    //    Find the supervisor_task row to get its title and created_by (the supervisor/intern who owns it).
+    //    Then find matching activity_logs rows (intern tasks) linked by task_name + assigned_by,
+    //    and return their attachments from act_attachments.
+    try {
+      var supTaskSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+      var supTaskRows = readSheetObjects_(supTaskSheet) || [];
+      var supTaskRow = null;
+      for (var st = 0; st < supTaskRows.length; st++) {
+        if (String(supTaskRows[st].sup_taskid || '').trim() === suptaskId) {
+          supTaskRow = supTaskRows[st];
+          break;
+        }
+      }
+      if (supTaskRow) {
+        var taskTitle = String(supTaskRow.task || '').trim().toLowerCase();
+        var createdBy = String(supTaskRow.created_by || '').trim();
+
+        // Find matching activity_logs (intern task) rows: task_name matches and assigned_by = createdBy
+        try {
+          var actSheet = getSheet_('activity_logs');
+          var actRows = readSheetObjects_(actSheet) || [];
+          var matchingActivityIds = [];
+          for (var ai = 0; ai < actRows.length; ai++) {
+            var ar = actRows[ai] || {};
+            var arTitle = String(ar.task_name || ar.title || '').trim().toLowerCase();
+            var arAssignedBy = String(ar.assigned_by || '').trim();
+            if (arTitle === taskTitle && arAssignedBy === createdBy) {
+              matchingActivityIds.push(String(ar.id || '').trim());
+            }
+          }
+
+          // Fetch attachments from act_attachments for each matching activity task
+          if (matchingActivityIds.length > 0) {
+            try {
+              var actAttchSheet = getSheet_('act_attachments');
+              var actAttchRows = readSheetObjects_(actAttchSheet) || [];
+              for (var ac = 0; ac < actAttchRows.length; ac++) {
+                var acr = actAttchRows[ac] || {};
+                var acrTaskId = String(acr.task_id || '').trim();
+                if (matchingActivityIds.indexOf(acrTaskId) !== -1) {
+                  attachments.push({
+                    attachment_id: String(acr.id || '').trim(),
+                    file_type: String(acr.file_type || '').trim(),
+                    file_size: String(acr.file_size || '').trim(),
+                    file_name: String(acr.file_name || '').trim(),
+                    link: String(acr.link || '').trim(),
+                    uploaded_at: String(acr.uploaded_at || '').trim(),
+                    uploaded_by: String(acr.uploaded_by || '').trim()
+                  });
+                }
+              }
+            } catch (e) {
+              // act_attachments sheet may not exist
+            }
+          }
+        } catch (e) {
+          // activity_logs sheet may not exist
+        }
+      }
+    } catch (e) {
+      // ignore errors fetching intern attachments
+    }
+
     return { ok: true, attachments: attachments };
   } catch (err) {
     return { ok: false, error: err && err.message ? String(err.message) : String(err) };
