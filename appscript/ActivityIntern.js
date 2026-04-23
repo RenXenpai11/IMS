@@ -823,6 +823,95 @@ function getActivityTasks(payload) {
 		// If act_attachments sheet doesn't exist, skip
 	}
 
+	// Hydrate supervisor-uploaded attachments from supervisor_attch sheet.
+	// Match intern tasks to supervisor_task rows by (task_name == supervisor_task.task AND assigned_by == supervisor_task.created_by).
+	// This makes attachments uploaded by the supervisor visible to assigned interns when they view a task.
+	try {
+		var supTaskSheet = getOrCreateSheetWithHeaders_('supervisor_task', ['sup_taskid','task','description','due_date','status','assigned_to','created_at','created_by','updated_by']);
+		var supTaskRows = readSheetObjects_(supTaskSheet) || [];
+		// Build map: normalised title -> array of sup_taskid for tasks assigned to this intern
+		var supTaskTitleToIds = {};
+		for (var st = 0; st < supTaskRows.length; st++) {
+			var supRow = supTaskRows[st];
+			var assignedIds = [];
+			try { assignedIds = JSON.parse(String(supRow.assigned_to || '[]')) || []; } catch (e) { assignedIds = []; }
+			var isAssigned = false;
+			for (var ai = 0; ai < assignedIds.length; ai++) {
+				if (String(assignedIds[ai] || '').trim() === requestedUserId) { isAssigned = true; break; }
+			}
+			if (!isAssigned) continue;
+			var titleKey = String(supRow.task || '').trim().toLowerCase();
+			if (!titleKey) continue;
+			if (!supTaskTitleToIds[titleKey]) supTaskTitleToIds[titleKey] = [];
+			supTaskTitleToIds[titleKey].push(String(supRow.sup_taskid || '').trim());
+		}
+
+		// Read supervisor_attch and build map: sup_taskid -> attachments[]
+		var supAttchByTaskId = {};
+		try {
+			var supAttchSheet = getOrCreateSheetWithHeaders_('supervisor_attch', ['supattch_id','suptask_id','user_id','file_type','file_size','file_name','link','uploaded_at','uploaded_by']);
+			var supAttchRows = readSheetObjects_(supAttchSheet) || [];
+			for (var sa = 0; sa < supAttchRows.length; sa++) {
+				var sar = supAttchRows[sa];
+				var sid = String(sar.suptask_id || '').trim();
+				if (!sid) continue;
+				if (!supAttchByTaskId[sid]) supAttchByTaskId[sid] = [];
+				supAttchByTaskId[sid].push({
+					attachment_id: String(sar.supattch_id || '').trim(),
+					file_type: String(sar.file_type || '').trim(),
+					file_size: String(sar.file_size || '').trim(),
+					file_name: String(sar.file_name || '').trim(),
+					link: String(sar.link || '').trim(),
+					uploaded_at: String(sar.uploaded_at || '').trim()
+				});
+			}
+		} catch (e) { /* supervisor_attch sheet may not exist yet */ }
+
+		// Append supervisor attachments to each matching intern task
+		for (var ti = 0; ti < tasks.length; ti++) {
+			var t = tasks[ti];
+			var titleKey = String(t.task_name || '').trim().toLowerCase();
+			if (!titleKey) continue;
+			var matchedSupIds = supTaskTitleToIds[titleKey] || [];
+			// Fallback: if no exact-title matches, try fuzzy match against supervisor task titles
+			if (!matchedSupIds.length && titleKey && Array.isArray(supTaskRows)) {
+				for (var f = 0; f < supTaskRows.length; f++) {
+					var fr = supTaskRows[f] || {};
+					var assignedIdsF = [];
+					try { assignedIdsF = JSON.parse(String(fr.assigned_to || '[]')) || []; } catch (e) { assignedIdsF = []; }
+					var isAssignedF = false;
+					for (var afi = 0; afi < assignedIdsF.length; afi++) {
+						if (String(assignedIdsF[afi] || '').trim() === requestedUserId) { isAssignedF = true; break; }
+					}
+					if (!isAssignedF) continue;
+					var supTitle = String(fr.task || '').trim().toLowerCase();
+					if (!supTitle) continue;
+					if (supTitle.indexOf(titleKey) !== -1 || titleKey.indexOf(supTitle) !== -1) {
+						if (!matchedSupIds.includes(String(fr.sup_taskid || '').trim())) matchedSupIds.push(String(fr.sup_taskid || '').trim());
+					}
+				}
+			}
+			if (!matchedSupIds.length) continue;
+			for (var msi = 0; msi < matchedSupIds.length; msi++) {
+				var matchedSupId = matchedSupIds[msi];
+				var supAtts = supAttchByTaskId[matchedSupId] || [];
+				for (var sai = 0; sai < supAtts.length; sai++) {
+					// Avoid duplicates by file_name
+					var alreadyPresent = false;
+					for (var eai = 0; eai < t.attachments.length; eai++) {
+						if (String(t.attachments[eai].file_name || '').trim() === supAtts[sai].file_name && supAtts[sai].file_name) {
+							alreadyPresent = true;
+							break;
+						}
+					}
+					if (!alreadyPresent) t.attachments.push(supAtts[sai]);
+				}
+			}
+		}
+	} catch (supErr) {
+		// Non-fatal: intern can still view tasks without supervisor attachments
+	}
+
 	return {
 		ok: true,
 		tasks: tasks
