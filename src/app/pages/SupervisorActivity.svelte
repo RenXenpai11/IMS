@@ -1218,9 +1218,7 @@ function toggleEditAssigneeDropdown() {
             <input id="sup-add-task-file-upload" class="hidden-file-input" type="file" multiple bind:this={newTaskFileInput} on:change={handleNewTaskFileUpload} />
           </div>
 
-          {#if newTaskAttachments.length === 0}
-            <p class="sup-attach-empty">No attachments.</p>
-          {:else}
+          {#if newTaskAttachments.length > 0}
             <ul class="attachment-list">
               {#each newTaskAttachments as att, i}
                 <li>
@@ -2561,12 +2559,12 @@ function toggleEditAssigneeDropdown() {
   }
 
   /* ── Attachment editor (matches ActivityIntern design) ── */
-  .attachment-editor { display: grid; gap: 0.5rem; }
+  .attachment-editor { display: grid; gap: 0.35rem; }
   .attachment-editor-head {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.4rem;
+    gap: 0.2rem;
   }
   .attachment-editor-head span {
     color: var(--muted);
