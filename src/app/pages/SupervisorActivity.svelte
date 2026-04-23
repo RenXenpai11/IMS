@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
-  import { Users, Clock3, CheckCircle, AlertCircle, Download, ExternalLink } from 'lucide-svelte';
+  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -1145,9 +1145,9 @@ function toggleEditAssigneeDropdown() {
       <span class="kpi-label">Active interns</span>
     </div>
     <div class="kpi-card kpi-4">
-      <AlertCircle class="kpi-icon" />
-      <span class="kpi-value">{kpis.overdue_tasks}</span>
-      <span class="kpi-label">Overdue tasks</span>
+      <FileText class="kpi-icon" />
+      <span class="kpi-value">{supervisorTasks.length}</span>
+      <span class="kpi-label">Total tasks</span>
     </div>
   </section>
 
