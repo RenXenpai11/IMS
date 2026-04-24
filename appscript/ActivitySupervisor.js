@@ -326,7 +326,12 @@ function updateSupervisorTask(payload) {
         }
       } catch (e) { assignedList = []; }
 
-      // find matching activity_logs rows and update their checklist column
+      // determine new status (if provided)
+      var newStatus = '';
+      if (payload.status !== undefined) newStatus = String(payload.status || '');
+      else if (obj && obj.status !== undefined) newStatus = String(obj.status || '');
+
+      // find matching activity_logs rows and update their checklist and status columns
       try {
         var actSheet = getSheet_('activity_logs');
         var actValues = getSheetValues_(actSheet) || [];
@@ -354,8 +359,10 @@ function updateSupervisorTask(payload) {
                 if (assignedList && assignedList.length > 0) {
                   if (rowUserId && assignedList.indexOf(rowUserId) === -1) continue;
                 }
-                // update checklist column on activity_logs row
-                updateObjectRow_(actSheet, ar + 1, { checklist: JSON.stringify(newDl) });
+                // update checklist column on activity_logs row (and status if provided)
+                var updateAct = { checklist: JSON.stringify(newDl) };
+                if (newStatus) updateAct.status = String(newStatus);
+                updateObjectRow_(actSheet, ar + 1, updateAct);
               } catch (e) {
                 // non-fatal per-row
               }

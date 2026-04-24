@@ -977,9 +977,16 @@ function updateActivityTask(payload) {
 							for (var ai = 0; ai < assignedList.length; ai++) {
 								if (String(assignedList[ai] || '').trim() === String(nextTask.user_id || '').trim()) {
 									// Found matching supervisor_task row for this activity; update daily_checklist if column exists
+									var updateObj = {};
 									if (dailyChecklistIdx !== -1) {
-										var checklistJson = JSON.stringify(nextChecklist || []);
-										updateObjectRow_(supSheet, r + 1, { daily_checklist: checklistJson });
+										updateObj.daily_checklist = JSON.stringify(nextChecklist || []);
+									}
+									var statusIdx = supHeaders.indexOf('status');
+									if (statusIdx !== -1 && nextTask.status !== undefined) {
+										updateObj.status = String(nextTask.status || '');
+									}
+									if (Object.keys(updateObj).length > 0) {
+										updateObjectRow_(supSheet, r + 1, updateObj);
 									}
 									break;
 								}
