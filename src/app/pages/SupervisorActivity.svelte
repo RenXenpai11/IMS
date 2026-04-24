@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
-  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink } from 'lucide-svelte';
+  import { Users, Clock3, CheckCircle, FileText, Download, ExternalLink, Eye, Archive } from 'lucide-svelte';
 
   export let currentUser = null;
 
@@ -1169,23 +1169,31 @@ function toggleEditAssigneeDropdown() {
   <section class="kpi-grid">
     <div class="kpi-card kpi-1">
       <Clock3 class="kpi-icon" />
-      <span class="kpi-value">{kpis.today_logs}</span>
-      <span class="kpi-label">Today logs</span>
+      <div class="kpi-body">
+        <span class="kpi-value">{kpis.today_logs}</span>
+        <span class="kpi-label">Today Logs</span>
+      </div>
     </div>
     <div class="kpi-card kpi-2">
       <CheckCircle class="kpi-icon" />
-      <span class="kpi-value">{kpis.pending_approvals}</span>
-      <span class="kpi-label">Pending approvals</span>
+      <div class="kpi-body">
+        <span class="kpi-value">{kpis.pending_approvals}</span>
+        <span class="kpi-label">Pending Approvals</span>
+      </div>
     </div>
     <div class="kpi-card kpi-3">
       <Users class="kpi-icon" />
-      <span class="kpi-value">{kpis.active_interns}</span>
-      <span class="kpi-label">Active interns</span>
+      <div class="kpi-body">
+        <span class="kpi-value">{kpis.active_interns}</span>
+        <span class="kpi-label">Active Interns</span>
+      </div>
     </div>
     <div class="kpi-card kpi-4">
       <FileText class="kpi-icon" />
-      <span class="kpi-value">{supervisorTasks.length}</span>
-      <span class="kpi-label">Total tasks</span>
+      <div class="kpi-body">
+        <span class="kpi-value">{supervisorTasks.length}</span>
+        <span class="kpi-label">Total Tasks</span>
+      </div>
     </div>
   </section>
 
@@ -1615,8 +1623,12 @@ function toggleEditAssigneeDropdown() {
                   <div class="col col-due">{formatDateToMMDDYYYY(t.due_date) || 'No due date'}</div>
                   <div class="col col-status"><div class={`status-badge ${statusClass(t.status)}`}>{t.status || 'Pending'}</div></div>
                   <div class="col col-actions" style="display:flex; gap:0.5rem; justify-content:center;">
-                    <button class="action-link" type="button" on:click={() => openViewTask(t)}>View</button>
-                    <button type="button" class="action-link" on:click={(e) => { e.stopPropagation(); archiveTask(t.id); }} aria-label="Archive task">Archive</button>
+                    <button class="icon-box icon-view" type="button" title="View" on:click={() => openViewTask(t)} aria-label="View task">
+                      <span class="icon-wrap"><Eye /></span>
+                    </button>
+                    <button class="icon-box icon-archive" type="button" title="Archive" on:click={(e) => { e.stopPropagation(); archiveTask(t.id); }} aria-label="Archive task">
+                      <span class="icon-wrap"><Archive /></span>
+                    </button>
                   </div>
                 </li>
               {/each}
@@ -1873,7 +1885,7 @@ function toggleEditAssigneeDropdown() {
     color: var(--ink);
     /* Force Supervisor page to use the same font-family and base size as ActivityIntern */
     font-family: 'Segoe UI', system-ui, -apple-system, 'Roboto', 'Helvetica Neue', Arial, sans-serif !important;
-    font-size: 0.95rem !important;
+    font-size: 0.89rem !important;
   }
 
   /* header removed: styles intentionally omitted to keep layout compact */
@@ -1907,18 +1919,18 @@ function toggleEditAssigneeDropdown() {
   .grid-two { align-items: start; }
 
   .kpi-card {
+    position: relative;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 1.1rem;
+    border-radius: 1rem;
+    padding: 1.25rem;
     box-shadow: 0 18px 36px -30px rgba(15, 23, 42, 0.42);
-    padding: 1rem 1.1rem;
     min-height: 5.45rem;
     transition: transform 0.22s ease, box-shadow 0.22s ease;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.45rem;
-    position: relative;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.9rem;
     overflow: hidden;
   }
 
@@ -1928,8 +1940,10 @@ function toggleEditAssigneeDropdown() {
   }
 
   .kpi-label {
-    font-size: 0.85rem;
+    font-size: 0.80rem;
     color: var(--muted);
+    font-weight: 700;
+    margin: 0.15rem 0 0;
   }
 
   .kpi-row {
@@ -1940,12 +1954,16 @@ function toggleEditAssigneeDropdown() {
   }
 
   .kpi-value {
-    font-size: 1.5rem;
-    font-weight: 700;
+    font-size: 1.64rem;
+    font-weight: 800;
+    line-height: 1;
+    margin: 0;
+    color: var(--color-heading);
+    letter-spacing: -0.01em;
   }
 
   .kpi-trend {
-    font-size: 0.85rem;
+    font-size: 0.79rem;
     color: var(--accent-dark);
     background: rgba(15, 108, 189, 0.12);
     padding: 0.1rem 0.5rem;
@@ -1976,10 +1994,45 @@ function toggleEditAssigneeDropdown() {
     box-shadow: 0 20px 38px -28px rgba(15, 23, 42, 0.48);
   }
 
-  .kpi-icon, .stat-icon { display:inline-flex; align-items:center; justify-content:center; border-radius:0.75rem }
-  .kpi-icon { width:2.2rem; height:2.2rem }
+  .kpi-icon, .stat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.9rem;
+    width: 3.4rem;
+    height: 3.4rem;
+    min-width: 3.4rem;
+    min-height: 3.4rem;
+    flex: 0 0 auto;
+    box-shadow: 0 10px 26px rgba(2,6,23,0.18);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.04);
+    background: transparent; /* per-card gradient overrides will apply */
+  }
 
-  .kpi-value { font-size:1.45rem; font-weight:800 }
+  .kpi-value { font-size:1.39rem; font-weight:800 }
+
+  .kpi-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  /* Use same font family and sizes as the sidebar nav for card contents (not headers) */
+  .kpi-card .kpi-body,
+  .tasks-table .intern-list-item,
+  .tasks-table .intern-list-item .col,
+  .log-card,
+  .log-details,
+  .detail-value,
+  .task-name,
+  .log-task {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.3;
+  }
 
   /* top color bar for each KPI card (matches Activity style) */
   :global(.kpi-card):before {
@@ -1988,33 +2041,66 @@ function toggleEditAssigneeDropdown() {
     left: 0;
     right: 0;
     top: 0;
-    height: 6px;
+    height: 3px;
+    opacity: 0.95;
     background: transparent;
   }
 
   /* icon background */
   .kpi-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.5rem;
-    border-radius: 0.7rem;
-    background: rgba(15,108,189,0.08);
+    position: relative;
+    padding: 0.45rem;
+    border-radius: 0.9rem;
+    background: transparent;
     color: var(--accent-dark);
+    overflow: visible;
+  }
+
+  .kpi-icon :global(svg) {
+    width: 20px;
+    height: 20px;
+    display: block;
+    color: inherit;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* ensure per-card gradients fill the rounded tile */
+  :global(.kpi-card.kpi-1) .kpi-icon,
+  :global(.kpi-card.kpi-2) .kpi-icon,
+  :global(.kpi-card.kpi-3) .kpi-icon,
+  :global(.kpi-card.kpi-4) .kpi-icon {
+    background-clip: padding-box;
+  }
+
+  /* inner inset box to create the dark rounded tile inside the gradient outer tile */
+  .kpi-icon::after {
+    content: '';
+    position: absolute;
+    inset: 0.45rem;
+    border-radius: 0.6rem;
+    background: rgba(2,6,23,0.30);
+    z-index: 1;
   }
 
   /* per-card colors */
-  :global(.kpi-card.kpi-1):before { background: #0f6cbd }
-  :global(.kpi-card.kpi-1) .kpi-icon { background: #0f6cbd; color: #fff }
+  :global(.kpi-card.kpi-1):before { background: linear-gradient(90deg, #0f6cbd, #38bdf8); }
+  :global(.kpi-card.kpi-1) .kpi-icon { background: linear-gradient(135deg,#0f6cbd,#0ea5e9); color: #fff }
 
-  :global(.kpi-card.kpi-2):before { background: #7c3aed }
-  :global(.kpi-card.kpi-2) .kpi-icon { background: #7c3aed; color: #fff }
+  :global(.kpi-card.kpi-2):before { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+  :global(.kpi-card.kpi-2) .kpi-icon { background: linear-gradient(135deg,#7c3aed,#a78bfa); color: #fff }
 
-  :global(.kpi-card.kpi-3):before { background: #10b981 }
-  :global(.kpi-card.kpi-3) .kpi-icon { background: #10b981; color: #fff }
+  :global(.kpi-card.kpi-3):before { background: linear-gradient(90deg, #10b981, #34d399); }
+  :global(.kpi-card.kpi-3) .kpi-icon { background: linear-gradient(135deg,#10b981,#34d399); color: #fff }
 
-  :global(.kpi-card.kpi-4):before { background: #f59e0b }
-  :global(.kpi-card.kpi-4) .kpi-icon { background: #f59e0b; color: #fff }
+  :global(.kpi-card.kpi-4):before { background: linear-gradient(90deg, #f59e0b, #fb923c); }
+  :global(.kpi-card.kpi-4) .kpi-icon { background: linear-gradient(135deg,#f59e0b,#fb923c); color: #fff }
+
+  /* colored SVG icons matching ActivityIntern tones (icon color inside dark inset) */
+  :global(.kpi-card.kpi-1) .kpi-icon :global(svg) { color: #38bdf8; }
+  :global(.kpi-card.kpi-2) .kpi-icon :global(svg) { color: #a78bfa; }
+  :global(.kpi-card.kpi-3) .kpi-icon :global(svg) { color: #34d399; }
+  :global(.kpi-card.kpi-4) .kpi-icon :global(svg) { color: #fb923c; }
 
   /* color common icons used in this view */
   :global(.icon-btn svg), :global(.folder-icon svg), :global(.file-icon svg) {
@@ -2080,7 +2166,7 @@ function toggleEditAssigneeDropdown() {
 
   .muted {
     color: var(--muted);
-    font-size: 0.85rem;
+    font-size: 0.79rem;
     margin: 0.2rem 0 0;
   }
 
@@ -2089,7 +2175,7 @@ function toggleEditAssigneeDropdown() {
     color: var(--accent-dark);
     padding: 0.15rem 0.6rem;
     border-radius: 999px;
-    font-size: 0.75rem;
+    font-size: 0.69rem;
     font-weight: 600;
   }
 
@@ -2114,7 +2200,7 @@ function toggleEditAssigneeDropdown() {
 
   .empty {
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: 0.84rem;
     margin: 0;
   }
 
@@ -2130,11 +2216,11 @@ function toggleEditAssigneeDropdown() {
 
   .activity-text {
     margin: 0;
-    font-size: 0.9rem;
+    font-size: 0.84rem;
   }
 
   .activity-time {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     color: var(--muted);
   }
 
@@ -2193,13 +2279,13 @@ function toggleEditAssigneeDropdown() {
     gap: 1rem;
   }
 
-  .log-user strong { font-size: 1rem; display:block; margin-bottom:0.15rem }
-  .log-task { font-size: 0.95rem; color: var(--muted); margin-bottom:0.4rem }
-  .task-name { font-size: 0.95rem; color: var(--ink); font-weight:600 }
+  .log-user strong { font-size: 0.94rem; display:block; margin-bottom:0.15rem }
+  .log-task { font-size: 0.89rem; color: var(--muted); margin-bottom:0.4rem }
+  .task-name { font-size: 0.89rem; color: var(--ink); font-weight:600 }
 
   .log-details { display:flex; flex-direction:column; gap:0.45rem; margin-top:0.25rem }
   .detail-row { display:flex; gap:0.6rem; align-items:flex-start }
-  .detail-value { color: var(--muted); font-size:0.92rem; flex: 1; min-width:0 }
+  .detail-value { color: var(--muted); font-size:0.86rem; flex: 1; min-width:0 }
   .detail-row .row-label { flex: 0 0 80px; }
 
   .status-pill {
@@ -2220,14 +2306,37 @@ function toggleEditAssigneeDropdown() {
   .status-overdue { color: #dc2626; }
 
   /* inline action link used in compact lists */
-  .action-link { background: transparent; border: none; padding: 0; margin: 0; font-size: 0.9rem; color: var(--muted); cursor: pointer }
+  .action-link { background: transparent; border: none; padding: 0; margin: 0; font-size: 0.84rem; color: var(--muted); cursor: pointer }
   .action-link:hover { color: var(--accent); text-decoration: underline }
 
+  /* boxed icon actions (view, archive) */
+  .icon-box {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 0.65rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 12px rgba(2,6,23,0.06);
+    cursor: pointer;
+    color: var(--muted);
+  }
+
+  .icon-box:hover { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 12%, var(--border)); color: var(--accent); }
+
+  .icon-box .icon-wrap :global(svg) { width: 16px; height: 16px; display:block; }
+
+  /* specific colored icons (match ActivityIntern tones) */
+  .icon-box.icon-view .icon-wrap :global(svg) { color: #38bdf8; }
+  .icon-box.icon-archive .icon-wrap :global(svg) { color: #38bdf8; }
+
   /* slightly smaller compact intern task rows */
-  .intern-tasks-compact { font-size: 0.92rem }
+  .intern-tasks-compact { font-size: 0.86rem }
 
   /* clickable title link in compact intern tasks */
-  .title-link { background: transparent; border: none; padding: 0; margin: 0; font-weight:700; font-size:0.95rem; color: inherit; text-align:left; cursor: pointer }
+  .title-link { background: transparent; border: none; padding: 0; margin: 0; font-weight:700; font-size:0.89rem; color: inherit; text-align:left; cursor: pointer }
   .title-link:hover { color: var(--accent); text-decoration: underline }
   .title-link:focus { outline: 2px solid rgba(15,108,189,0.18); outline-offset: 2px }
 
@@ -2237,10 +2346,10 @@ function toggleEditAssigneeDropdown() {
   }
   .intern-row-button:hover { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
 
-  .title-text { font-weight:700; font-size:0.95rem }
+  .title-text { font-weight:700; font-size:0.89rem }
 
   /* make status-badge match the smaller work-log status-pill styling */
-  .status-badge { padding: 0.18rem 0.6rem; border-radius: 999px; font-weight: 600; font-size: 0.75rem; display:inline-block }
+  .status-badge { padding: 0.18rem 0.6rem; border-radius: 999px; font-weight: 600; font-size: 0.69rem; display:inline-block }
   .status-badge.status-progress { background: rgba(37,99,235,0.08); color: #2563eb }
   .status-badge.status-pending { background: rgba(255,243,205,0.7); color: #8b6a00 }
   .status-badge.status-completed { background: rgba(5,150,105,0.08); color: #059669 }

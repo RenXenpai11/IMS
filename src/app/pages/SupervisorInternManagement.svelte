@@ -921,12 +921,14 @@
   }
 
   .stat-card {
+    position: relative;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 1rem;
     padding: 1.25rem;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    border-top: 3px solid;
+    overflow: hidden;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
   }
 
   .stat-blue {
@@ -951,7 +953,7 @@
     justify-content: center;
     width: 2.2rem;
     height: 2.2rem;
-    border-radius: 0.65rem;
+    border-radius: 0.75rem;
     color: #fff;
   }
 
@@ -972,17 +974,34 @@
   }
 
   .stat-value {
-    margin: 0.75rem 0 0.25rem;
-    font-size: 1.35rem;
-    font-weight: 700;
+    margin: 0.25rem 0 0.25rem;
     color: var(--text-primary);
+    font-size: 1.7rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.01em;
   }
 
   .stat-label {
-    margin: 0;
-    font-size: 0.75rem;
+    margin: 0.15rem 0 0;
     color: var(--text-muted);
+    font-size: 0.86rem;
+    font-weight: 700;
   }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0;
+    width: 100%; height: 3px; opacity: 0.95;
+  }
+
+  .stat-blue::before { background: linear-gradient(90deg, #0f6cbd, #38bdf8); }
+  .stat-success::before { background: linear-gradient(90deg, #0d9488, #10b981); }
+  .stat-violet::before { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+  .stat-cyan::before { background: linear-gradient(90deg, #0891b2, #22d3ee); }
+
+  .stat-card:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(15,23,42,0.12); }
 
   .card {
     background: var(--surface);
