@@ -31,6 +31,10 @@ export const pageMeta = {
     title: 'Settings',
     description: 'Manage your account preferences and profile.',
   },
+  '/projects': {
+    title: 'Projects',
+    description: 'View and manage your assigned projects.',
+  },
   '/supervisor': {
     title: 'Supervisor Dashboard',
     description: 'Assign students and monitor internship progress.',
@@ -54,6 +58,10 @@ export const pageMeta = {
   '/supervisor/activity': {
     title: 'Activity Log',
     description: 'Review activity logs of assigned students.',
+  },
+  '/supervisor/projects': {
+    title: 'Projects',
+    description: 'Create and manage projects for interns.',
   },
   '/supervisor/documents': {
     title: 'Documents',

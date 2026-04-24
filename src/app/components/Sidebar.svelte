@@ -20,6 +20,7 @@
   const studentNavItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/time-log', label: 'Time Log', icon: Clock },
+    { path: '/projects', label: 'Projects', icon: FolderOpen },
     { path: '/requests', label: 'Requests', icon: FileCheck },
     { path: '/activity', label: 'Activity Log', icon: FileText },
     { path: '/documents', label: 'Documents', icon: FileText },
@@ -30,6 +31,7 @@
     { path: '/supervisor', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/supervisor/interns', label: 'Intern Management', icon: Users2 },
     { path: '/supervisor/time-logs', label: 'Time Logs', icon: Clock },
+    { path: '/supervisor/projects', label: 'Projects', icon: FolderOpen },
     { path: '/supervisor/requests', label: 'Requests', icon: FileCheck },
     { path: '/supervisor/projects', label: 'Projects', icon: FolderOpen },
     { path: '/supervisor/activity', label: 'Activity', icon: Activity },

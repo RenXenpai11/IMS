@@ -13,6 +13,7 @@
   import SupervisorTimeLog from './app/pages/SupervisorTimeLog.svelte';
   import SupervisorActivity from './app/pages/SupervisorActivity.svelte';
   import SupervisorInternManagement from './app/pages/SupervisorInternManagement.svelte';
+  import ProjectsIntern from './app/pages/ProjectsIntern.svelte';
   import SupervisorProjects from './app/pages/SupervisorProjects.svelte';
   import TimeLog from './app/pages/TimeLog.svelte';
   import { getPageMeta, normalizePath } from './app/routes.js';
@@ -31,12 +32,14 @@
     '/': Dashboard,
     '/activity': ActivityIntern,
     '/documents': Documents,
+    '/projects': ProjectsIntern,
     '/requests': Requests,
     '/settings': Settings,
     '/time-log': TimeLog,
     '/supervisor': SupervisorDashboard,
     '/supervisor/interns': SupervisorInternManagement,
     '/supervisor/time-logs': SupervisorTimeLog,
+    '/supervisor/projects': SupervisorProjects,
     '/supervisor/requests': Requests,
     '/supervisor/projects': SupervisorProjects,
     '/supervisor/activity': SupervisorActivity,
@@ -50,6 +53,7 @@
   const restorableStudentPaths = new Set([
     '/',
     '/time-log',
+    '/projects',
     '/requests',
     '/activity',
     '/documents',
@@ -59,6 +63,7 @@
     '/supervisor',
     '/supervisor/interns',
     '/supervisor/time-logs',
+    '/supervisor/projects',
     '/supervisor/requests',
     '/supervisor/projects',
     '/supervisor/activity',
