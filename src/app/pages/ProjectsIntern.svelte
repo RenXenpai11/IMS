@@ -3,14 +3,16 @@
   import { onMount, onDestroy } from 'svelte';
   import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
   import {
-    FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2,
-    CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2
+    FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2, Eye,
+    CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2,
+    Grid, List, Archive
   } from 'lucide-svelte';
 
   export let currentUser = null;
 
   // ── State ─────────────────────────────────────────────────────────────────
   let activeTab    = 'my-projects';
+  let activeSubTab = 'Submissions';
   let projects     = [];
   let isLoading    = false;
   let formError    = '';
@@ -22,27 +24,49 @@
   // Filter
   let filterPriority = 'all';
   let filterStatus   = 'all';
+  let searchQuery    = '';
+  let activeView     = 'Overview';
+  let searchTerm     = '';
+  let selectedStatus = 'all';
+  let showAddProjectModal = false;
 
   // Delete modal
   let showDeleteModal   = false;
   let projectToDelete   = null;
   let isDeleting        = false;
 
-  const PRIORITY_OPTIONS  = ['1st', '2nd', '3rd', '4th', '5th'];
+  const PRIORITY_OPTIONS  = ['Low', 'Medium', 'High'];
   const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Completed'];
 
+  const SUPERVISOR_OPTIONS = ['Supervisor A', 'Supervisor B', 'Supervisor C'];
+
   const PRIORITY_COLORS = {
-    '1st': { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
-    '2nd': { bg: '#fff7ed', text: '#ea580c', border: '#fed7aa' },
-    '3rd': { bg: '#fefce8', text: '#ca8a04', border: '#fde68a' },
-    '4th': { bg: '#f0fdf4', text: '#16a34a', border: '#bbf7d0' },
-    '5th': { bg: '#f5f3ff', text: '#7c3aed', border: '#ddd6fe' },
+    'Low': { bg: '#f0f9ff', text: '#0369a1', border: '#bae6fd' },
+    'Medium': { bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
+    'High': { bg: '#fff1f2', text: '#b91c1c', border: '#fecaca' },
+    // fallback for legacy values
+    '1st': { bg: '#f0f9ff', text: '#0369a1', border: '#bae6fd' },
+    '2nd': { bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
+    '3rd': { bg: '#fff1f2', text: '#b91c1c', border: '#fecaca' },
   };
 
+  function getPriorityLabel(val) {
+    if (!val) return '';
+    const v = String(val).trim();
+    if (v === '1st' || v.toLowerCase() === 'low') return 'Low';
+    if (v === '2nd' || v.toLowerCase() === 'medium') return 'Medium';
+    if (v === '3rd' || v.toLowerCase() === 'high') return 'High';
+    if (v === '4th' || v === '5th') return 'High';
+    return v;
+  }
+
   const STATUS_META = {
-    'Not Started': { cls: 'status-not-started', label: 'Not Started' },
-    'In Progress':  { cls: 'status-in-progress',  label: 'In Progress'  },
+    'Pending':      { cls: 'status-pending',       label: 'Pending'      },
+    'In Progress':  { cls: 'status-in-progress',   label: 'In Progress'  },
+    'For Review':   { cls: 'status-review',        label: 'For Review'   },
     'Completed':    { cls: 'status-completed',     label: 'Completed'    },
+    // legacy mappings
+    'Not Started':  { cls: 'status-pending',       label: 'Pending'      },
   };
 
   // Form
@@ -50,7 +74,9 @@
     priority_level: '1st',
     title: '',
     description: '',
-    deadline: '',
+    supervisor: '',
+    timeline_start: '',
+    timeline_end: '',
     link_url: '',
     link_label: '',
     status: 'Not Started',
@@ -58,7 +84,7 @@
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function resetForm() {
-    form = { priority_level: '1st', title: '', description: '', deadline: '', link_url: '', link_label: '', status: 'Not Started' };
+    form = { priority_level: '1st', title: '', description: '', supervisor: '', timeline_start: '', timeline_end: '', link_url: '', link_label: '', status: 'Not Started' };
     editingId = null;
     formError = '';
     formSuccess = '';
@@ -100,7 +126,7 @@
 
   function validateForm() {
     if (!String(form.title || '').trim())         return 'Project title is required.';
-    if (!String(form.deadline || '').trim())       return 'Deadline is required.';
+    if (!String(form.timeline_start || '').trim() || !String(form.timeline_end || '').trim()) return 'Timeline start and end are required.';
     return '';
   }
 
@@ -134,7 +160,7 @@
     try {
       if (editingId) {
         projects = projects.map(p =>
-          p.id === editingId ? { ...p, ...form, updated_at: new Date().toISOString() } : p
+          p.id === editingId ? { ...p, ...form, deadline: form.timeline_end || p.deadline, updated_at: new Date().toISOString() } : p
         );
         formSuccess = 'Project updated successfully!';
       } else {
@@ -143,6 +169,8 @@
           owner_id: String(currentUser?.user_id || ''),
           owner_name: String(currentUser?.full_name || 'Intern'),
           ...form,
+          // keep legacy `deadline` for compatibility (use timeline_end)
+          deadline: form.timeline_end || '',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
@@ -152,7 +180,8 @@
       saveProjects();
       setTimeout(() => { formSuccess = ''; }, 3000);
       resetForm();
-      activeTab = 'my-projects';
+      // close modal if open
+      closeAddProjectModal();
     } finally {
       isSubmitting = false;
     }
@@ -163,18 +192,31 @@
       priority_level: p.priority_level || '1st',
       title:          p.title || '',
       description:    p.description || '',
-      deadline:       p.deadline || '',
+      supervisor:     p.supervisor || '',
+      timeline_start: p.timeline_start || p.deadline || '',
+      timeline_end:   p.timeline_end || p.deadline || '',
       link_url:       p.link_url || '',
       link_label:     p.link_label || '',
       status:         p.status || 'Not Started',
     };
     editingId = p.id;
-    activeTab = 'add-project';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+      // open modal for editing
+      openAddProjectModal();
   }
 
   function openDeleteModal(p)  { projectToDelete = p; showDeleteModal = true;  }
   function closeDeleteModal()  { projectToDelete = null; showDeleteModal = false; }
+
+  function openAddProjectModal() {
+    // If editingId is set we are opening modal to edit — keep form as-is.
+    if (!editingId) resetForm();
+    showAddProjectModal = true;
+  }
+
+  function closeAddProjectModal() {
+    showAddProjectModal = false;
+    resetForm();
+  }
 
   function confirmDelete() {
     if (!projectToDelete) return;
@@ -186,6 +228,19 @@
       setTimeout(() => { formSuccess = ''; }, 2500);
       closeDeleteModal();
     } finally { isDeleting = false; }
+  }
+
+  function viewProject(p) {
+    // open project details for now (reuses edit flow)
+    editProject(p);
+  }
+
+  function archiveProject(p) {
+    if (!p) return;
+    projects = projects.map(item => item.id === p.id ? { ...item, archived: true, updated_at: new Date().toISOString() } : item);
+    saveProjects();
+    formSuccess = 'Project archived.';
+    setTimeout(() => { formSuccess = ''; }, 2000);
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -206,10 +261,12 @@
   $: totalProjects     = projects.length;
   $: inProgressCount   = projects.filter(p => p.status === 'In Progress').length;
   $: completedCount    = projects.filter(p => p.status === 'Completed').length;
-  $: isFormValid       = String(form.title || '').trim() && String(form.deadline || '').trim();
-</script>
+  $: isFormValid       = String(form.title || '').trim() && String(form.timeline_start || '').trim() && String(form.timeline_end || '').trim();
 
-<!-- ══════════════════════════════════════════════════════════════════════ -->
+  // Derived sets for tab views
+  $: archivedProjects = projects.filter(p => !!p.archived);
+  $: recentProjects   = projects.slice(0, 3);
+</script>
 <section class="projects-page">
 
   <!-- Stat Cards -->
@@ -239,17 +296,45 @@
       <div class="stat-label">Completed</div>
     </div>
   </div>
+  
+    <!-- Quick panel (copied from SupervisorActivity) -->
+    <section class="card quick-panel">
+      <div class="quick-head">
+        <div class="view-controls">
+          <button class="btn btn-ghost" class:active={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>
+            <Grid size={14} />
+            <span>Overview</span>
+          </button>
+          <button class="btn btn-ghost" class:active={activeView === 'Projects'} on:click={() => activeView = 'Projects'}>
+            <FolderOpen size={14} />
+            <span>Projects</span>
+          </button>
+          <button class="btn btn-ghost" class:active={activeView === 'Archive'} on:click={() => activeView = 'Archive'}>
+            <Archive size={14} />
+            <span>Archive</span>
+          </button>
+        </div>
 
-  <!-- Tab Row -->
-  <div class="tab-row">
-    <button class="tab-btn" class:active={activeTab === 'my-projects'} on:click={() => setTab('my-projects')}>
-      My Projects
-    </button>
-    <button class="tab-btn" class:active={activeTab === 'add-project'} on:click={() => setTab('add-project')}>
-      <Plus size={13} style="margin-right:4px" />
-      {editingId ? 'Edit Project' : 'Add Project'}
-    </button>
-  </div>
+        <div class="quick-actions">
+          <label class="search-wrap">
+            <input class="search-input" type="text" placeholder="Search" bind:value={searchQuery} />
+          </label>
+          <select class="quick-status" bind:value={filterStatus} aria-label="Filter by status">
+            <option value="all">All status</option>
+            {#each STATUS_OPTIONS as s}
+              <option value={s}>{s}</option>
+            {/each}
+          </select>
+          <button class="primary" on:click={openAddProjectModal}>+ Add Project</button>
+        </div>
+      </div>
+    </section>
+  
+  
+  
+  
+
+  
 
   {#if formSuccess}
     <div class="alert-success">{formSuccess}</div>
@@ -257,180 +342,101 @@
 
   <!-- ── MY PROJECTS TAB ─────────────────────────────────────────── -->
   {#if activeTab === 'my-projects'}
-    {#if isLoading}
-      <div class="empty-state">
-        <Loader2 size={22} class="spin" />
-        <span>Loading projects…</span>
-      </div>
-    {:else if projects.length === 0}
-      <div class="empty-state">
-        <FolderOpen size={32} />
-        <div class="empty-title">No projects yet</div>
-        <div class="empty-sub">Click "Add Project" to get started.</div>
-      </div>
-    {:else}
-      <!-- Filters -->
-      <div class="filter-row">
-        <div class="filter-group">
-          <span class="filter-label">Priority:</span>
-          {#each ['all', ...PRIORITY_OPTIONS] as p}
-            <button class="filter-chip" class:active={filterPriority === p}
-              on:click={() => (filterPriority = p)}>
-              {p === 'all' ? 'All' : p}
-            </button>
-          {/each}
-        </div>
-        <div class="filter-group">
-          <span class="filter-label">Status:</span>
-          {#each ['all', ...STATUS_OPTIONS] as s}
-            <button class="filter-chip" class:active={filterStatus === s}
-              on:click={() => (filterStatus = s)}>
-              {s === 'all' ? 'All' : s}
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      {#if filteredProjects.length === 0}
+    {#if activeView === 'Overview'}
+      {#if isLoading}
         <div class="empty-state">
-          <FolderOpen size={22} />
-          <span>No projects match the selected filters.</span>
+          <Loader2 size={22} class="spin" />
+          <span>Loading projects…</span>
+        </div>
+      {:else if projects.length === 0}
+        <div class="empty-state">
+          <FolderOpen size={32} />
+          <div class="empty-title">No projects yet</div>
+          <div class="empty-sub">Click "Add Project" to get started.</div>
         </div>
       {:else}
-        <div class="projects-list">
-          {#each filteredProjects as p (p.id)}
-            {@const pc    = PRIORITY_COLORS[p.priority_level] || PRIORITY_COLORS['5th']}
-            {@const sm    = STATUS_META[p.status] || STATUS_META['Not Started']}
-            {@const past  = isDeadlinePast(p.deadline)}
-            {@const near  = !past && isDeadlineNear(p.deadline)}
-            <div class="project-card">
-              <!-- Card header -->
-              <div class="project-card-header">
-                <div class="priority-badge"
-                  style="background:{pc.bg};color:{pc.text};border-color:{pc.border}">
-                  <Tag size={10} /> {p.priority_level} Priority
-                </div>
-                <span class="status-badge {sm.cls}">{sm.label}</span>
+        <div class="project-list">
+          <ul>
+            {#each recentProjects as p (p.id)}
+              <li class="proj-item">{p.title} <span class="muted">— {p.status}</span></li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    {:else if activeView === 'Projects'}
+      <section class="proj-table-panel">
+        <header class="proj-table-header">
+          <span class="proj-col-name">Project Name</span>
+          <span class="proj-col-priority">Priority</span>
+          <span class="proj-col-status">Status</span>
+          <span class="proj-col-due">Timeline</span>
+          <span class="proj-col-actions">Actions</span>
+        </header>
+        {#if isLoading}
+          <div class="empty-state">
+            <Loader2 size={22} class="spin" />
+            <span>Loading projects…</span>
+          </div>
+        {:else if filteredProjects.length === 0}
+          <div class="empty-state">
+            <FolderOpen size={32} />
+            <div class="empty-title">No projects yet</div>
+            <div class="empty-sub">Click "+ Add Project" to get started.</div>
+          </div>
+        {:else}
+          <div class="proj-table-body">
+            {#each filteredProjects as p (p.id)}
+              {@const sm = STATUS_META[p.status] || STATUS_META['Not Started']}
+              {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+              {@const pl = getPriorityLabel(p.priority_level) || ''}
+              <div class="proj-table-row">
+                <span class="proj-col-name proj-name-cell">{p.title}</span>
+                <span class="proj-col-priority">
+                  <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl || '—'}</span>
+                </span>
+                <span class="proj-col-status">
+                  <span class="proj-status-pill {sm.cls}">{sm.label}</span>
+                </span>
+                <span class="proj-col-due proj-col-timeline" class:deadline-past={past}>
+                  {p.timeline_start || p.timeline_end
+                    ? (p.timeline_start && p.timeline_end
+                        ? `${formatDate(p.timeline_start)} — ${formatDate(p.timeline_end)}`
+                        : formatDate(p.timeline_start || p.timeline_end))
+                    : (p.deadline ? formatDate(p.deadline) : '—')}
+                </span>
+                <span class="proj-col-actions proj-actions-cell">
+                  <button class="icon-btn" title="View" aria-label="View" on:click={() => viewProject(p)}>
+                    <Eye size={16} />
+                  </button>
+                  <button class="icon-btn archive" title="Archive" aria-label="Archive" on:click={() => archiveProject(p)}>
+                    <Archive size={16} />
+                  </button>
+                </span>
               </div>
-
-              <!-- Title + desc -->
-              <div class="project-title">{p.title}</div>
-              {#if p.description}
-                <p class="project-desc">{p.description}</p>
-              {/if}
-
-              <!-- Meta row -->
-              <div class="project-meta">
-                {#if p.deadline}
-                  <div class="meta-item" class:deadline-past={past} class:deadline-near={near}>
-                    <CalendarDays size={12} />
-                    <span>{formatDate(p.deadline)}</span>
-                    {#if past}  <span class="deadline-tag">Overdue</span>
-                    {:else if near} <span class="deadline-tag near">Due soon</span>
-                    {/if}
-                  </div>
-                {/if}
-                {#if p.link_url}
-                  <a class="meta-link" href={p.link_url} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink size={12} /> {p.link_label || 'Open Link'}
-                  </a>
-                {/if}
-              </div>
-
-              <!-- Footer actions -->
-              <div class="project-card-footer">
-                <button class="btn-edit" on:click={() => editProject(p)}>
-                  <Pencil size={12} /> Edit
-                </button>
-                <button class="btn-delete" on:click={() => openDeleteModal(p)}>
-                  <Trash2 size={12} /> Delete
-                </button>
-              </div>
-            </div>
-          {/each}
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {:else if activeView === 'Archive'}
+      {#if archivedProjects.length === 0}
+        <div class="empty-state">
+          <FolderOpen size={28} />
+          <div class="empty-title">No archived projects</div>
+          <div class="empty-sub">Archived projects will appear here.</div>
+        </div>
+      {:else}
+        <div class="project-list">
+          <ul>
+            {#each archivedProjects as p (p.id)}
+              <li class="proj-item">{p.title}</li>
+            {/each}
+          </ul>
         </div>
       {/if}
     {/if}
   {/if}
 
-  <!-- ── ADD / EDIT PROJECT TAB ──────────────────────────────────── -->
-  {#if activeTab === 'add-project'}
-    <div class="form-panel">
-      <div class="form-title">{editingId ? 'Edit Project' : 'Add New Project'}</div>
-      <div class="form-subtitle">Fill in the details below and submit.</div>
-
-      <!-- Priority + Status row -->
-      <div class="row-2">
-        <div class="form-group">
-          <label class="form-label" for="proj-priority">Priority Level</label>
-          <select id="proj-priority" class="form-input" bind:value={form.priority_level}>
-            {#each PRIORITY_OPTIONS as opt}
-              <option value={opt}>{opt}</option>
-            {/each}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="proj-status">Status</label>
-          <select id="proj-status" class="form-input" bind:value={form.status}>
-            {#each STATUS_OPTIONS as opt}
-              <option value={opt}>{opt}</option>
-            {/each}
-          </select>
-        </div>
-      </div>
-
-      <!-- Title -->
-      <div class="form-group">
-        <label class="form-label" for="proj-title">Project Title <span class="req">*</span></label>
-        <input id="proj-title" type="text" class="form-input" bind:value={form.title}
-          placeholder="e.g. ISOC PRISM" maxlength="120" />
-      </div>
-
-      <!-- Short Description -->
-      <div class="form-group">
-        <label class="form-label" for="proj-desc">Short Description</label>
-        <textarea id="proj-desc" class="form-textarea" bind:value={form.description}
-          rows="3" placeholder="Brief description of the project…" maxlength="500"></textarea>
-      </div>
-
-      <!-- Deadline -->
-      <div class="form-group">
-        <label class="form-label" for="proj-deadline">Deadline <span class="req">*</span></label>
-        <input id="proj-deadline" type="date" class="form-input" bind:value={form.deadline} />
-      </div>
-
-      <!-- Project Link -->
-      <div class="row-2">
-        <div class="form-group">
-          <label class="form-label" for="proj-link">Project Link (URL)</label>
-          <input id="proj-link" type="url" class="form-input" bind:value={form.link_url}
-            placeholder="https://docs.google.com/…" />
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="proj-link-label">Link Label</label>
-          <input id="proj-link-label" type="text" class="form-input" bind:value={form.link_label}
-            placeholder="e.g. Collaborative Docs File" maxlength="80" />
-        </div>
-      </div>
-
-      {#if formError}
-        <div class="alert-error">{formError}</div>
-      {/if}
-
-      <div class="form-footer">
-        {#if editingId}
-          <button class="btn-secondary" on:click={resetForm}>Cancel</button>
-        {/if}
-        <button class="btn-submit" on:click={submitProject} disabled={isSubmitting || !isFormValid}>
-          {#if isSubmitting}
-            <Loader2 size={14} class="spin" /> Saving…
-          {:else}
-            {editingId ? 'Save Changes' : 'Add Project'}
-          {/if}
-        </button>
-      </div>
-    </div>
-  {/if}
+  <!-- Add/Edit form moved to modal (triggered by + Add Project) -->
 
 </section>
 
@@ -454,19 +460,108 @@
   </div>
 {/if}
 
-<!-- ══════════════════════════════════════════════════════════════════════ -->
+{#if showAddProjectModal}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="modal-overlay" on:click={closeAddProjectModal}>
+    <div class="modal-box large" on:click|stopPropagation>
+      <div class="modal-title">{editingId ? 'Edit Project' : 'Add New Project'}</div>
+
+      <div class="form-group">
+        <label class="form-label" for="proj-title">Project Title <span class="req">*</span></label>
+        <input id="proj-title" type="text" class="form-input" bind:value={form.title}
+          placeholder="e.g. ISOC PRISM" maxlength="120" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="proj-desc">Description</label>
+        <textarea id="proj-desc" class="form-textarea" bind:value={form.description}
+          rows="3" placeholder="Brief description of the project…" maxlength="500"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="proj-supervisor">Supervisor</label>
+        <select id="proj-supervisor" class="form-input" bind:value={form.supervisor}>
+          <option value="">Select supervisor</option>
+          {#each SUPERVISOR_OPTIONS as s}
+            <option value={s}>{s}</option>
+          {/each}
+        </select>
+      </div>
+
+      <div class="row-2">
+        <div class="form-group">
+          <label class="form-label" for="proj-priority">Priority Level</label>
+          <select id="proj-priority" class="form-input" bind:value={form.priority_level}>
+            {#each PRIORITY_OPTIONS as opt}
+              <option value={opt}>{opt}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="proj-status">Status</label>
+          <select id="proj-status" class="form-input" bind:value={form.status}>
+            {#each STATUS_OPTIONS as opt}
+              <option value={opt}>{opt}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+
+      <div class="row-2">
+        <div class="form-group">
+          <label class="form-label" for="proj-timeline-start">Timeline (Start)</label>
+          <input id="proj-timeline-start" type="date" class="form-input" bind:value={form.timeline_start} />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="proj-timeline-end">Timeline (End)</label>
+          <input id="proj-timeline-end" type="date" class="form-input" bind:value={form.timeline_end} />
+        </div>
+      </div>
+
+      <div class="row-2">
+        <div class="form-group">
+          <label class="form-label" for="proj-link">Project Link (URL)</label>
+          <input id="proj-link" type="url" class="form-input" bind:value={form.link_url}
+            placeholder="https://docs.google.com/…" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="proj-link-label">Link Label</label>
+          <input id="proj-link-label" type="text" class="form-input" bind:value={form.link_label}
+            placeholder="e.g. Collaborative Docs File" maxlength="80" />
+        </div>
+      </div>
+
+      {#if formError}
+        <div class="alert-error">{formError}</div>
+      {/if}
+
+      <div class="modal-footer">
+        <button class="btn-secondary" on:click={closeAddProjectModal}>Cancel</button>
+        <button class="btn-submit" on:click={submitProject} disabled={isSubmitting || !isFormValid}>
+          {#if isSubmitting}
+            <Loader2 size={14} class="spin" /> Saving…
+          {:else}
+            {editingId ? 'Save Changes' : 'Add Project'}
+          {/if}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
-  .projects-page { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .projects-page { padding: 4px 0 12px; display: flex; flex-direction: column; gap: 10px; }
 
   /* ── Stat Cards ── */
-  .stat-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+  .stat-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 0; }
   .stat-card {
-    flex: 1; min-width: 130px;
+    flex: 1; min-width: 120px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 10px;
-    padding: 14px 16px 12px;
-    display: flex; flex-direction: column; gap: 4px;
+    padding: 12px 14px 10px;
+    display: flex; flex-direction: column; gap: 6px;
   }
   .stat-card-top { display: flex; align-items: center; margin-bottom: 4px; }
   .stat-icon {
@@ -508,29 +603,127 @@
   :global(body.dark) .alert-success { background: #052e16; border-color: #166534; color: #4ade80; }
   :global(body.dark) .alert-error   { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
 
-  /* ── Filters ── */
-  .filter-row { display: flex; flex-direction: column; gap: 8px; }
-  .filter-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .filter-label { font-size: 11px; font-weight: 600; color: var(--color-sidebar-text); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
-  .filter-chip {
-    padding: 4px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 500;
-    border: 1px solid var(--color-border); background: var(--color-surface);
-    color: var(--color-sidebar-text); cursor: pointer; transition: all .15s;
-  }
-  .filter-chip:hover { background: var(--color-hover); }
-  .filter-chip.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 
-  /* ── Project Cards ── */
-  .projects-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-  .project-card {
+  
+
+  /* ── Projects table card ── */
+  .proj-table-panel {
+    overflow: hidden;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 10px; padding: 14px 16px;
-    display: flex; flex-direction: column; gap: 8px;
-    transition: box-shadow .15s;
+    border-radius: 0.9rem;
+    margin-top: 1rem;
   }
-  .project-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); }
-  .project-card-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  :global(body.dark) .proj-table-panel { background: #0d1117 !important; border-color: #ffffff0f !important; }
+
+  .proj-table-header {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) 7.5rem 8rem 9rem 8.75rem;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.85rem 1rem;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  :global(body.dark) .proj-table-header { background: #161c27 !important; border-bottom-color: #ffffff0f !important; color: #e5edf8 !important; }
+
+  .proj-table-body { display: grid; background: var(--color-soft); padding: 0.4rem; gap: 0.4rem; }
+  :global(body.dark) .proj-table-body { background: #0d1117 !important; }
+
+  .proj-table-row {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) 7.5rem 8rem 9rem 8.75rem;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.65rem;
+    background: var(--color-surface);
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .proj-table-row:hover { border-color: var(--color-accent); box-shadow: 0 8px 22px -20px rgba(15,23,42,.35); }
+  :global(body.dark) .proj-table-row { background: #161c27 !important; border-color: #ffffff0f !important; }
+
+  .proj-name-cell { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  :global(body.dark) .proj-name-cell { color: #e5edf8 !important; }
+
+  .proj-status-pill {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.22rem 0.7rem; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 600;
+    background: rgba(255,255,255,0.02);
+  }
+  .proj-status-pill.status-pending { background: rgba(249,115,22,0.08); color: #f97316; }
+  .proj-status-pill.status-in-progress { background: rgba(16,185,129,0.08); color: #10b981; }
+  .proj-status-pill.status-review { background: rgba(239,68,68,0.08); color: #ef4444; }
+  .proj-status-pill.status-completed { background: rgba(59,130,246,0.08); color: #3b82f6; }
+
+  /* center non-name header labels */
+  .proj-table-header > .proj-col-priority,
+  .proj-table-header > .proj-col-status,
+  .proj-table-header > .proj-col-due,
+  .proj-table-header > .proj-col-actions {
+    justify-self: center;
+    text-align: center;
+    color: var(--color-heading);
+  }
+
+  .proj-col-due { font-size: 0.83rem; color: var(--color-sidebar-text); }
+  .proj-col-due.deadline-past { color: #dc2626; }
+
+  .proj-priority-pill {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0.22rem 0.6rem; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 700; color: var(--color-text);
+    background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.12);
+  }
+
+  /* priority color variants */
+  .proj-priority-pill.priority-low { background: rgba(56,189,248,0.08); color: #38bdf8; border-color: rgba(56,189,248,0.12); }
+  .proj-priority-pill.priority-medium { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
+  .proj-priority-pill.priority-high { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
+
+  /* center non-name row columns so pills and text align under headers */
+  .proj-table-row .proj-col-priority,
+  .proj-table-row .proj-col-status,
+  .proj-table-row .proj-col-due,
+  .proj-table-row .proj-col-actions {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* priority pill keeps its variant color */
+
+  .proj-actions-cell { display: inline-flex; align-items: center; gap: 0.8rem; }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 8px; padding: 6px;
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    color: var(--color-accent); cursor: pointer; margin: 0; transition: transform 0.12s, background 0.12s, border-color 0.12s;
+  }
+  .icon-btn:hover { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)); border-color: var(--color-accent); transform: translateY(-1px); }
+  .icon-btn.archive { background: transparent; border-color: rgba(255,255,255,0.06); color: var(--color-accent); }
+  .icon-btn :global(svg) { display: block; }
+
+  /* restore project-name color only; keep other column colors as defaults */
+  .proj-name-cell { color: var(--color-heading); }
+  .proj-action-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.28rem 0.65rem; border-radius: 0.55rem;
+    font-size: 0.76rem; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--color-border); background: var(--color-soft); color: var(--color-text);
+    transition: background 120ms;
+  }
+  .proj-action-btn:hover { background: var(--color-hover); }
+  .proj-action-btn.danger { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
+  .proj-action-btn.danger:hover { background: #3d1010; }
+
+  /* legacy project-list rows */
 
   .priority-badge {
     display: inline-flex; align-items: center; gap: 4px;
@@ -566,6 +759,19 @@
     background: #fef2f2; color: #dc2626;
   }
   .deadline-tag.near { background: #fffbeb; color: #d97706; }
+
+  /* Quick panel (copied from SupervisorActivity) */
+  .quick-panel { background: linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%); padding: 0.48rem 0.8rem; border-radius: 0.9rem; border: 1px solid var(--color-border); display:flex; align-items:center; justify-content:space-between }
+  .quick-head { display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.75rem }
+  .view-controls .btn { display:inline-flex; align-items:center; gap:0.4rem; margin-right:0.4rem; border-radius:0.55rem; padding:0.32rem 0.6rem; background:transparent; border:1px solid var(--color-border); font-size:0.82rem }
+  .view-controls .btn.active { background: var(--color-soft); color: var(--color-heading); border-color: var(--color-border) }
+  .btn-compact { padding:0.28rem 0.6rem; font-size:0.8rem; border-radius:0.55rem; }
+  .quick-actions { display:flex; gap:0.45rem; align-items:center }
+  .search-wrap { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.7rem; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.7rem; }
+  .search-input { border:0; background:transparent; color:var(--color-text); font-size:0.85rem; width:9rem; outline:none; padding:0.34rem 0; }
+  /* search-icon removed */
+  .quick-actions select, .quick-status { padding:0.34rem 0.6rem; border-radius:0.7rem; font-size:0.85rem }
+  .quick-actions .primary { padding:0.36rem 0.9rem; font-size:0.85rem; border-radius:0.7rem; background: #2563eb; color: #fff; border: none }
 
   .meta-link {
     display: inline-flex; align-items: center; gap: 4px;
@@ -678,5 +884,8 @@
   :global(body.dark) .deadline-tag.near { background: #3b2600; color: #fbbf24; }
   :global(body.dark) .meta-link       { color: #60a5fa; }
 
+
+  /* View toggle (tabs below stat cards) */
+  /* view-toggle removed */
 
 </style>
