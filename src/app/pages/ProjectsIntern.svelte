@@ -5,7 +5,7 @@
   import {
     FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2, Eye,
     CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2,
-    Grid, List, Archive
+    Grid, List, Archive, Download
   } from 'lucide-svelte';
 
   export let currentUser = null;
@@ -29,6 +29,10 @@
   let searchTerm     = '';
   let selectedStatus = 'all';
   let showAddProjectModal = false;
+
+  // Inline project detail panel
+  let viewingProjectId  = null;
+  let viewingProjectTab = 'Submissions';
 
   // Delete modal
   let showDeleteModal   = false;
@@ -231,8 +235,117 @@
   }
 
   function viewProject(p) {
-    // open project details for now (reuses edit flow)
-    editProject(p);
+    if (viewingProjectId === p.id) {
+      viewingProjectId = null; // toggle off
+    } else {
+      viewingProjectId  = p.id;
+      viewingProjectTab = 'Details';
+    }
+  }
+
+  // Submissions handling (files & links)
+  let viewingLinkUrl = '';
+  let viewingLinkLabel = '';
+  let showAddLinkPanel = false;
+  let pendingUpload = { projectId: null, file: null, name: '', type: 'Document' };
+
+  const FILE_TYPE_OPTIONS = ['Document', 'Powerpoint', 'PDF', 'Word'];
+
+  function toggleLinkPanel() {
+    showAddLinkPanel = !showAddLinkPanel;
+    if (!showAddLinkPanel) { viewingLinkUrl = ''; viewingLinkLabel = ''; formError = ''; }
+  }
+
+  function triggerFilePicker(projectId) {
+    const el = document.getElementById(`proj-file-input-${projectId}`);
+    if (el) el.click();
+  }
+
+  // When a file is selected, store it in pendingUpload and show rename/type UI
+  function handleFileSelect(projectId, ev) {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    const defaultName = file.name.replace(/\.[^/.]+$/, '');
+    pendingUpload = { projectId, file, name: defaultName, type: 'Document' };
+    ev.target.value = '';
+  }
+
+  function cancelPendingUpload() {
+    pendingUpload = { projectId: null, file: null, name: '', type: 'Document' };
+    formError = '';
+  }
+
+  function confirmUpload(projectId) {
+    if (!pendingUpload || pendingUpload.projectId !== projectId || !pendingUpload.file) return;
+    const file = pendingUpload.file;
+    const chosenName = String(pendingUpload.name || file.name).trim() || file.name;
+    const chosenType = pendingUpload.type || 'Document';
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const submission = {
+        id: `sub-${Date.now()}`,
+        kind: 'file',
+        name: chosenName,
+        file_type: chosenType,
+        uploaded_at: new Date().toISOString().slice(0,10),
+        dataUrl,
+      };
+      projects = projects.map(p => p.id === projectId ? { ...p, submissions: [ ...(p.submissions || []), submission ], updated_at: new Date().toISOString() } : p);
+      saveProjects();
+      formSuccess = 'File uploaded.';
+      setTimeout(() => { formSuccess = ''; }, 2000);
+      cancelPendingUpload();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function addLinkSubmission(projectId) {
+    if (!String(viewingLinkUrl || '').trim()) { formError = 'Link URL is required.'; return; }
+    showAddLinkPanel = false;
+    const submission = {
+      id: `sub-${Date.now()}`,
+      kind: 'link',
+      title: viewingLinkLabel || viewingLinkUrl,
+      url: viewingLinkUrl,
+      added_at: new Date().toISOString(),
+    };
+    projects = projects.map(p => p.id === projectId ? { ...p, submissions: [ ...(p.submissions || []), submission ], updated_at: new Date().toISOString() } : p);
+    saveProjects();
+    viewingLinkUrl = '';
+    viewingLinkLabel = '';
+    formSuccess = 'Link added.';
+    setTimeout(() => { formSuccess = ''; }, 2000);
+  }
+
+  function viewSubmission(sub) {
+    if (!sub) return;
+    if (sub.kind === 'file' && sub.dataUrl) {
+      window.open(sub.dataUrl, '_blank');
+    } else if (sub.kind === 'link' && sub.url) {
+      window.open(sub.url, '_blank');
+    }
+  }
+
+  function downloadSubmission(sub) {
+    if (!sub) return;
+    if (sub.kind === 'file' && sub.dataUrl) {
+      const a = document.createElement('a');
+      a.href = sub.dataUrl;
+      a.download = sub.name || 'file';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else if (sub.kind === 'link' && sub.url) {
+      window.open(sub.url, '_blank');
+    }
+  }
+
+  function deleteSubmission(projectId, subId) {
+    projects = projects.map(p => p.id === projectId ? { ...p, submissions: (p.submissions || []).filter(s => s.id !== subId), updated_at: new Date().toISOString() } : p);
+    saveProjects();
+    formSuccess = 'Submission removed.';
+    setTimeout(() => { formSuccess = ''; }, 2000);
   }
 
   function archiveProject(p) {
@@ -389,7 +502,8 @@
               {@const sm = STATUS_META[p.status] || STATUS_META['Not Started']}
               {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
               {@const pl = getPriorityLabel(p.priority_level) || ''}
-              <div class="proj-table-row">
+              {@const isViewing = viewingProjectId === p.id}
+              <div class="proj-table-row" class:proj-row-active={isViewing}>
                 <span class="proj-col-name proj-name-cell">{p.title}</span>
                 <span class="proj-col-priority">
                   <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl || '—'}</span>
@@ -405,7 +519,7 @@
                     : (p.deadline ? formatDate(p.deadline) : '—')}
                 </span>
                 <span class="proj-col-actions proj-actions-cell">
-                  <button class="icon-btn" title="View" aria-label="View" on:click={() => viewProject(p)}>
+                  <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
                     <Eye size={16} />
                   </button>
                   <button class="icon-btn archive" title="Archive" aria-label="Archive" on:click={() => archiveProject(p)}>
@@ -413,6 +527,126 @@
                   </button>
                 </span>
               </div>
+
+              {#if isViewing}
+                <div class="proj-detail-card">
+                  <div class="proj-detail-tabs">
+                    {#each ['Details','Submissions','Progress Logs','Milestones','Feedback'] as tab}
+                      <button
+                        class="proj-detail-tab-btn"
+                        class:active={viewingProjectTab === tab}
+                        on:click={() => viewingProjectTab = tab}
+                      >{tab}</button>
+                    {/each}
+                  </div>
+                  <div class="proj-detail-body">
+                    {#if viewingProjectTab === 'Details'}
+                      <div class="proj-detail-grid">
+                        <div class="detail-row"><span class="detail-label">Project Title</span><span class="detail-value">{p.title}</span></div>
+                        <div class="detail-row"><span class="detail-label">Description</span><span class="detail-value">{p.description || '—'}</span></div>
+                        <div class="detail-row"><span class="detail-label">Supervisor</span><span class="detail-value">{p.supervisor || '—'}</span></div>
+                        <div class="detail-row"><span class="detail-label">Priority</span><span class="detail-value">{getPriorityLabel(p.priority_level) || '—'}</span></div>
+                        <div class="detail-row"><span class="detail-label">Status</span><span class="detail-value">{(STATUS_META[p.status] || {}).label || p.status || '—'}</span></div>
+                        <div class="detail-row"><span class="detail-label">Timeline</span><span class="detail-value">{p.timeline_start && p.timeline_end ? `${formatDate(p.timeline_start)} — ${formatDate(p.timeline_end)}` : (p.timeline_end || p.deadline ? formatDate(p.timeline_end || p.deadline) : '—')}</span></div>
+                        <div class="detail-row"><span class="detail-label">Project Link</span><span class="detail-value">{p.link_label ? `${p.link_label} — ${p.link_url}` : (p.link_url || '—')}</span></div>
+                        <div class="detail-row"><span class="detail-label">Created</span><span class="detail-value">{p.created_at ? formatDate(p.created_at) : '—'}</span></div>
+                        <div class="detail-row"><span class="detail-label">Last Updated</span><span class="detail-value">{p.updated_at ? formatDate(p.updated_at) : '—'}</span></div>
+                      </div>
+                    {:else if viewingProjectTab === 'Submissions'}
+                      <!-- Action bar -->
+                      <div class="sub-action-bar">
+                        <input id={"proj-file-input-" + p.id} type="file" on:change={(e) => handleFileSelect(p.id, e)} style="display:none" />
+                        <button class="sub-action-btn" on:click={() => triggerFilePicker(p.id)}>
+                          <ExternalLink size={13} /> Upload File
+                        </button>
+                        <button class="sub-action-btn" class:sub-action-btn-active={showAddLinkPanel} on:click={toggleLinkPanel}>
+                          <Link2 size={13} /> Add Link
+                        </button>
+                      </div>
+
+                      <!-- Add Link inline form -->
+                      {#if showAddLinkPanel}
+                        <div class="add-link-form">
+                          <input class="sub-input" placeholder="Label  e.g. GitHub Repository" bind:value={viewingLinkLabel} />
+                          <input class="sub-input" placeholder="https://example.com" bind:value={viewingLinkUrl} />
+                          <div class="add-link-actions">
+                            <button class="sub-action-btn" on:click={() => addLinkSubmission(p.id)}>Save Link</button>
+                            <button class="sub-cancel-btn" on:click={toggleLinkPanel}>Cancel</button>
+                          </div>
+                          {#if formError}<div class="sub-error">{formError}</div>{/if}
+                        </div>
+                      {/if}
+
+                      <!-- Pending upload preview (rename + type select) -->
+                      {#if pendingUpload.projectId === p.id && pendingUpload.file}
+                        <div class="submission-card pending-upload">
+                          <div class="submission-card-left">
+                            <div class="sub-file-icon">📄</div>
+                            <div class="submission-meta">
+                              <input class="sub-input" bind:value={pendingUpload.name} />
+                              <select class="sub-input" bind:value={pendingUpload.type}>
+                                {#each FILE_TYPE_OPTIONS as t}
+                                  <option value={t}>{t}</option>
+                                {/each}
+                              </select>
+                              <div class="submission-info">Selected file: {pendingUpload.file.name}</div>
+                            </div>
+                          </div>
+                          <div class="submission-actions">
+                            <button class="sub-action-btn" on:click={() => confirmUpload(p.id)}>Upload</button>
+                            <button class="sub-cancel-btn" on:click={cancelPendingUpload}>Cancel</button>
+                          </div>
+                        </div>
+                      {/if}
+
+                      <!-- Submissions list -->
+                      {#if p.submissions && p.submissions.length > 0}
+                        <div class="submissions-list">
+                          {#each p.submissions as s}
+                            {#if s.kind === 'file'}
+                              <div class="submission-card">
+                                <div class="submission-card-left">
+                                  <div class="sub-file-icon">📄</div>
+                                  <div class="submission-meta">
+                                    <div class="submission-name">{s.name}</div>
+                                    <div class="submission-info">Type: {s.file_type || (s.mime ? s.mime.split('/')[1] || 'Document' : 'Document')}</div>
+                                    <div class="submission-info">Uploaded: {formatDate(s.uploaded_at)}</div>
+                                  </div>
+                                </div>
+                                <div class="submission-actions">
+                                  <button class="icon-btn" title="View" on:click={() => viewSubmission(s)}><Eye size={14} /></button>
+                                  <button class="icon-btn" title="Download" on:click={() => downloadSubmission(s)}><Download size={14} /></button>
+                                  <button class="icon-btn" title="Delete" on:click={() => deleteSubmission(p.id, s.id)}><Trash2 size={14} /></button>
+                                </div>
+                              </div>
+                            {:else}
+                              <div class="submission-card link-card">
+                                <div class="link-card-body">
+                                  <div class="link-card-title">🔗 {s.title}</div>
+                                  <div class="link-card-url">{s.url}</div>
+                                  <div class="submission-info">Added: {formatDate(s.added_at)}</div>
+                                </div>
+                                <div class="submission-actions">
+                                  <button class="sub-open-btn" on:click={() => viewSubmission(s)}>Open Link</button>
+                                  <button class="icon-btn" title="Delete" on:click={() => deleteSubmission(p.id, s.id)}><Trash2 size={14} /></button>
+                                </div>
+                              </div>
+                            {/if}
+                          {/each}
+                        </div>
+                      {:else}
+                        <div class="proj-detail-empty" style="padding:1rem 1.25rem">No submissions yet for <strong>{p.title}</strong>. Upload a file or add a link above.</div>
+                      {/if}
+                    {:else if viewingProjectTab === 'Progress Logs'}
+                      <div class="proj-detail-empty">No progress logs recorded.</div>
+                    {:else if viewingProjectTab === 'Milestones'}
+                      <div class="proj-detail-empty">No milestones defined yet.</div>
+                    {:else if viewingProjectTab === 'Feedback'}
+                      <div class="proj-detail-empty">No feedback available.</div>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
             {/each}
           </div>
         {/if}
@@ -674,6 +908,119 @@
 
   .proj-col-due { font-size: 0.83rem; color: var(--color-sidebar-text); }
   .proj-col-due.deadline-past { color: #dc2626; }
+
+  /* ── Inline detail card ── */
+  .proj-row-active { border-color: var(--color-accent) !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+  .proj-detail-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-accent);
+    border-top: none;
+    border-radius: 0 0 0.65rem 0.65rem;
+    overflow: hidden;
+  }
+  :global(body.dark) .proj-detail-card { background: #161c27 !important; border-color: #3b82f6 !important; }
+
+  .proj-detail-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-soft);
+    padding: 0 1rem;
+  }
+  :global(body.dark) .proj-detail-tabs { background: #0d1117 !important; border-bottom-color: #ffffff0f !important; }
+
+  .proj-detail-tab-btn {
+    padding: 0.6rem 1rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--color-sidebar-text);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+  .proj-detail-tab-btn:hover { color: var(--color-heading); }
+  .proj-detail-tab-btn.active { color: #3b82f6; border-bottom-color: #3b82f6; font-weight: 600; }
+
+  .proj-detail-body { padding: 1rem 1.25rem; min-height: 5rem; }
+  .proj-detail-empty { font-size: 0.83rem; color: var(--color-muted, var(--color-sidebar-text)); }
+
+  .icon-btn-active { background: rgba(59,130,246,0.12) !important; color: #3b82f6 !important; }
+
+  /* ── Submissions UI ── */
+  .sub-action-bar { display:flex; gap:0.5rem; padding:0.75rem 1.25rem 0.5rem; }
+
+  .sub-action-btn {
+    display:inline-flex; align-items:center; gap:0.35rem;
+    padding:0.38rem 0.85rem; border-radius:0.45rem;
+    font-size:0.82rem; font-weight:500;
+    background: var(--color-surface); border:1px solid var(--color-border);
+    color:var(--color-heading); cursor:pointer;
+    transition:background 0.15s, border-color 0.15s;
+  }
+  .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
+  .sub-action-btn-active { background:rgba(59,130,246,0.1) !important; border-color:#3b82f6 !important; color:#3b82f6 !important; }
+  :global(body.dark) .sub-action-btn { background:#161c27; border-color:#ffffff10; }
+
+  .add-link-form {
+    display:flex; flex-direction:column; gap:0.5rem;
+    padding:0.65rem 1.25rem 0.75rem;
+    background:var(--color-soft);
+    border-top:1px solid var(--color-border);
+    border-bottom:1px solid var(--color-border);
+  }
+  :global(body.dark) .add-link-form { background:#0d1117; }
+  .sub-input {
+    padding:0.42rem 0.7rem; border-radius:0.4rem;
+    border:1px solid var(--color-border);
+    background:var(--color-surface); color:var(--color-heading);
+    font-size:0.87rem; outline:none;
+  }
+  .sub-input:focus { border-color:#3b82f6; }
+  .add-link-actions { display:flex; gap:0.5rem; align-items:center; }
+  .sub-cancel-btn { font-size:0.82rem; color:var(--color-sidebar-text); background:transparent; border:none; cursor:pointer; padding:0.38rem 0.5rem; }
+  .sub-cancel-btn:hover { color:var(--color-heading); }
+  .sub-error { font-size:0.82rem; color:#ef4444; }
+
+  .submissions-list { display:flex; flex-direction:column; gap:0.6rem; padding:0.75rem 1.25rem 1rem; }
+
+  .submission-card {
+    display:flex; justify-content:space-between; align-items:center;
+    gap:0.75rem; padding:0.75rem 1rem;
+    border:1px solid var(--color-border); border-radius:0.6rem;
+    background:var(--color-surface);
+  }
+  :global(body.dark) .submission-card { background:#0f1720; border-color:#ffffff0e; }
+  .submission-card-left { display:flex; align-items:center; gap:0.7rem; }
+  .sub-file-icon { font-size:1.5rem; line-height:1; }
+  .submission-meta { display:flex; flex-direction:column; gap:2px; }
+  .submission-name { font-size:0.88rem; font-weight:600; color:var(--color-heading); }
+  .submission-info { font-size:0.78rem; color:var(--color-sidebar-text); }
+  .submission-actions { display:flex; gap:0.4rem; align-items:center; }
+
+  /* Link card */
+  .link-card { align-items:flex-start; }
+  .link-card-body { display:flex; flex-direction:column; gap:3px; }
+  .link-card-title { font-size:0.88rem; font-weight:600; color:var(--color-heading); }
+  .link-card-url { font-size:0.8rem; color:#3b82f6; word-break:break-all; }
+  .sub-open-btn {
+    white-space:nowrap; padding:0.35rem 0.8rem; border-radius:0.4rem;
+    font-size:0.8rem; font-weight:500; cursor:pointer;
+    background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3); color:#3b82f6;
+    transition:background 0.15s;
+  }
+  .sub-open-btn:hover { background:rgba(59,130,246,0.18); }
+
+  .pending-upload .sub-input { width: 220px; }
+  .pending-upload .submission-info { font-size:0.82rem; color:var(--color-sidebar-text); }
+
+  /* Details grid */
+  .proj-detail-grid { display:flex; flex-direction:column; gap:0.5rem; padding:1rem 1.25rem; }
+  .detail-row { display:grid; grid-template-columns: 220px 1fr; gap:0.75rem; align-items:start; padding:0.35rem 0; }
+  .detail-label { font-size:0.85rem; color:var(--color-sidebar-text); }
+  .detail-value { font-size:0.9rem; color:var(--color-heading); font-weight:600; }
 
   .proj-priority-pill {
     display: inline-flex; align-items: center; justify-content: center;
