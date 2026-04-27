@@ -267,10 +267,18 @@
             const schedule = scheduleResult.schedule;
             internSchedule.shift_start = schedule.shift_start || "09:00";
             internSchedule.shift_end = schedule.shift_end || "17:00";
-            // Ensure days_off is an array
-            internSchedule.days_off = Array.isArray(schedule.days_off)
-              ? schedule.days_off
-              : [0, 6];
+            // Ensure days_off is an array - parse if it's a string
+            if (typeof schedule.days_off === 'string') {
+              try {
+                internSchedule.days_off = JSON.parse(schedule.days_off) || [0, 6];
+              } catch {
+                internSchedule.days_off = [0, 6];
+              }
+            } else if (Array.isArray(schedule.days_off)) {
+              internSchedule.days_off = schedule.days_off;
+            } else {
+              internSchedule.days_off = [0, 6];
+            }
           }
         } catch (err) {
           console.error("Failed to load intern schedule:", err);

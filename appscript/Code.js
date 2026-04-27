@@ -4612,7 +4612,7 @@ function handleGetInternSchedule_(payload) {
   }
 
   // Get the intern's supervisor first
-  var supervisorResult = handleGetStudentSupervisor_(payload);
+  var supervisorResult = handleGetStudentSupervisor_({ student_user_id: internUserId });
   if (!supervisorResult.ok || !supervisorResult.supervisor) {
     // No supervisor assigned, return defaults
     return {
@@ -4642,15 +4642,19 @@ function handleGetInternSchedule_(payload) {
     var scheduleSupervisorId = String(scheduleRows[i][supervisorIdColIndex - 1] || '').trim();
 
     if (scheduleInternId === internUserId && scheduleSupervisorId === supervisorUserId) {
-      var shiftStart = String(scheduleRows[i][shiftStartColIndex - 1] || '').trim();
-      var shiftEnd = String(scheduleRows[i][shiftEndColIndex - 1] || '').trim();
+      var shiftStartRaw = scheduleRows[i][shiftStartColIndex - 1];
+      var shiftEndRaw = scheduleRows[i][shiftEndColIndex - 1];
       var daysOff = String(scheduleRows[i][daysOffColIndex - 1] || '').trim();
+
+      // Convert time values to HH:MM format
+      var shiftStart = normalizeTimeForCompare_(shiftStartRaw) || '09:00';
+      var shiftEnd = normalizeTimeForCompare_(shiftEndRaw) || '17:00';
 
       return {
         ok: true,
         schedule: {
-          shift_start: shiftStart || '09:00',
-          shift_end: shiftEnd || '17:00',
+          shift_start: shiftStart,
+          shift_end: shiftEnd,
           days_off: daysOff ? JSON.parse(daysOff) : [0, 6]
         }
       };
