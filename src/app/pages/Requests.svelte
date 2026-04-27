@@ -98,6 +98,13 @@
 
   let minDate = "";
 
+  // Intern's custom schedule from supervisor assignment
+  let internSchedule = {
+    shift_start: "09:00",     // Default fallback
+    shift_end: "17:00",       // Default fallback
+    days_off: [0, 6],         // Default: Sunday (0) and Saturday (6)
+  };
+
   $: showOvertimeFields = form.requestType === "Overtime";
   $: overtimeHours = calculateOvertimeHours(
     form.startTime,
@@ -132,7 +139,8 @@
       (formError.includes("cannot be scheduled") ||
         formError.includes("End time must") ||
         formError.includes("Overtime must") ||
-        formError.includes("Start time and end"))
+        formError.includes("Start time and end") ||
+        formError.includes("work hours"))
     ) {
       formError = "";
     }
@@ -157,7 +165,9 @@
     if (form.requestType === "Absence") {
       const dateObj = new Date(form.date + "T00:00:00");
       const dayOfWeek = dateObj.getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) return false;
+      // Check if it's a day off for this intern (using custom schedule)
+      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      if (daysOff.includes(dayOfWeek)) return false;
     }
 
     if (form.requestType === "Overtime") {
@@ -170,6 +180,19 @@
       const endTotalMin = endHour * 60 + endMin;
       if (endTotalMin <= startTotalMin) return false;
       if (overtimeHours < 0.5) return false;
+      
+      // Parse shift times from custom schedule
+      const shiftStart = String(internSchedule.shift_start || "09:00").trim();
+      const shiftEnd = String(internSchedule.shift_end || "17:00").trim();
+      const [shiftStartHour, shiftStartMin] = shiftStart.split(":").map(Number);
+      const [shiftEndHour, shiftEndMin] = shiftEnd.split(":").map(Number);
+      const shiftStartTotalMin = shiftStartHour * 60 + shiftStartMin;
+      const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
+      
+      // Check for overlap with shift hours
+      if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+        return false;
+      }
     }
 
     return true;
@@ -233,6 +256,28 @@
         String(currentUser?.role || "")
           .trim()
           .toLowerCase() === "supervisor";
+      
+      // Fetch intern's custom schedule (if not a supervisor)
+      if (!isSupervisor) {
+        try {
+          const scheduleResult = await callBackend("get_intern_schedule", {
+            intern_user_id: currentUser.user_id,
+          });
+          if (scheduleResult && scheduleResult.ok && scheduleResult.schedule) {
+            const schedule = scheduleResult.schedule;
+            internSchedule.shift_start = schedule.shift_start || "09:00";
+            internSchedule.shift_end = schedule.shift_end || "17:00";
+            // Ensure days_off is an array
+            internSchedule.days_off = Array.isArray(schedule.days_off)
+              ? schedule.days_off
+              : [0, 6];
+          }
+        } catch (err) {
+          console.error("Failed to load intern schedule:", err);
+          // Use defaults on error
+        }
+      }
+      
       let result;
       if (isSupervisor) {
         result = await callBackend("list_assigned_student_requests", {
@@ -328,17 +373,22 @@
     if (form.requestType === "Absence") {
       const dateObj = new Date(form.date + "T00:00:00");
       const dayOfWeek = dateObj.getDay();
-      const dayName = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-      ][dayOfWeek];
-      if (dayOfWeek === 0 || dayOfWeek === 6)
-        return `Absence cannot be requested on ${dayName}s (your day off). Please select a weekday (Monday-Friday).`;
+      
+      // Check if it's a day off for this intern (using custom schedule)
+      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      if (daysOff.includes(dayOfWeek)) {
+        const dayName = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ][dayOfWeek];
+        return `Absence cannot be requested on ${dayName}s (your day off). Please select a working day.`;
+      }
+      
       const existingAbsenceOnDate = requests.some(
         (req) =>
           req.requestType === "Absence" &&
@@ -360,6 +410,19 @@
       if (endTotalMin <= startTotalMin)
         return "End time must be after start time.";
       if (overtimeHours < 0.5) return "Overtime must be at least 30 minutes.";
+      
+      // Parse shift times from custom schedule
+      const shiftStart = String(internSchedule.shift_start || "09:00").trim();
+      const shiftEnd = String(internSchedule.shift_end || "17:00").trim();
+      const [shiftStartHour, shiftStartMin] = shiftStart.split(":").map(Number);
+      const [shiftEndHour, shiftEndMin] = shiftEnd.split(":").map(Number);
+      const shiftStartTotalMin = shiftStartHour * 60 + shiftStartMin;
+      const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
+      
+      // Check for overlap: if overtime is within shift hours, show error
+      if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+        return `Overtime cannot be scheduled during your work hours (${shiftStart} - ${shiftEnd}). Please schedule overtime outside these hours.`;
+      }
     }
     return "";
   }
@@ -507,7 +570,7 @@
     isDeleting = true;
     try {
       const result = await callBackend("delete_request", {
-        request_id: requestToDelete.request_id,
+        request_id: requestToDelete.id || requestToDelete.request_id,
       });
       if (result && result.ok) {
         await loadRequests();
@@ -1177,7 +1240,7 @@
           >
             {#if isDeleting}<span class="spinning-icon"
                 ><Loader2 size={14} /></span
-              > Deleting...{:else}Delete Permanently{/if}
+              > Deleting...{:else}Delete{/if}
           </button>
         </div>
       </div>
@@ -1353,7 +1416,7 @@
               Deleting...
             {:else}
               <Trash2 size={14} />
-              <span>Delete Permanently</span>
+              <span>Delete</span>
             {/if}
           </button>
         </div>
@@ -1391,7 +1454,7 @@
               Deleting...
             {:else}
               <Trash2 size={14} />
-              <span>Delete Permanently</span>
+              <span>Delete</span>
             {/if}
           </button>
         </div>

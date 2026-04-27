@@ -256,6 +256,10 @@ function dispatchAction_(payload) {
     return handleGetStudentSupervisor_(payload);
   }
 
+  if (action === 'get_intern_schedule') {
+    return handleGetInternSchedule_(payload);
+  }
+
   if (action === 'get_notification_preferences') {
     return handleGetNotificationPreferences_(payload);
   }
@@ -4598,6 +4602,69 @@ function handleGetStudentSupervisor_(payload) {
     ok: true,
     supervisor: primarySupervisor,
     supervisors: supervisors
+  };
+}
+
+function handleGetInternSchedule_(payload) {
+  var internUserId = String(payload.intern_user_id || '').trim();
+  if (!internUserId) {
+    return { ok: false, error: 'intern_user_id is required.' };
+  }
+
+  // Get the intern's supervisor first
+  var supervisorResult = handleGetStudentSupervisor_(payload);
+  if (!supervisorResult.ok || !supervisorResult.supervisor) {
+    // No supervisor assigned, return defaults
+    return {
+      ok: true,
+      schedule: {
+        shift_start: '09:00',
+        shift_end: '17:00',
+        days_off: [0, 6]
+      }
+    };
+  }
+
+  var supervisorUserId = supervisorResult.supervisor.user_id;
+
+  // Load intern schedules and find the one for this intern and supervisor
+  var scheduleSheet = getInternSchedulesSheet_();
+  var scheduleRows = getSheetValues_(scheduleSheet);
+  var scheduleHeaders = getHeaders_(scheduleSheet);
+  var internIdColIndex = findColumnIndex_(scheduleHeaders, 'intern_id');
+  var supervisorIdColIndex = findColumnIndex_(scheduleHeaders, 'supervisor_id');
+  var shiftStartColIndex = findColumnIndex_(scheduleHeaders, 'shift_start');
+  var shiftEndColIndex = findColumnIndex_(scheduleHeaders, 'shift_end');
+  var daysOffColIndex = findColumnIndex_(scheduleHeaders, 'days_off');
+
+  for (var i = 1; i < scheduleRows.length; i++) {
+    var scheduleInternId = String(scheduleRows[i][internIdColIndex - 1] || '').trim();
+    var scheduleSupervisorId = String(scheduleRows[i][supervisorIdColIndex - 1] || '').trim();
+
+    if (scheduleInternId === internUserId && scheduleSupervisorId === supervisorUserId) {
+      var shiftStart = String(scheduleRows[i][shiftStartColIndex - 1] || '').trim();
+      var shiftEnd = String(scheduleRows[i][shiftEndColIndex - 1] || '').trim();
+      var daysOff = String(scheduleRows[i][daysOffColIndex - 1] || '').trim();
+
+      return {
+        ok: true,
+        schedule: {
+          shift_start: shiftStart || '09:00',
+          shift_end: shiftEnd || '17:00',
+          days_off: daysOff ? JSON.parse(daysOff) : [0, 6]
+        }
+      };
+    }
+  }
+
+  // Schedule not found, return defaults
+  return {
+    ok: true,
+    schedule: {
+      shift_start: '09:00',
+      shift_end: '17:00',
+      days_off: [0, 6]
+    }
   };
 }
 
