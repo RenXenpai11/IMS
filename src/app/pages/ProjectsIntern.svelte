@@ -35,13 +35,18 @@
   let viewingProjectTab = 'Submissions';
   let expandedDescriptionId = null;
 
+  // Inline edit (Details tab — no modal)
+  let inlineEditId = null;
+  let inlineForm = {};
+  let showInlineMembersPanel = false;
+
   // Delete modal
   let showDeleteModal   = false;
   let projectToDelete   = null;
   let isDeleting        = false;
 
   const PRIORITY_OPTIONS  = ['Low', 'Medium', 'High'];
-  const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Completed'];
+  const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'For Review', 'Completed'];
 
   // Populated from backend on mount
   let SUPERVISOR_OPTIONS = [];
@@ -68,7 +73,7 @@
     'For Review':   { cls: 'status-review',        label: 'For Review'   },
     'Completed':    { cls: 'status-completed',     label: 'Completed'    },
     // legacy mappings
-    'Not Started':  { cls: 'status-pending',       label: 'Pending'      },
+    'Not Started':  { cls: 'status-not-started',   label: 'Not Started'  },
   };
 
   // Form
@@ -135,6 +140,16 @@
     if (!String(form.title || '').trim())         return 'Project title is required.';
     if (!String(form.timeline_start || '').trim() || !String(form.timeline_end || '').trim()) return 'Timeline start and end are required.';
     return '';
+  }
+
+  function statusToProgress(s) {
+    const v = String(s || '').trim().toLowerCase();
+    if (!v || v === 'not started' || v === 'pending') return 0;
+    if (v === 'in progress') return 50;
+    if (v === 'for review') return 90;
+    if (v === 'completed') return 100;
+    const n = parseInt(s, 10);
+    return isNaN(n) ? 0 : Math.max(0, Math.min(100, n));
   }
 
   // ── API helpers ──────────────────────────────────────────────────────────
@@ -280,19 +295,65 @@
   }
 
   function editProject(p) {
-    form = {
+    startInlineEdit(p);
+  }
+
+  function startInlineEdit(p) {
+    inlineForm = {
       priority_level: p.priority_level || 'Low',
       title:          p.title || '',
       description:    p.description || '',
-      members:        p.members || [],
+      members:        Array.isArray(p.members) ? [...p.members] : [],
       supervisor:     p.supervisor || '',
-      timeline_start: p.timeline_start || p.deadline || '',
+      timeline_start: p.timeline_start || '',
       timeline_end:   p.timeline_end || p.deadline || '',
       status:         p.status || 'Not Started',
     };
-    editingId = p.id;
-      // open modal for editing
-      openAddProjectModal();
+    inlineEditId = p.id;
+    showInlineMembersPanel = false;
+  }
+
+  function cancelInlineEdit() {
+    inlineEditId = null;
+    inlineForm = {};
+    showInlineMembersPanel = false;
+  }
+
+  async function saveInlineEdit(p) {
+    if (!String(inlineForm.title || '').trim()) { formError = 'Project title is required.'; return; }
+    formError = '';
+    isSubmitting = true;
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('update_proj_intern', {
+        proj_id:     p.id,
+        user_id:     uid,
+        proj_name:   inlineForm.title,
+        description: inlineForm.description,
+        priority:    inlineForm.priority_level,
+        status:      inlineForm.status,
+        members:     inlineForm.members,
+        supervisor:  inlineForm.supervisor,
+        start_date:  inlineForm.timeline_start,
+        end_date:    inlineForm.timeline_end
+      });
+      if (!res?.ok) { formError = res?.error || 'Update failed.'; return; }
+      projects = projects.map(proj => proj.id === p.id
+        ? { ...proj, title: inlineForm.title, description: inlineForm.description, priority_level: inlineForm.priority_level,
+            status: inlineForm.status, members: inlineForm.members, supervisor: inlineForm.supervisor,
+            timeline_start: inlineForm.timeline_start, timeline_end: inlineForm.timeline_end, deadline: inlineForm.timeline_end }
+        : proj);
+      cancelInlineEdit();
+    } catch(e) {
+      formError = e?.message || 'Update failed.';
+    } finally {
+      isSubmitting = false;
+    }
+  }
+
+  function toggleInlineMember(val) {
+    const arr = inlineForm.members || [];
+    inlineForm.members = arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
   }
 
   function openDeleteModal(p)  { projectToDelete = p; showDeleteModal = true;  }
@@ -782,71 +843,152 @@
                       <div class="proj-detail-tabs">
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => viewingProjectTab = 'Submissions'}>Submissions</button>
-                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Progress Logs'} on:click={() => viewingProjectTab = 'Progress Logs'}>Progress Logs</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => viewingProjectTab = 'Milestones'}>Milestones</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => viewingProjectTab = 'Feedback'}>Feedback</button>
                       </div>
                       <div class="proj-detail-body">
                     {#if viewingProjectTab === 'Details'}
-                      <div style="display:flex; justify-content:space-between; align-items:center; padding:0 1.25rem 0">
-                        <div></div>
-                        <div>
-                          <button class="sub-action-btn" on:click={() => editProject(p)}>Edit</button>
-                        </div>
-                      </div>
-                      <div class="proj-detail-grid small-details">
-                        <div class="detail-row-full">
-                          <div class="detail-label">Project Name</div>
-                          <div class="detail-value boxed title">{p.title || '—'}</div>
-                        </div>
-
-                        <div class="detail-row-full">
-                          <div class="detail-label">Description</div>
-                          <div class="detail-value boxed">
-                            <div class="detail-description" class:collapsed={expandedDescriptionId !== p.id}>
-                              {p.description || '—'}
+                      {#if inlineEditId === p.id}
+                        <!-- ── Inline Edit Form ───────────────────────── -->
+                        <div class="inline-edit-form">
+                          <div class="ief-group">
+                            <label class="ief-label" for="ief-title-{p.id}">Project Title <span class="req">*</span></label>
+                            <input id="ief-title-{p.id}" type="text" class="ief-input" bind:value={inlineForm.title} maxlength="120" />
+                          </div>
+                          <div class="ief-group">
+                            <label class="ief-label" for="ief-desc-{p.id}">Description</label>
+                            <textarea id="ief-desc-{p.id}" class="ief-input ief-textarea" bind:value={inlineForm.description} rows="3" maxlength="500"></textarea>
+                          </div>
+                          <div class="ief-row-2">
+                            <div class="ief-group">
+                              <label class="ief-label">Members</label>
+                              <!-- svelte-ignore a11y-click-events-have-key-events -->
+                              <!-- svelte-ignore a11y-no-static-element-interactions -->
+                              <div class="members-input ief-input" on:click={() => showInlineMembersPanel = !showInlineMembersPanel}>
+                                <div>{(inlineForm.members && inlineForm.members.length) ? inlineForm.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select members'}</div>
+                                <div class="muted">{(inlineForm.members || []).length}</div>
+                              </div>
+                              {#if showInlineMembersPanel}
+                                <div class="members-panel" style="margin-top:6px">
+                                  {#each MEMBER_OPTIONS as m}
+                                    <label class="members-item"><input type="checkbox" checked={(inlineForm.members || []).includes(m.value)} on:change={() => toggleInlineMember(m.value)} /> <span class="members-name">{m.label}</span></label>
+                                  {/each}
+                                  {#if MEMBER_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">No interns found</span>{/if}
+                                </div>
+                              {/if}
                             </div>
-                            {#if p.description && p.description.length > 160}
-                              <div style="margin-top:6px"><button class="btn-link" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button></div>
-                            {/if}
+                            <div class="ief-group">
+                              <label class="ief-label" for="ief-sup-{p.id}">Supervisor</label>
+                              <select id="ief-sup-{p.id}" class="ief-input" bind:value={inlineForm.supervisor}>
+                                <option value="">Select supervisor</option>
+                                {#each SUPERVISOR_OPTIONS as s}<option value={s.value}>{s.label}</option>{/each}
+                              </select>
+                            </div>
+                          </div>
+                          <div class="ief-row-2">
+                            <div class="ief-group">
+                              <label class="ief-label" for="ief-pri-{p.id}">Priority Level</label>
+                              <select id="ief-pri-{p.id}" class="ief-input" bind:value={inlineForm.priority_level}>
+                                {#each PRIORITY_OPTIONS as opt}<option value={opt}>{opt}</option>{/each}
+                              </select>
+                            </div>
+                            <div class="ief-group">
+                              <label class="ief-label" for="ief-sta-{p.id}">Status</label>
+                              <select id="ief-sta-{p.id}" class="ief-input" bind:value={inlineForm.status}>
+                                {#each STATUS_OPTIONS as opt}<option value={opt}>{opt}</option>{/each}
+                              </select>
+                            </div>
+                          </div>
+                          <div class="ief-row-2">
+                            <div class="ief-group">
+                              <label class="ief-label" for="ief-ts-{p.id}">Timeline (Start)</label>
+                              <input id="ief-ts-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_start} />
+                            </div>
+                            <div class="ief-group">
+                              <label class="ief-label" for="ief-te-{p.id}">Timeline (End)</label>
+                              <input id="ief-te-{p.id}" type="date" class="ief-input" bind:value={inlineForm.timeline_end} />
+                            </div>
+                          </div>
+                          <!-- inline progress preview driven by status -->
+                          <div style="margin:8px 0 0">
+                            <div style="font-size:0.85rem; color:var(--color-sidebar-text); margin-bottom:6px">Progress</div>
+                            <div style="display:flex; align-items:center; gap:10px; padding-right:0.5rem">
+                              <div style="flex:1"><div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{statusToProgress(inlineForm.status)}%"></div></div></div>
+                              <div style="width:56px; text-align:right; font-weight:700">{statusToProgress(inlineForm.status)}%</div>
+                            </div>
+                          </div>
+                          {#if formError}<div class="alert-error" style="margin:0 0 8px">{formError}</div>{/if}
+                          <div class="ief-actions">
+                            <button class="btn-secondary" on:click={cancelInlineEdit}>Cancel</button>
+                            <button class="btn-submit" on:click={() => saveInlineEdit(p)} disabled={isSubmitting}>
+                              {isSubmitting ? 'Saving…' : 'Save Changes'}
+                            </button>
                           </div>
                         </div>
-
-                        <div class="detail-row-full">
-                          <div class="detail-label">Supervisor</div>
-                          <div class="detail-value boxed">{SUPERVISOR_OPTIONS.find(o => o.value === p.supervisor)?.label || p.supervisor || '—'}</div>
-                        </div>
-
-                        <div class="detail-row-two">
-                          <div class="detail-item">
-                            <div class="detail-label">Priority Level</div>
-                            <div class="detail-value">{getPriorityLabel(p.priority_level) || '—'}</div>
+                      {:else}
+                        <!-- ── Read View ──────────────────────────────── -->
+                        <div class="proj-detail-read">
+                          <!-- edit button moved to footer for consistency -->
+                          <div class="pdr-group">
+                            <label class="pdr-label">Project Title</label>
+                            <div class="pdr-box">{p.title || '—'}</div>
                           </div>
-                          <div class="detail-item">
-                            <div class="detail-label">Status</div>
-                            <div class="detail-value">{(STATUS_META[p.status] || {}).label || p.status || '—'}</div>
+                          <div class="pdr-group">
+                            <label class="pdr-label">Description</label>
+                            <div class="pdr-box pdr-box-desc">
+                              <div class="detail-description" class:collapsed={expandedDescriptionId !== p.id}>{p.description || '—'}</div>
+                              {#if p.description && p.description.length > 160}
+                                <button class="btn-link" style="margin-top:4px" on:click={() => toggleDescription(p.id)}>{expandedDescriptionId === p.id ? 'Show less' : 'Show more'}</button>
+                              {/if}
+                            </div>
+                          </div>
+                          
+                          <div class="pdr-row-2">
+                            <div class="pdr-group">
+                              <label class="pdr-label">Members</label>
+                              <div class="pdr-box">{(p.members && p.members.length) ? p.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'No members'}</div>
+                            </div>
+                            <div class="pdr-group">
+                              <label class="pdr-label">Supervisor</label>
+                              <div class="pdr-box">{SUPERVISOR_OPTIONS.find(o => o.value === p.supervisor)?.label || p.supervisor || '—'}</div>
+                            </div>
+                          </div>
+
+                          <div class="pdr-row-2">
+                            <div class="pdr-group">
+                              <label class="pdr-label">Priority Level</label>
+                              <div class="pdr-box">{getPriorityLabel(p.priority_level) || '—'}</div>
+                            </div>
+                            <div class="pdr-group">
+                              <label class="pdr-label">Status</label>
+                              <div class="pdr-box">{(STATUS_META[p.status] || {}).label || p.status || '—'}</div>
+                            </div>
+                          </div>
+                          <div class="pdr-row-2">
+                            <div class="pdr-group">
+                              <label class="pdr-label">Timeline (Start)</label>
+                              <div class="pdr-box">{p.timeline_start ? formatDate(p.timeline_start) : '—'}</div>
+                            </div>
+                            <div class="pdr-group">
+                              <label class="pdr-label">Timeline (End)</label>
+                              <div class="pdr-box">{p.timeline_end ? formatDate(p.timeline_end) : '—'}</div>
+                            </div>
+                          </div>
+
+                          <!-- progress bar (derived from status or explicit percent) -->
+                          <div class="pdr-group">
+                            <label class="pdr-label">Progress</label>
+                            <div style="display:flex; align-items:center; gap:10px;">
+                              <div style="flex:1"><div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}%"></div></div></div>
+                              <div style="width:56px;text-align:right;font-weight:700">{p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}%</div>
+                            </div>
+                          </div>
+
+                          <div class="pdr-footer">
+                            <button class="sub-action-btn" on:click={() => startInlineEdit(p)}>Edit</button>
                           </div>
                         </div>
-
-                            <div class="detail-row-two">
-                              <div class="detail-item">
-                                <div class="detail-label">Due Date</div>
-                                <div class="detail-value boxed">{p.timeline_end ? formatDate(p.timeline_end) : (p.deadline ? formatDate(p.deadline) : '—')}</div>
-                              </div>
-                              <div class="detail-item">
-                                <div class="detail-label">Members</div>
-                                <div class="detail-value boxed">{(p.members && p.members.length) ? p.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : '—'}</div>
-                              </div>
-                            </div>
-
-                            <div class="detail-row-two">
-                              <div class="detail-item">
-                                <div class="detail-label">Supervisor</div>
-                                <div class="detail-value boxed">{SUPERVISOR_OPTIONS.find(o => o.value === p.supervisor)?.label || p.supervisor || '—'}</div>
-                              </div>
-                              <div class="detail-item"></div>
-                            </div>
-                      </div>
+                      {/if}
                     {:else if viewingProjectTab === 'Submissions'}
                       <!-- Folders top bar -->
                       <div class="sub-action-bar">
@@ -974,58 +1116,7 @@
                           {/each}
                         </div>
                       {/if}
-                    {:else if viewingProjectTab === 'Progress Logs'}
-                      <div class="progress-logs-panel">
-                        <div class="sub-action-bar">
-                          <button class="sub-action-btn" on:click={() => toggleLogPanel(p.id)}>+ Add Log</button>
-                        </div>
-
-                        <div class="proj-progress-overview" style="padding:0.6rem 1rem; display:flex; align-items:center; gap:12px;">
-                          <div style="flex:1">
-                            <div style="font-size:0.85rem; color:var(--color-sidebar-text); margin-bottom:6px">Progress</div>
-                            <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:{p.progress_percent || 0}%"></div></div>
-                          </div>
-                          <div style="width:56px; text-align:right; font-weight:700">{p.progress_percent || 0}%</div>
-                        </div>
-
-                        {#if activeLogPanelProjectId === p.id}
-                          <div class="add-log-form" style="padding:0.6rem 0.75rem">
-                            <div class="row-2">
-                              <div class="form-group"><label class="form-label" for={"log-date-" + p.id}>Date</label><input id={"log-date-" + p.id} type="date" class="form-input" bind:value={newLog.date} /></div>
-                              <div class="form-group"><label class="form-label" for={"log-progress-" + p.id}>Progress %</label><input id={"log-progress-" + p.id} type="range" min="0" max="100" class="form-input" bind:value={newLog.progress} /></div>
-                            </div>
-                            <div class="form-group"><label class="form-label" for={"log-text-" + p.id}>Log</label><textarea id={"log-text-" + p.id} class="form-textarea" rows="3" bind:value={newLog.description} placeholder="Describe the work completed..."></textarea></div>
-                            <div style="display:flex; gap:8px;">
-                              <button class="sub-action-btn" on:click={() => addProgressLog(p.id)}>Save Log</button>
-                              <button class="sub-cancel-btn" on:click={() => toggleLogPanel(p.id)}>Cancel</button>
-                            </div>
-                            {#if formError}<div class="sub-error">{formError}</div>{/if}
-                          </div>
-                        {/if}
-
-                        {#if p.progress_logs && p.progress_logs.length > 0}
-                          <div class="logs-list" style="padding:0.5rem 0.75rem 0.75rem">
-                            {#each groupLogsByDate(p.progress_logs) as grp}
-                              <div class="log-date-block">
-                                <div class="log-date">{formatDate(grp.date)}</div>
-                                {#each grp.items as log}
-                                  <div class="log-entry">
-                                    <div class="log-entry-left">
-                                      <div class="log-check">✔</div>
-                                      <div class="log-desc">{log.description}</div>
-                                    </div>
-                                    <div class="log-entry-right">
-                                      <button class="icon-btn" title="Delete" on:click={() => deleteProgressLog(p.id, log.id)}><Trash2 size={14} /></button>
-                                    </div>
-                                  </div>
-                                {/each}
-                              </div>
-                            {/each}
-                          </div>
-                        {:else}
-                          <div class="proj-detail-empty" style="padding:0.5rem 0.75rem 0.75rem">No progress logs recorded.</div>
-                        {/if}
-                      </div>
+                    <!-- Progress Logs tab removed; progress is shown inline in Details -->
                     {:else if viewingProjectTab === 'Milestones'}
                       {#if p.milestones && p.milestones.length > 0}
                         <div class="milestone-list">
@@ -1297,15 +1388,15 @@
   :global(body.dark) .proj-name-cell { color: #e5edf8 !important; }
 
   .proj-status-pill {
-    display: inline-flex; align-items: center; gap: 0.3rem;
-    padding: 0.22rem 0.7rem; border-radius: 999px;
-    font-size: 0.78rem; font-weight: 600;
-    background: rgba(255,255,255,0.02);
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0.22rem 0.6rem; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 700; color: var(--color-text);
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04);
   }
-  .proj-status-pill.status-pending { background: rgba(249,115,22,0.08); color: #f97316; }
-  .proj-status-pill.status-in-progress { background: rgba(16,185,129,0.08); color: #10b981; }
-  .proj-status-pill.status-review { background: rgba(239,68,68,0.08); color: #ef4444; }
-  .proj-status-pill.status-completed { background: rgba(59,130,246,0.08); color: #3b82f6; }
+  .proj-status-pill.status-not-started { background: rgba(249,115,22,0.08); color: #f38f49; border-color: rgba(249,115,22,0.12); }
+  .proj-status-pill.status-in-progress { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
+  .proj-status-pill.status-review { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
+  .proj-status-pill.status-completed { background: rgba(59,130,246,0.08); color: #3b82f6; border-color: rgba(59,130,246,0.12); }
 
   /* center non-name header labels */
   .proj-table-header > .proj-col-priority,
@@ -1515,6 +1606,38 @@
   .meta-link { color:#60a5fa; text-decoration:underline; }
   .muted { color:var(--color-sidebar-text); font-weight:500; }
   .detail-value.timeline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Inline Edit Form (Details tab) ────────────────── */
+  .inline-edit-form { padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .ief-group { display: flex; flex-direction: column; gap: 0.3rem; }
+  .ief-label { font-size: 0.8rem; font-weight: 600; color: var(--color-sidebar-text); }
+  .ief-input {
+    font-size: 0.88rem; font-family: inherit; color: var(--color-text);
+    background: var(--color-surface-muted); border: 1px solid var(--color-border);
+    border-radius: 7px; padding: 0.42rem 0.7rem; width: 100%; box-sizing: border-box;
+    transition: border-color 0.15s;
+  }
+  .ief-input:focus { outline: none; border-color: #3b82f6; }
+  .ief-textarea { resize: vertical; min-height: 72px; }
+  .ief-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .ief-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.25rem; }
+
+  /* ── Details Read View ──────────────────────────────── */
+  .proj-detail-read { padding: 0.75rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .pdr-header { display: flex; justify-content: flex-end; margin-bottom: 0; }
+  .pdr-group { display: flex; flex-direction: column; gap: 0.3rem; }
+  .pdr-label { font-size: 0.8rem; font-weight: 600; color: var(--color-sidebar-text); }
+  .pdr-box {
+    font-size: 0.88rem; font-family: inherit; color: var(--color-text);
+    background: var(--color-surface-muted); border: 1px solid var(--color-border);
+    border-radius: 7px; padding: 0.42rem 0.7rem; width: 100%; box-sizing: border-box;
+    min-height: 2.1rem;
+  }
+  .pdr-box-desc { white-space: pre-wrap; line-height: 1.45; min-height: 4rem; }
+  .pdr-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .progress-bar-outer { height:10px; background:var(--color-border); border-radius:999px; overflow:hidden; }
+  .progress-bar-inner { height:100%; background:linear-gradient(90deg,#10b981,#3b82f6); border-radius:999px; transition:width 350ms ease; }
+  .pdr-footer { display:flex; justify-content:flex-end; margin-top:0.5rem; }
 
   .proj-priority-pill {
     display: inline-flex; align-items: center; justify-content: center;
