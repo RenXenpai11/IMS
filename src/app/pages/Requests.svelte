@@ -155,7 +155,6 @@
         formError &&
         (formError.includes("cannot be scheduled") ||
           formError.includes("End time must") ||
-          formError.includes("Overtime must") ||
           formError.includes("Start time and end") ||
           formError.includes("work hours") ||
           formError.includes("day off"))
@@ -172,38 +171,31 @@
       // Check if end time is after start time
       if (endTotalMin <= startTotalMin) {
         formError = "End time must be after start time.";
+      } else if (overtimeHours < 0.5) {
+        // Check minimum 30-minute requirement
+        formError = "Overtime must be at least 30 minutes.";
       } else {
-        // Calculate overtime hours (in 0.5 hour increments)
-        const durationMin = endTotalMin - startTotalMin;
-        const lunchBreakMin = Number(form.lunchBreak || 0);
-        const netMin = Math.max(0, durationMin - lunchBreakMin);
-        const overtimeHrs = Math.round(netMin / 30) * 0.5; // Round to nearest 0.5
+        // Check for overlap with shift hours
+        const shiftStart = String(internSchedule.shift_start || "09:00").trim();
+        const shiftEnd = String(internSchedule.shift_end || "17:00").trim();
+        const [shiftStartHour, shiftStartMin] = shiftStart.split(":").map(Number);
+        const [shiftEndHour, shiftEndMin] = shiftEnd.split(":").map(Number);
+        const shiftStartTotalMin = shiftStartHour * 60 + shiftStartMin;
+        const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
         
-        // Check if overtime is at least 30 minutes (0.5 hours)
-        if (overtimeHrs < 0.5) {
-          formError = "Overtime must be at least 30 minutes.";
-        } else {
-          const shiftStart = String(internSchedule.shift_start || "09:00").trim();
-          const shiftEnd = String(internSchedule.shift_end || "17:00").trim();
-          const [shiftStartHour, shiftStartMin] = shiftStart.split(":").map(Number);
-          const [shiftEndHour, shiftEndMin] = shiftEnd.split(":").map(Number);
-          const shiftStartTotalMin = shiftStartHour * 60 + shiftStartMin;
-          const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
-          
-          // Check for overlap: if overtime is within shift hours
-          if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
-            formError = `Overtime cannot be scheduled during your work hours (${shiftStart} - ${shiftEnd}). Please schedule overtime outside these hours.`;
-          } else if (
-            formError &&
-            (formError.includes("cannot be scheduled") ||
-              formError.includes("End time must") ||
-              formError.includes("Overtime must") ||
-              formError.includes("Start time and end") ||
-              formError.includes("work hours") ||
-              formError.includes("day off"))
-          ) {
-            formError = "";
-          }
+        // Check for overlap: if overtime is within shift hours
+        if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+          formError = `Overtime cannot be scheduled during your work hours (${shiftStart} - ${shiftEnd}). Please schedule overtime outside these hours.`;
+        } else if (
+          formError &&
+          (formError.includes("cannot be scheduled") ||
+            formError.includes("End time must") ||
+            formError.includes("Overtime must") ||
+            formError.includes("Start time and end") ||
+            formError.includes("work hours") ||
+            formError.includes("day off"))
+        ) {
+          formError = "";
         }
       }
     } else if (
@@ -281,7 +273,21 @@
     const diffMin = endTotalMin - startTotalMin;
     const lunchMinutes = Number(lunchBreak) || 0;
     const actualWorkMin = Math.max(0, diffMin - lunchMinutes);
-    return Math.round((actualWorkMin / 60) * 10) / 10;
+    return actualWorkMin / 60;
+  }
+
+  function formatOvertimeDisplay(hours) {
+    if (!hours || hours <= 0) return "0 hours";
+    const wholeHours = Math.floor(hours);
+    const remainingMinutes = Math.round((hours - wholeHours) * 60);
+    
+    let result = `${hours.toFixed(2)} hour${hours !== 1 ? "s" : ""}`;
+    
+    if (remainingMinutes > 0) {
+      result += ` (${wholeHours}h ${remainingMinutes}m)`;
+    }
+    
+    return result;
   }
 
   async function callBackend(action, payload) {
@@ -404,17 +410,28 @@
   function formatCreatedDate(dateValue) {
     const dateString = String(dateValue || "").trim();
     if (!dateString) return "";
-    let dateToFormat = dateString;
-    if (dateString.includes("T") || dateString.includes(" ")) {
-      dateToFormat = dateString.split("T")[0].split(" ")[0];
+    
+    // Try to parse as a full timestamp first
+    let parsed;
+    try {
+      // Remove GMT timezone info (e.g., "GMT+0800 (Philippine Standard Time)")
+      const cleanedString = dateString.replace(/\s*GMT[+-]\d{4}\s*\([^)]*\)/, "").trim();
+      parsed = new Date(cleanedString);
+    } catch {
+      return dateValue;
     }
-    const parsed = new Date(`${dateToFormat}T00:00:00`);
+    
     if (Number.isNaN(parsed.getTime())) return dateValue;
+    
+    // Format as "Mon, Apr 27, 2026, 11:30 AM/PM"
     return new Intl.DateTimeFormat("en-US", {
-      weekday: "long",
-      month: "long",
+      weekday: "short",
+      month: "short",
       day: "numeric",
       year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
     }).format(parsed);
   }
 
@@ -490,7 +507,6 @@
       const endTotalMin = endHour * 60 + endMin;
       if (endTotalMin <= startTotalMin)
         return "End time must be after start time.";
-      if (overtimeHours < 0.5) return "Overtime must be at least 30 minutes.";
       
       // Parse shift times from custom schedule
       const shiftStart = String(internSchedule.shift_start || "09:00").trim();
@@ -1214,7 +1230,7 @@
           {#if form.startTime && form.endTime && overtimeHours > 0}
             <div class="overtime-summary">
               Total Overtime Hours: <strong
-                >{overtimeHours} hour{overtimeHours !== 1 ? "s" : ""}</strong
+                >{formatOvertimeDisplay(overtimeHours)}</strong
               >
               {#if Number(form.lunchBreak) > 0}
                 <span class="hint">
@@ -1249,13 +1265,13 @@
         </div>
 
         {#if formError}
-          <div 
-            class="alert-error" 
-            class:alert-warning={formError.includes("day off") || formError.includes("work hours")}
-          >
-            {formError}
-          </div>
-        {/if}
+  <div 
+    class="alert-error" 
+    class:alert-warning={formError.includes("day off") || formError.includes("work hours") || formError.includes("at least 30 minutes")}
+  >
+    {formError}
+  </div>
+{/if}
 
         <!-- Submit -->
         <div class="form-footer">
