@@ -272,6 +272,28 @@ function dispatchAction_(payload) {
     return handleChangePassword_(payload);
   }
 
+  // ── Projects Intern ─────────────────────────────────────────────────────
+  if (action === 'list_proj_intern') {
+    if (typeof handleListProjIntern_ === 'function') return handleListProjIntern_(payload);
+    return { ok: false, error: 'Handler not available: handleListProjIntern_' };
+  }
+  if (action === 'create_proj_intern') {
+    if (typeof handleCreateProjIntern_ === 'function') return handleCreateProjIntern_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateProjIntern_' };
+  }
+  if (action === 'update_proj_intern') {
+    if (typeof handleUpdateProjIntern_ === 'function') return handleUpdateProjIntern_(payload);
+    return { ok: false, error: 'Handler not available: handleUpdateProjIntern_' };
+  }
+  if (action === 'delete_proj_intern') {
+    if (typeof handleDeleteProjIntern_ === 'function') return handleDeleteProjIntern_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteProjIntern_' };
+  }
+  if (action === 'get_proj_users_bootstrap') {
+    if (typeof handleGetProjUsersBootstrap_ === 'function') return handleGetProjUsersBootstrap_(payload);
+    return { ok: false, error: 'Handler not available: handleGetProjUsersBootstrap_' };
+  }
+
   return { ok: false, error: 'Unknown action: ' + action };
 }
 

@@ -849,6 +849,15 @@ let assignedTasksError = '';
 
   function resetAddTaskForm() {
     const defaultSupervisorId = assignedSupervisors[0]?.user_id || '';
+    // revoke any created object URLs to avoid leaks
+    if (Array.isArray(addTaskForm.attachments)) {
+      for (const a of addTaskForm.attachments) {
+        try {
+          if (a && a._objectUrl) URL.revokeObjectURL(a._objectUrl);
+        } catch (e) {}
+      }
+    }
+
     addTaskForm = {
       title: '',
       status: 'Pending',
@@ -1159,30 +1168,34 @@ let assignedTasksError = '';
       const attachmentErrors = [];
       if (addTaskForm.attachments.length > 0) {
         for (const attachment of addTaskForm.attachments) {
-          if (attachment instanceof File) {
+          // support both plain File objects and wrapped entries created in the UI
+          const fileObj = attachment instanceof File ? attachment : (attachment && attachment.file instanceof File ? attachment.file : null);
+          const fileName = attachment instanceof File ? attachment.name : (attachment && (attachment.file_name || (attachment.file && attachment.file.name))) || '';
+
+          if (fileObj) {
             try {
-              const ext = attachment.name.split('.').pop()?.toLowerCase() || '';
-              const sizeMB = `${(attachment.size / 1024 / 1024).toFixed(2)}MB`;
+              const ext = (fileName || fileObj.name).split('.').pop()?.toLowerCase() || '';
+              const sizeMB = `${(fileObj.size / 1024 / 1024).toFixed(2)}MB`;
               // Read file as base64 so the backend can upload it to Drive
               const base64Data = await new Promise((res, rej) => {
                 const reader = new FileReader();
                 reader.onload = () => res((reader.result || '').replace(/^data:[^;]+;base64,/, ''));
                 reader.onerror = () => rej(new Error('Failed to read file'));
-                reader.readAsDataURL(attachment);
+                reader.readAsDataURL(fileObj);
               });
               await callAddActivityTaskAttachment({
                 task_id: taskId,
                 user_id: user?.user_id || '',
                 file_type: ext || '',
                 file_size: sizeMB,
-                file_name: attachment.name,
-                mime_type: attachment.type || 'application/octet-stream',
+                file_name: fileName || fileObj.name,
+                mime_type: fileObj.type || 'application/octet-stream',
                 file_data_base64: base64Data,
                 uploaded_at: nowDate.toISOString(),
                 uploaded_by: user?.user_id || ''
               });
             } catch (attachError) {
-              attachmentErrors.push(`${attachment.name}: ${attachError?.message || attachError}`);
+              attachmentErrors.push(`${fileName || 'file'}: ${attachError?.message || attachError}`);
             }
           }
         }
@@ -1236,20 +1249,32 @@ let assignedTasksError = '';
 
   function handleAddTaskAttachmentUpload(event) {
     const files = Array.from(event.currentTarget.files || []);
+    if (files.length === 0) return;
 
-    if (files.length === 0) {
-      return;
-    }
+    const wrapped = files.map((file) => ({
+      file,
+      file_name: file.name,
+      file_type: file.name.split('.').pop()?.toLowerCase() || '',
+      file_size: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+      link: '',
+      uploaded_at: '',
+      _objectUrl: URL.createObjectURL(file),
+    }));
 
     addTaskForm = {
       ...addTaskForm,
-      attachments: [...addTaskForm.attachments, ...files],
+      attachments: [...addTaskForm.attachments, ...wrapped],
     };
 
     event.currentTarget.value = '';
   }
 
   function removeAddTaskAttachment(index) {
+    const toRemove = addTaskForm.attachments[index];
+    try {
+      if (toRemove && toRemove._objectUrl) URL.revokeObjectURL(toRemove._objectUrl);
+    } catch (e) {}
+
     addTaskForm = {
       ...addTaskForm,
       attachments: addTaskForm.attachments.filter((_, itemIndex) => itemIndex !== index),
@@ -2066,14 +2091,39 @@ let assignedTasksError = '';
                 <ul class="attachment-list">
                   {#each addTaskForm.attachments as attachment, index}
                     <li>
-                      {#if attachment instanceof File}
-                        <span>{attachment.name}</span>
-                      {:else}
-                        <span>{attachment}</span>
-                      {/if}
-                      <button type="button" class="remove-item" on:click={() => removeAddTaskAttachment(index)}>
-                        Remove
-                      </button>
+                      <div class="attachment-row">
+                        <div class="attachment-main">
+                          {#if attachment && (attachment.link || attachment._objectUrl)}
+                            {#if attachment.link}
+                              <a href={attachment.link} target="_blank" rel="noopener noreferrer">{attachment.file_name || attachment.name || attachment}</a>
+                            {:else}
+                              <a href={attachment._objectUrl} target="_blank" rel="noopener noreferrer">{attachment.file_name || attachment.name || attachment}</a>
+                            {/if}
+                          {:else}
+                            <span>{(attachment && (attachment.file_name || attachment.name)) || attachment}</span>
+                          {/if}
+                        </div>
+                        <div class="attachment-actions">
+                          {#if attachment && attachment.link}
+                            <a class="attachment-action" href={attachment.link} target="_blank" rel="noopener noreferrer" aria-label="View attachment" title="View">
+                              <ExternalLink size={14} />
+                            </a>
+                            <a class="attachment-action" href={getDriveDownloadUrl(attachment.link)} target="_blank" rel="noopener noreferrer" aria-label="Download attachment" title="Download">
+                              <Download size={14} />
+                            </a>
+                          {:else if attachment && attachment._objectUrl}
+                            <a class="attachment-action" href={attachment._objectUrl} target="_blank" rel="noopener noreferrer" aria-label="Open attachment" title="Open">
+                              <ExternalLink size={14} />
+                            </a>
+                            <a class="attachment-action" href={attachment._objectUrl} download={attachment.file_name || attachment.name} aria-label="Download attachment" title="Download">
+                              <Download size={14} />
+                            </a>
+                          {/if}
+                          <button type="button" class="remove-item" on:click={() => removeAddTaskAttachment(index)}>
+                            Remove
+                          </button>
+                        </div>
+                      </div>
                     </li>
                   {/each}
                 </ul>
@@ -2482,7 +2532,15 @@ let assignedTasksError = '';
           {:else}
             <div class="worklogs-accordion-list">
               {#each filteredWorkLogs as log, idx}
-                <div class="worklog-accordion-item {expandedWorkLog === idx ? 'expanded' : ''}" role="group" on:mouseenter={() => hoveredWorkLog = idx} on:mouseleave={() => hoveredWorkLog = null} on:click={(e) => handleWorklogItemClick(e, idx)}>
+                <div
+                  class="worklog-accordion-item {expandedWorkLog === idx ? 'expanded' : ''}"
+                  role="button"
+                  tabindex="0"
+                  on:mouseenter={() => hoveredWorkLog = idx}
+                  on:mouseleave={() => hoveredWorkLog = null}
+                  on:click={(e) => handleWorklogItemClick(e, idx)}
+                  on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWorklogItemClick(e, idx); } }}
+                >
                   <button class="worklog-accordion-trigger" type="button" aria-expanded={expandedWorkLog === idx} on:click={() => expandedWorkLog = expandedWorkLog === idx ? null : idx}>
                     <span class="worklog-title-meta">
                       <span class="worklog-task-title">{log.task}</span>
