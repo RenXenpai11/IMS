@@ -19,6 +19,8 @@
   const AVERAGE_DAILY_HOURS = 8;
   const INITIAL_COMPLETED_HOURS = 0;
   const ACTIVE_SESSION_STORAGE_PREFIX = 'ims-active-time-session';
+  const DEFAULT_TIME_IN = '09:00';
+  const DEFAULT_TIME_OUT = '17:00';
   
   // ---- Skeleton loading flag ----
   let isLoading = true;
@@ -36,8 +38,8 @@
 
   let entries = [];
   let date = '';
-  let timeIn = '08:00';
-  let timeOut = '';
+  let timeIn = DEFAULT_TIME_IN;
+  let timeOut = DEFAULT_TIME_OUT;
   let logSyncError = '';
   
   let isLoggingIn = false;
@@ -47,8 +49,8 @@
 
   // Intern's custom schedule from supervisor assignment
   let internSchedule = {
-    shift_start: '09:00',     // Default fallback
-    shift_end: '17:00',       // Default fallback
+    shift_start: DEFAULT_TIME_IN,     // Default fallback
+    shift_end: DEFAULT_TIME_OUT,      // Default fallback
     days_off: [0, 6],         // Default: Sunday (0) and Saturday (6)
   };
   
@@ -77,7 +79,7 @@
       storageKey,
       JSON.stringify({
         log_date: normalizeDateOnly(sessionDate),
-        time_in: normalizeTimeValue(sessionTimeIn, timeIn || '08:00'),
+        time_in: normalizeTimeValue(sessionTimeIn, timeIn || DEFAULT_TIME_IN),
       }),
     );
   }
@@ -100,7 +102,7 @@
       if (!storedDate || !storedTimeIn) return false;
       date = storedDate;
       timeIn = storedTimeIn;
-      timeOut = '';
+      timeOut = DEFAULT_TIME_OUT;
       isLoggedIn = true;
       return true;
     } catch {
@@ -237,8 +239,8 @@
       sessionId,
       timelogId,
       date: normalizeDateOnly(row?.log_date),
-      timeIn: normalizeTimeValue(row?.time_in, '08:00'),
-      timeOut: normalizeTimeValue(row?.time_out, '17:00'),
+      timeIn: normalizeTimeValue(row?.time_in, DEFAULT_TIME_IN),
+      timeOut: normalizeTimeValue(row?.time_out, DEFAULT_TIME_OUT),
       hours: Number(row?.hours_rendered || 0),
       status: 'recorded',
       type: String(row?.entry_type || 'login').toLowerCase(),
@@ -297,6 +299,7 @@
       });
       if (response && response.ok === true) {
         isLoggedIn = true;
+        timeOut = DEFAULT_TIME_OUT;
         saveLocalActiveSession(user.user_id, response.session?.log_date || date, response.session?.time_in || timeIn);
         logSyncError = '';
       } else {
@@ -344,7 +347,7 @@
       if (response && response.ok === true) {
         logSyncError = '';
         isLoggedIn = false;
-        timeOut = '';
+        timeOut = DEFAULT_TIME_OUT;
         clearLocalActiveSession(user.user_id);
         await loadEntriesFromApi();
       } else {
@@ -413,7 +416,7 @@
         const sessionDate = normalizeDateOnly(response.session.log_date);
         if (sessionDate) date = sessionDate;
         timeIn = normalizeTimeValue(response.session.time_in, timeIn);
-        timeOut = '';
+        timeOut = DEFAULT_TIME_OUT;
         isLoggedIn = true;
         saveLocalActiveSession(user.user_id, date, timeIn);
       } else {
@@ -626,8 +629,8 @@
           });
           if (scheduleResult && scheduleResult.ok && scheduleResult.schedule) {
             const schedule = scheduleResult.schedule;
-            internSchedule.shift_start = schedule.shift_start || '09:00';
-            internSchedule.shift_end = schedule.shift_end || '17:00';
+            internSchedule.shift_start = schedule.shift_start || DEFAULT_TIME_IN;
+            internSchedule.shift_end = schedule.shift_end || DEFAULT_TIME_OUT;
             // Ensure days_off is an array - parse if it's a string
             if (typeof schedule.days_off === 'string') {
               try {
