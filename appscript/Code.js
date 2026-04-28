@@ -600,12 +600,6 @@ function handleLoginAccount_(payload) {
     };
   }
 
-  var foundRecord = findUserRecordByUserId_(String(found.user_id || ''));
-  if (foundRecord) {
-    repairLegacyUserRecord_(foundRecord);
-    found = foundRecord.user || found;
-  }
-
   // Track first login: if first_login_date is not set, set it now
   var firstLoginDate = String(found.first_login_date || '').trim();
   if (!firstLoginDate) {
@@ -623,7 +617,14 @@ function handleLoginAccount_(payload) {
   return {
     ok: true,
     message: 'Login successful.',
-    user: buildUserForClient_(Object.assign({}, found, { first_login_date: firstLoginDate }), profile)
+    user: Object.assign(
+      {},
+      buildUserForClient_(Object.assign({}, found, { first_login_date: firstLoginDate }), profile),
+      {
+        role: String(found.role || ''),
+        effective_role: getEffectiveUserRole_(found)
+      }
+    )
   };
 }
 
@@ -639,12 +640,14 @@ function handleGetUserById_(payload) {
     return { ok: false, error: 'User not found.' };
   }
 
-  repairLegacyUserRecord_(record);
   var profile = getStudentProfileByUserId_(String(record.user.user_id || ''));
 
   return {
     ok: true,
-    user: buildUserForClient_(record.user, profile)
+    user: Object.assign({}, buildUserForClient_(record.user, profile), {
+      role: String(record.user.role || ''),
+      effective_role: getEffectiveUserRole_(record.user)
+    })
   };
 }
 
@@ -892,7 +895,10 @@ function handleUpdateUserProfile_(payload) {
   return {
     ok: true,
     message: 'Profile updated successfully.',
-    user: buildUserForClient_(record.user)
+    user: Object.assign({}, buildUserForClient_(record.user), {
+      role: String(record.user.role || ''),
+      effective_role: getEffectiveUserRole_(record.user)
+    })
   };
 }
 
@@ -969,7 +975,10 @@ function handleUpdateProfilePhoto_(payload) {
   return {
     ok: true,
     message: 'Profile photo updated successfully.',
-    user: buildUserForClient_(record.user)
+    user: Object.assign({}, buildUserForClient_(record.user), {
+      role: String(record.user.role || ''),
+      effective_role: getEffectiveUserRole_(record.user)
+    })
   };
 }
 
@@ -3641,7 +3650,7 @@ function repairLegacyUserRecord_(record) {
   var roleLower = roleRaw.toLowerCase();
   var userId = String(user.user_id || '').trim();
   var profile = userId ? getStudentProfileByUserId_(userId) : null;
-  var normalizedRole = normalizeUserRoleForClient_(roleRaw, profile);
+  var normalizedRole = getEffectiveUserRole_(user);
   var fullName = String(user.full_name || '').trim();
   var changed = false;
 
@@ -3695,6 +3704,37 @@ function normalizeUserRoleForClient_(role, profile) {
   return String(role || '').trim();
 }
 
+function hasSupervisorMarker_(userId) {
+  var targetUserId = String(userId || '').trim();
+  if (!targetUserId) {
+    return false;
+  }
+
+  try {
+    var assignmentRows = readSheetObjects_(getSupervisorAssignmentsSheet_());
+    for (var i = 0; i < assignmentRows.length; i++) {
+      if (String(assignmentRows[i].supervisor_user_id || '').trim() === targetUserId) {
+        return true;
+      }
+    }
+  } catch (err) {
+    // Ignore if sheet is unavailable while inferring role.
+  }
+
+  try {
+    var scheduleRows = readSheetObjects_(getInternSchedulesSheet_());
+    for (var j = 0; j < scheduleRows.length; j++) {
+      if (String(scheduleRows[j].supervisor_id || '').trim() === targetUserId) {
+        return true;
+      }
+    }
+  } catch (err2) {
+    // Ignore if sheet is unavailable while inferring role.
+  }
+
+  return false;
+}
+
 function getEffectiveUserRole_(user) {
   var value = String(user && user.role || '').trim().toLowerCase();
   if (value === 'supervisor' || value === 'mentor') {
@@ -3705,6 +3745,15 @@ function getEffectiveUserRole_(user) {
   }
 
   var userId = String(user && user.user_id || '').trim();
+  if (hasSupervisorMarker_(userId)) {
+    return 'Supervisor';
+  }
+
+  var departmentValue = String(user && user.department || '').trim().toLowerCase();
+  if (departmentValue.indexOf('supervisor') !== -1 || departmentValue.indexOf('mentor') !== -1) {
+    return 'Supervisor';
+  }
+
   var profile = userId ? getStudentProfileByUserId_(userId) : null;
   return normalizeUserRoleForClient_(user && user.role, profile);
 }
