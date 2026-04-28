@@ -617,7 +617,7 @@
     try {
       const res = await dispatchAction('list_milestones', { proj_id: projId });
       if (res?.ok) {
-        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by }));
+        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: String(m.status || 'Not Started'), done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by }));
         projects = projects.map(p => p.id === projectId ? { ...p, milestones: list } : p);
         try { localStorage.setItem('projects.milestones.' + String(projectId), JSON.stringify(list)); } catch (e) {}
       } else {
@@ -660,9 +660,9 @@
     if (!text) { formError = 'Milestone text is required.'; return; }
     const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     try {
-      const res = await dispatchAction('create_milestone', { proj_id: projId, milestone: text, date: date, done: false, user_id: uid });
+      const res = await dispatchAction('create_milestone', { proj_id: projId, milestone: text, date: date, status: 'Not Started', done: false, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to create milestone.'; console.warn('createMilestone failed', res); return; }
-      const item = { id: res.milestone_id, milestone: text, date: date, created_at: res.created_at, created_by: uid, done: false };
+      const item = { id: res.milestone_id, milestone: text, date: date, status: 'Not Started', created_at: res.created_at, created_by: uid, done: false };
       projects = projects.map(p => p.id === projectId ? { ...p, milestones: [ ...(p.milestones || []), item ] } : p);
       // save to cache
       try {
@@ -704,7 +704,7 @@
 
   function startEditMilestone(projectId, m) {
     editingMilestoneId = m.id;
-    editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { milestone: m.milestone || '', date: m.date || '', done: Boolean(m.done) } };
+    editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { milestone: m.milestone || '', date: m.date || '', status: m.status || 'Not Started' } };
   }
 
   function cancelEditMilestone() {
@@ -719,20 +719,20 @@
     if (!text) { formError = 'Milestone text is required.'; return; }
     const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     try {
-      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, done: Boolean(inputs.done), user_id: uid });
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, status: String(inputs.status || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update milestone.'; return; }
       // refresh from server to ensure we reflect persisted `done` state
       try {
         await loadProjectMilestones(projectId);
       } catch (e) {
         // fallback to local update if reload fails
-        projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, done: Boolean(inputs.done) } : mm) } : p);
+        projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: String(inputs.status || 'Not Started') } : mm) } : p);
       }
       // update cache (best-effort)
       try {
         const key = 'projects.milestones.' + String(projectId);
         const cur = JSON.parse(localStorage.getItem(key) || '[]');
-        const updated = (cur || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, done: Boolean(inputs.done) } : mm);
+        const updated = (cur || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: String(inputs.status || 'Not Started') } : mm);
         localStorage.setItem(key, JSON.stringify(updated));
       } catch (e) {}
       editingMilestoneId = null;
@@ -740,6 +740,22 @@
       setTimeout(() => { formSuccess = ''; }, 1500);
     } catch (e) {
       formError = e?.message || 'Failed to update milestone.';
+    }
+  }
+
+  // Change milestone status directly from view-select
+  async function changeMilestoneStatus(projectId, milestoneId, newStatus) {
+    if (!milestoneId) return;
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, status: String(newStatus || 'Not Started'), user_id: uid });
+      if (!res?.ok) { formError = res?.error || 'Failed to update status.'; return; }
+      // reload milestones for consistency
+      try { await loadProjectMilestones(projectId); } catch (e) { /* fallback */ }
+      formSuccess = 'Status updated.';
+      setTimeout(() => { formSuccess = ''; }, 1200);
+    } catch (e) {
+      formError = e?.message || 'Failed to update status.';
     }
   }
 
@@ -1576,7 +1592,13 @@
                             {#if editingMilestoneId === m.id}
                               <div class="milestone-row editing">
                                 <div style="flex:1;display:flex;gap:8px;align-items:center">
-                                  <input type="checkbox" style="width:18px;height:18px" checked={editingMilestoneInputs[m.id]?.done} on:change={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), done: e.target.checked } }; }} />
+                                  <select class="status-select" value={editingMilestoneInputs[m.id]?.status || 'Not Started'} on:change={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), status: e.target.value } }; }}>
+                                    <option>Not Started</option>
+                                    <option>In Progress</option>
+                                    <option>Submitted</option>
+                                    <option>Needs Revision</option>
+                                    <option>Approved</option>
+                                  </select>
                                   <input class="input" type="text" value={editingMilestoneInputs[m.id]?.milestone || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), milestone: e.target.value } }; }} />
                                   <input class="input" type="date" value={editingMilestoneInputs[m.id]?.date || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), date: e.target.value } }; }} style="width:170px" />
                                 </div>
@@ -1588,7 +1610,9 @@
                             {:else}
                               <div class="milestone-row">
                                   <div style="display:flex;align-items:center;gap:12px;flex:1">
-                                    <input type="checkbox" disabled style="width:18px;height:18px;margin-right:8px" checked={Boolean(m.done)} />
+                                    <div class="status-pill" role="status" aria-label={`Milestone status: ${m.status || 'Not Started'}`}>
+                                      {m.status || 'Not Started'}
+                                    </div>
                                     <div class="milestone-text" style="flex:1">{m.milestone}</div>
                                     <div class="milestone-due">| Due: <span class="muted">{formatDate(m.date)}</span></div>
                                   </div>
@@ -1968,8 +1992,31 @@
   .add-milestone-btn .icon { color:#7c3aed; }
   .add-milestone-bar .btn-primary { background:linear-gradient(90deg,#7c3aed,#6d28d9); color:#fff; border:none; font-size:0.87rem; font-family:inherit; }
 
+  /* Status dropdown styling to match action buttons */
+  .status-select {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    /* match the read-only pill sizing and font */
+    padding:0.12rem 0.6rem; border-radius:0.45rem; border:1px solid var(--color-border);
+    background: var(--color-surface); color:var(--color-heading); font-weight:700; cursor:pointer;
+    font-size:0.78rem; height:28px; min-width:96px; text-align:center; box-sizing:border-box; font-family:inherit;
+    -moz-text-align-last: center; text-align-last: center; -webkit-text-align-last: center;
+  }
+  .status-select:focus { outline:none; border-color:#3b82f6; }
+
+  /* Read-only small status pill for view mode */
+  .status-pill {
+    display:inline-flex; align-items:center; justify-content:center;
+    padding:0.12rem 0.6rem; border-radius:0.45rem; border:1px solid rgba(255,255,255,0.06);
+    background: rgba(59,130,246,0.08); color:var(--color-heading); font-weight:700;
+    font-size:0.78rem; height:28px; min-width:96px; text-align:center; box-sizing:border-box;
+  }
+  :global(body.dark) .status-pill { background: rgba(99,102,241,0.12); border-color: #ffffff20; color:#fff; }
+
   /* Milestone text to match Details labels */
   .milestone-text { font-size: 0.88rem; font-family: inherit; color: var(--color-text); }
+
+  /* Ensure edit-mode inputs match view-mode text sizing */
+  .milestone-row .input { font-size:0.88rem; font-family:inherit; }
 
   .submission-card {
     display:flex; justify-content:space-between; align-items:center;
