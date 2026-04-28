@@ -441,13 +441,37 @@
   function formatTime(timeValue) {
     const timeString = String(timeValue || "").trim();
     if (!timeString) return "";
-    if (/^\d{1,2}:\d{2}(:\d{2})?/.test(timeString))
+    
+    // If it's already in HH:MM format (e.g., "18:00")
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(timeString)) {
       return timeString.substring(0, 5);
+    }
+    
+    // If it contains a full timestamp with date
+    if (timeString.includes("GMT") || timeString.includes("T")) {
+      try {
+        // Parse the date string
+        const cleanedString = timeString.replace(/\s*GMT[+-]\d{4}\s*\([^)]*\)/, "").trim();
+        const date = new Date(cleanedString);
+        
+        if (!Number.isNaN(date.getTime())) {
+          // Format as HH:MM (24-hour format)
+          const hours = String(date.getHours()).padStart(2, "0");
+          const minutes = String(date.getMinutes()).padStart(2, "0");
+          return `${hours}:${minutes}`;
+        }
+      } catch (err) {
+        // Fall back to extraction if parsing fails
+      }
+    }
+    
+    // Try to extract time from any format
     if (timeString.includes(" ") || timeString.includes("T")) {
       const parts = timeString.split(" ");
       const timePart = parts[parts.length - 1];
       if (/^\d{1,2}:\d{2}/.test(timePart)) return timePart.substring(0, 5);
     }
+    
     return timeString;
   }
 
@@ -796,15 +820,26 @@
           payload.supervisor_user_id = String(currentUser.user_id).trim();
         }
         
-        await callBackend("update_request_status", payload);
-        archivedCount++;
+        const result = await callBackend("update_request_status", payload);
+        console.log("Archive result:", result);
+        if (result && result.ok) {
+          archivedCount++;
+        } else {
+          console.error("Failed to archive request:", requestId, result?.error);
+        }
       }
+      
+      // Force reload with a slight delay to ensure backend is updated
       selectedRequests.clear();
       selectAllChecked = false;
+      showBulkActions = false;
+      
+      // Reload requests to update stat cards
+      await new Promise(resolve => setTimeout(resolve, 300));
       await loadRequests();
+      
       formSuccess = `${archivedCount} request(s) archived.`;
       setTimeout(() => (formSuccess = ""), 3000);
-      showBulkActions = false;
     } catch (err) {
       console.error("Archive requests error:", err);
       formError = "Failed to archive requests.";
@@ -818,6 +853,7 @@
     if (selectedRequests.size === 0) return;
     isArchiving = true;
     try {
+      let recoveredCount = selectedRequests.size;
       for (const requestId of selectedRequests) {
         const payload = {
           request_id: requestId,
@@ -829,14 +865,24 @@
           payload.supervisor_user_id = String(currentUser.user_id).trim();
         }
         
-        await callBackend("update_request_status", payload);
+        const result = await callBackend("update_request_status", payload);
+        console.log("Recover result:", result);
+        if (!result || !result.ok) {
+          console.error("Failed to recover request:", requestId, result?.error);
+        }
       }
+      
+      // Force reload with a slight delay to ensure backend is updated
       selectedRequests.clear();
       selectAllChecked = false;
-      await loadRequests();
-      formSuccess = `${selectedRequests.size} request(s) recovered.`;
-      setTimeout(() => (formSuccess = ""), 3000);
       showBulkActions = false;
+      
+      // Reload requests to update stat cards
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await loadRequests();
+      
+      formSuccess = `${recoveredCount} request(s) recovered.`;
+      setTimeout(() => (formSuccess = ""), 3000);
     } catch (err) {
       console.error("Recover requests error:", err);
       formError = "Failed to recover requests.";
@@ -1150,6 +1196,17 @@
                         <span class="info-label">For:</span>
                         <span class="info-value">{formatDate(request.date)}</span>
                       </span>
+                      {#if request.requestType === "Overtime" && request.start_time && request.end_time}
+                        <span class="request-info-item">
+                          <span class="info-label">Time:</span>
+                          <span class="info-value">
+                            {formatTime(request.start_time)} - {formatTime(request.end_time)}
+                            {#if request.total_hours}
+                              <span class="time-duration">({formatOvertimeDisplay(request.total_hours)})</span>
+                            {/if}
+                          </span>
+                        </span>
+                      {/if}
                       {#if request.created_at}
                         <span class="request-info-item">
                           <span class="info-label">Submitted:</span>
@@ -1175,7 +1232,7 @@
                       {#if request.requestType === "Overtime" && request.total_hours}
                         <div class="req-duration-info">
                           <span class="info-label">Duration:</span>
-                          <span class="info-value">{request.total_hours}h</span>
+                          <span class="info-value">{formatOvertimeDisplay(request.total_hours)}</span>
                         </div>
                       {/if}
                     </div>
