@@ -2445,6 +2445,7 @@ function handleUpdateRequestStatus_(payload) {
   // Notify the student who created the request (only for supervisors)
   if (isSupervisor && studentUserId) {
     var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim();
+    var requestDate = requestDateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][requestDateColIndex - 1]) : '';
     var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
     var notifMessage = 'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.';
     if (newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
@@ -2460,6 +2461,25 @@ function handleUpdateRequestStatus_(payload) {
       notifType,
       requestId
     );
+
+    if (newStatus === 'Approved' || newStatus === 'Rejected') {
+      try {
+        sendStudentRequestStatusEmail_(studentUserId, {
+          requestId: requestId,
+          requestType: requestType,
+          requestDate: requestDate,
+          status: newStatus,
+          rejectionRemarks: rejectionRemarks,
+          absenceExtended: newStatus === 'Approved' && requestType.toLowerCase() === 'absence'
+        });
+      } catch (mailErr) {
+        Logger.log(
+          'Unable to send student request status email (request_id=' + requestId +
+          ', student_user_id=' + studentUserId + '): ' +
+          (mailErr && mailErr.message ? mailErr.message : String(mailErr))
+        );
+      }
+    }
   }
 
   return { ok: true, message: 'Request status updated.' };
@@ -2915,6 +2935,95 @@ function sendSupervisorRequestEmail_(supervisorUserId, requestDetails) {
     buildRequestEmailText_(requestDetails, deepLinkUrl),
     {
       htmlBody: buildRequestEmailHtml_(requestDetails, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
+}
+
+function buildStudentRequestStatusEmailText_(requestDetails, deepLinkUrl) {
+  var status = String(requestDetails.status || '').trim();
+  var requestType = String(requestDetails.requestType || 'Request').trim();
+  var lines = [
+    'Your ' + requestType.toLowerCase() + ' request has been ' + status.toLowerCase() + '.',
+    '',
+    'Request Type: ' + requestType,
+    'Status: ' + status,
+    'Date: ' + String(requestDetails.requestDate || ''),
+  ];
+
+  if (status.toLowerCase() === 'rejected' && requestDetails.rejectionRemarks) {
+    lines.push('Remarks: ' + String(requestDetails.rejectionRemarks || ''));
+  }
+
+  if (requestDetails.absenceExtended) {
+    lines.push('Note: Your internship end date has been automatically extended by 1 day.');
+  }
+
+  if (deepLinkUrl) {
+    lines.push('');
+    lines.push('View Request: ' + deepLinkUrl);
+  }
+
+  return lines.join('\n');
+}
+
+function buildStudentRequestStatusEmailHtml_(requestDetails, deepLinkUrl) {
+  var status = String(requestDetails.status || '').trim();
+  var requestType = String(requestDetails.requestType || 'Request').trim();
+  var statusLower = status.toLowerCase();
+  var statusColor = statusLower === 'approved' ? '#16a34a' : '#dc2626';
+  var remarksRow = '';
+  var noteBlock = '';
+
+  if (statusLower === 'rejected' && requestDetails.rejectionRemarks) {
+    remarksRow = '<tr><td style="padding:6px 0;color:#475569;font-weight:600;vertical-align:top;">Remarks</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.rejectionRemarks || '').replace(/\n/g, '<br>') + '</td></tr>';
+  }
+
+  if (requestDetails.absenceExtended) {
+    noteBlock = '<p style="margin:14px 0 0;padding:10px 12px;background:#eff6ff;color:#1e40af;border-radius:8px;font-size:13px;">Your internship end date has been automatically extended by 1 day.</p>';
+  }
+
+  var actionBlock = deepLinkUrl
+    ? '<a href="' + deepLinkUrl + '" style="display:inline-block;margin-top:14px;padding:10px 16px;background:#0f6cbd;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">View Request</a>'
+    : '<p style="margin:14px 0 0;color:#64748b;font-size:13px;">Request link unavailable. Open the IMS app and go to Requests.</p>';
+
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 12px;">Your request status has been updated.</p>',
+    '<table style="border-collapse:collapse;min-width:320px;">',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Request Type</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestType) + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Status</td><td style="padding:6px 0;color:' + statusColor + ';font-weight:700;">' + escapeHtml_(status) + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Date</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.requestDate || '') + '</td></tr>',
+    remarksRow,
+    '</table>',
+    noteBlock,
+    actionBlock,
+    '<p style="margin:14px 0 0;color:#64748b;font-size:12px;">If you are not logged in, you will be redirected to login first, then back to Requests.</p>',
+    '</div>',
+  ].join('');
+}
+
+function sendStudentRequestStatusEmail_(studentUserId, requestDetails) {
+  var studentRecord = findUserRecordByUserId_(studentUserId);
+  if (!studentRecord) {
+    return;
+  }
+
+  var studentEmail = normalizeEmail_(studentRecord.user.email);
+  if (!studentEmail) {
+    return;
+  }
+
+  var deepLinkUrl = buildRequestDeepLinkUrl_(requestDetails.requestId);
+  var subject = String(requestDetails.requestType || 'Request') + ' Request ' + String(requestDetails.status || 'Updated') + ' - IMS';
+
+  MailApp.sendEmail(
+    studentEmail,
+    subject,
+    buildStudentRequestStatusEmailText_(requestDetails, deepLinkUrl),
+    {
+      htmlBody: buildStudentRequestStatusEmailHtml_(requestDetails, deepLinkUrl),
       name: 'IMS'
     }
   );
