@@ -10,7 +10,7 @@ var MILESTONE_SHEET_ = 'milestone_intern';
 // Columns: milestone_id, proj_id, milestone, status, date, done, created_at, created_by, updated_by
 var MILESTONE_HEADERS_ = [
   'milestone_id', 'proj_id', 'milestone', 'status', 'date', 'done',
-  'created_at', 'created_by', 'updated_by'
+  'created_at', 'created_by', 'updated_by', 'linked_files'
 ];
 
 // Utility functions for managing sheets and data transformations
@@ -79,7 +79,8 @@ function milestoneRowToObj_(row) {
     done:         (function(v){ v = String(v || '').toLowerCase(); return v === 'true' || v === '1' || v === 'yes'; })(row[5]),
     created_at:   String(row[6] || ''),
     created_by:   String(row[7] || ''),
-    updated_by:   String(row[8] || '')
+    updated_by:   String(row[8] || ''),
+    linked_files: String(row[9] || '')
   };
 }
 
@@ -404,7 +405,8 @@ function handleCreateMilestone_(payload) {
   var now   = formatTimestamp_(new Date());
 
   var doneVal = payload.done ? 'TRUE' : 'FALSE';
-  var row = [ id, projId, text, status, date || '', doneVal, now, userId, userId ];
+  var linkedFiles = String(payload.linked_files || '').trim();
+  var row = [ id, projId, text, status, date || '', doneVal, now, userId, userId, linkedFiles ];
   sheet.appendRow(row);
   return { ok: true, milestone_id: id, created_at: now };
 }
@@ -436,6 +438,7 @@ function handleUpdateMilestone_(payload) {
       if (payload.status !== undefined) sheet.getRange(i + 1, 4).setValue(String(payload.status));
       if (date !== undefined) sheet.getRange(i + 1, 5).setValue(date);
       if (payload.done !== undefined) sheet.getRange(i + 1, 6).setValue(payload.done ? 'TRUE' : 'FALSE');
+      if (payload.linked_files !== undefined) sheet.getRange(i + 1, 10).setValue(String(payload.linked_files || ''));
       sheet.getRange(i + 1, 9).setValue(userId);
       return { ok: true, milestone_id: id };
     }

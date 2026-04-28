@@ -47,7 +47,7 @@
   let isDeleting        = false;
 
   const PRIORITY_OPTIONS  = ['Low', 'Medium', 'High'];
-  const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'For Review', 'Completed'];
+  const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Submitted', 'Needs Revision', 'Approved'];
 
   // Populated from backend on mount
   let SUPERVISOR_OPTIONS = [];
@@ -70,12 +70,15 @@
   }
 
   const STATUS_META = {
-    'Pending':      { cls: 'status-pending',       label: 'Pending'      },
-    'In Progress':  { cls: 'status-in-progress',   label: 'In Progress'  },
-    'For Review':   { cls: 'status-review',        label: 'For Review'   },
-    'Completed':    { cls: 'status-completed',     label: 'Completed'    },
-    // legacy mappings
     'Not Started':  { cls: 'status-not-started',   label: 'Not Started'  },
+    'In Progress':  { cls: 'status-in-progress',   label: 'In Progress'  },
+    'Submitted':    { cls: 'status-submitted',     label: 'Submitted'    },
+    'Needs Revision': { cls: 'status-needs-revision', label: 'Needs Revision' },
+    'Approved':     { cls: 'status-approved',      label: 'Approved'     },
+    // legacy aliases
+    'For Review':   { cls: 'status-submitted',     label: 'Submitted'    },
+    'Pending':      { cls: 'status-not-started',   label: 'Pending'      },
+    'Completed':    { cls: 'status-approved',      label: 'Completed'    }
   };
 
   // Form
@@ -617,7 +620,7 @@
     try {
       const res = await dispatchAction('list_milestones', { proj_id: projId });
       if (res?.ok) {
-        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: String(m.status || 'Not Started'), done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by }));
+        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: String(m.status || 'Not Started'), done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by, linked_files: m.linked_files || '' }));
         projects = projects.map(p => p.id === projectId ? { ...p, milestones: list } : p);
         try { localStorage.setItem('projects.milestones.' + String(projectId), JSON.stringify(list)); } catch (e) {}
       } else {
@@ -642,6 +645,70 @@
   let editingMilestoneId = null;
   let editingMilestoneInputs = {};
   let showAddMilestoneFor = {};
+
+  // Collapsible milestones and file-linker
+  let expandedMilestoneIds = new Set();
+  let milestoneFilePicker  = {};  // { [milestoneId]: boolean }
+
+  function toggleMilestoneExpand(milestoneId) {
+    if (expandedMilestoneIds.has(milestoneId)) expandedMilestoneIds.delete(milestoneId);
+    else expandedMilestoneIds.add(milestoneId);
+    expandedMilestoneIds = new Set(expandedMilestoneIds);
+  }
+
+  function toggleMilestoneFilePicker(milestoneId) {
+    milestoneFilePicker = { ...milestoneFilePicker, [milestoneId]: !milestoneFilePicker[milestoneId] };
+  }
+
+  // Parse linked_files JSON stored on a milestone; fall back to []
+  function parseMilestoneFiles(m) {
+    try { const v = m.linked_files || ''; if (!v) return []; return JSON.parse(v); } catch(e) { return []; }
+  }
+
+  // Returns all file submissions in a project (across all folders) for the linker picker
+  function projectFileSubmissions(projectId) {
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj || !proj.folders) return [];
+    const files = [];
+    for (const folder of proj.folders) {
+      for (const s of (folder.submissions || [])) {
+        if (s.kind === 'file') files.push({ ...s, folder_name: folder.name });
+      }
+    }
+    return files;
+  }
+
+  // Toggle a file in/out of a milestone's linked_files list and persist
+  async function toggleMilestoneFile(projectId, milestoneId, submission) {
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+    const m = (proj.milestones || []).find(x => x.id === milestoneId);
+    if (!m) return;
+    const current = parseMilestoneFiles(m);
+    const exists = current.find(f => f.id === submission.id);
+    const updated = exists
+      ? current.filter(f => f.id !== submission.id)
+      : [...current, { id: submission.id, name: submission.name, drive_url: submission.drive_url || '' }];
+    const linkedJson = JSON.stringify(updated);
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, linked_files: linkedJson, user_id: uid });
+      if (!res?.ok) { formError = res?.error || 'Failed to update linked files.'; return; }
+      projects = projects.map(proj2 => proj2.id !== projectId ? proj2 : {
+        ...proj2,
+        milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: linkedJson } : mm)
+      });
+    } catch(e) { formError = e?.message || 'Failed to update linked files.'; }
+  }
+
+  function milestoneStatusIcon(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'approved') return '✅';
+    if (s === 'in progress') return '🔵';
+    if (s === 'submitted') return '📤';
+    if (s === 'needs revision') return '🔴';
+    return '🟡';  // Not Started default
+  }
 
   function toggleAddMilestone(projectId) {
     const init = newMilestoneInputs[projectId] || { milestone: '', date: '' };
@@ -750,7 +817,8 @@
     try {
       const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, status: String(newStatus || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update status.'; return; }
-      // reload milestones for consistency
+      // update local state immediately and then reload for consistency
+      projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: String(newStatus || 'Not Started') } : mm) } : p);
       try { await loadProjectMilestones(projectId); } catch (e) { /* fallback */ }
       formSuccess = 'Status updated.';
       setTimeout(() => { formSuccess = ''; }, 1200);
@@ -1651,39 +1719,99 @@
                       {#if p.milestones && p.milestones.length > 0}
                         <div class="milestone-list">
                           {#each p.milestones as m}
-                            {#if editingMilestoneId === m.id}
-                              <div class="milestone-row editing">
-                                <div style="flex:1;display:flex;gap:8px;align-items:center">
-                                  <select class="status-select" value={editingMilestoneInputs[m.id]?.status || 'Not Started'} on:change={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), status: e.target.value } }; }}>
-                                    <option>Not Started</option>
-                                    <option>In Progress</option>
-                                    <option>Submitted</option>
-                                    <option>Needs Revision</option>
-                                    <option>Approved</option>
-                                  </select>
-                                  <input class="input" type="text" value={editingMilestoneInputs[m.id]?.milestone || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), milestone: e.target.value } }; }} />
-                                  <input class="input" type="date" value={editingMilestoneInputs[m.id]?.date || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), date: e.target.value } }; }} style="width:170px" />
-                                </div>
-                                <div style="display:flex;gap:6px;margin-left:12px">
-                                  <button class="sub-action-btn" on:click={() => saveEditedMilestone(p.id, m.id)}>Save</button>
-                                  <button class="sub-cancel-btn" on:click={cancelEditMilestone}>Cancel</button>
-                                </div>
+                            <div class="ms-card" class:ms-expanded={expandedMilestoneIds.has(m.id)}>
+                              <!-- ── Collapsed header (always visible) ── -->
+                              <div class="ms-header" on:click={() => toggleMilestoneExpand(m.id)} role="button" tabindex="0" on:keydown={(e)=>{ if(e.key==='Enter'||e.key===' ') toggleMilestoneExpand(m.id); }}>
+                                <span class={"ms-icon " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}></span>
+                                <span class="ms-title">{m.milestone}</span>
+                                {#if m.date}<span class="ms-due">Due: {formatDate(m.date)}</span>{/if}
+                                <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? '▲' : '▼'}</span>
                               </div>
-                            {:else}
-                              <div class="milestone-row">
-                                  <div style="display:flex;align-items:center;gap:12px;flex:1">
-                                    <div class="status-pill" role="status" aria-label={`Milestone status: ${m.status || 'Not Started'}`}>
-                                      {m.status || 'Not Started'}
+
+                              <!-- ── Expanded body ── -->
+                              {#if expandedMilestoneIds.has(m.id)}
+                                <div class="ms-body">
+                                  <!-- Linked files list -->
+                                  {#if parseMilestoneFiles(m).length > 0}
+                                    <div class="ms-linked-section">
+                                      <div class="ms-linked-label">Linked Files:</div>
+                                      <ul class="ms-linked-list">
+                                        {#each parseMilestoneFiles(m) as lf}
+                                          <li class="ms-linked-item">
+                                            <span>📄 {lf.name}</span>
+                                            {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
+                                            {#if editingMilestoneId === m.id}
+                                              <button class="ms-unlink-btn" title="Unlink" on:click={() => toggleMilestoneFile(p.id, m.id, lf)}>✕</button>
+                                            {/if}
+                                          </li>
+                                        {/each}
+                                      </ul>
                                     </div>
-                                    <div class="milestone-text" style="flex:1">{m.milestone}</div>
-                                    <div class="milestone-due">| Due: <span class="muted">{formatDate(m.date)}</span></div>
+                                  {:else}
+                                    <div class="ms-no-links">No linked files yet.</div>
+                                  {/if}
+
+                                  <!-- Action bar: read-only in view mode, controls in edit mode -->
+                                  <div class="ms-actions">
+                                    {#if editingMilestoneId === m.id}
+                                      <button class="sub-action-btn" on:click={() => toggleMilestoneFilePicker(m.id)}>
+                                        📎 {milestoneFilePicker[m.id] ? 'Close Picker' : 'Link Files'}
+                                      </button>
+                                      <select class="status-select" value={editingMilestoneInputs[m.id]?.status || m.status || 'Not Started'}
+                                        on:change={async (e) => {
+                                          const v = String(e.target.value || 'Not Started');
+                                          // keep local edit input in sync
+                                          editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), status: v } };
+                                          await changeMilestoneStatus(p.id, m.id, v);
+                                        }}>
+                                        {#each STATUS_OPTIONS as so}
+                                          <option>{so}</option>
+                                        {/each}
+                                      </select>
+                                      <div style="flex:1"></div>
+                                      <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
+                                      <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
+                                    {:else}
+                                      <!-- view-only: show status pill matching project status style -->
+                                      <span class={"proj-status-pill " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}>{STATUS_META[m.status]?.label || STATUS_META['Not Started'].label}</span>
+                                      <div style="flex:1"></div>
+                                      <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
+                                      <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
+                                    {/if}
                                   </div>
-                                  <div style="margin-left:12px;display:flex;gap:6px">
-                                    <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
-                                    <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
-                                  </div>
-                              </div>
-                            {/if}
+
+                                  <!-- Edit form -->
+                                  {#if editingMilestoneId === m.id}
+                                    <div class="add-milestone-bar" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                                      <input class="input" type="text" value={editingMilestoneInputs[m.id]?.milestone || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), milestone: e.target.value } }; }} placeholder="Milestone" />
+                                      <input class="input" type="date" value={editingMilestoneInputs[m.id]?.date || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), date: e.target.value } }; }} style="width:170px" />
+                                      <button class="sub-action-btn" on:click={() => saveEditedMilestone(p.id, m.id)}>Save</button>
+                                      <button class="sub-cancel-btn" on:click={cancelEditMilestone}>Cancel</button>
+                                    </div>
+                                  {/if}
+
+                                  <!-- File picker -->
+                                  {#if milestoneFilePicker[m.id]}
+                                    <div class="ms-file-picker">
+                                      <div class="ms-picker-label">Select files from submissions to link:</div>
+                                      {#if projectFileSubmissions(p.id).length === 0}
+                                        <div class="ms-picker-empty">No files uploaded in the Submissions tab yet.</div>
+                                      {:else}
+                                        {#each projectFileSubmissions(p.id) as sub}
+                                          <label class="ms-picker-item">
+                                            <input type="checkbox"
+                                              checked={!!parseMilestoneFiles(m).find(f => f.id === sub.id)}
+                                              on:change={() => toggleMilestoneFile(p.id, m.id, sub)} />
+                                            <span class="ms-picker-name">📄 {sub.name}</span>
+                                            <span class="ms-picker-folder">{sub.folder_name}</span>
+                                          </label>
+                                        {/each}
+                                      {/if}
+                                    </div>
+                                  {/if}
+                                </div>
+                              {/if}
+                            </div>
                           {/each}
                         </div>
                       {:else}
@@ -2064,6 +2192,9 @@
   .proj-status-pill.status-in-progress { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
   .proj-status-pill.status-review { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
   .proj-status-pill.status-completed { background: rgba(59,130,246,0.08); color: #3b82f6; border-color: rgba(59,130,246,0.12); }
+  .proj-status-pill.status-submitted { background: rgba(124,58,237,0.08); color: #7c3aed; border-color: rgba(124,58,237,0.12); }
+  .proj-status-pill.status-needs-revision { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
+  .proj-status-pill.status-approved { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
 
   /* center non-name header labels */
   .proj-table-header > .proj-col-priority,
@@ -2365,13 +2496,45 @@
   .log-entry-right { display:flex; gap:8px; align-items:center; }
 
   /* Milestones */
-  .milestone-list { display:flex; flex-direction:column; gap:6px; padding:0.5rem 0.75rem; }
+  .milestone-list { display:flex; flex-direction:column; gap:8px; padding:0.5rem 0.75rem; }
   .milestone-row { display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; border-radius:8px; background:transparent; }
   .milestone-left { display:flex; gap:12px; align-items:center; }
   .milestone-icon { width:30px; height:30px; display:grid; place-items:center; border-radius:6px; font-size:0.95rem; }
   .milestone-icon { border:1px solid rgba(255,255,255,0.04); }
   .milestone-title { font-size:0.95rem; font-weight:600; color:var(--color-heading); }
   .milestone-due { font-size:0.88rem; color:var(--color-sidebar-text); }
+
+  /* Collapsible milestone cards */
+  .ms-card { border:1px solid var(--color-border,rgba(255,255,255,0.08)); border-radius:10px; overflow:hidden; background:var(--color-card,rgba(255,255,255,0.03)); }
+  .ms-header { display:flex; align-items:center; gap:10px; padding:0.6rem 0.9rem; cursor:pointer; user-select:none; }
+  .ms-header:hover { background:rgba(255,255,255,0.04); }
+  /* small neutral status indicator */
+  .ms-icon { width:12px; height:12px; display:inline-block; border-radius:50%; border:1px solid rgba(255,255,255,0.06); background:transparent; box-shadow: none; }
+  .ms-icon.status-not-started { background: rgba(249,115,22,0.06); border-color: rgba(249,115,22,0.08); }
+  .ms-icon.status-in-progress { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.08); }
+  .ms-icon.status-submitted { background: rgba(124,58,237,0.06); border-color: rgba(124,58,237,0.08); }
+  .ms-icon.status-needs-revision { background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.08); }
+  .ms-icon.status-approved { background: rgba(59,130,246,0.06); border-color: rgba(59,130,246,0.08); }
+  .ms-title { flex:1; font-size:0.95rem; font-weight:600; color:var(--color-heading); }
+  .ms-due { font-size:0.82rem; color:var(--color-sidebar-text); white-space:nowrap; }
+  .ms-chevron { font-size:0.75rem; color:var(--color-sidebar-text); margin-left:4px; }
+  .ms-body { padding:0.6rem 0.9rem 0.75rem; border-top:1px solid var(--color-border,rgba(255,255,255,0.06)); display:flex; flex-direction:column; gap:10px; }
+  .ms-linked-section { display:flex; flex-direction:column; gap:4px; }
+  .ms-linked-label { font-size:0.85rem; font-weight:600; color:var(--color-heading); }
+  .ms-linked-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
+  .ms-linked-item { display:flex; align-items:center; gap:8px; font-size:0.85rem; color:var(--color-heading); }
+  .ms-open-link { font-size:0.78rem; color:var(--color-link,#60a5fa); text-decoration:none; }
+  .ms-open-link:hover { text-decoration:underline; }
+  .ms-unlink-btn { background:none; border:none; cursor:pointer; color:var(--color-muted,#9ca3af); font-size:0.75rem; padding:0 2px; }
+  .ms-no-links { font-size:0.82rem; color:var(--color-sidebar-text); }
+  .ms-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .ms-file-picker { border:1px solid var(--color-border,rgba(255,255,255,0.08)); border-radius:8px; padding:0.6rem 0.8rem; display:flex; flex-direction:column; gap:6px; background:var(--color-bg-alt,rgba(0,0,0,0.15)); }
+  .ms-picker-label { font-size:0.83rem; font-weight:600; color:var(--color-heading); }
+  .ms-picker-empty { font-size:0.82rem; color:var(--color-sidebar-text); }
+  .ms-picker-item { display:flex; align-items:center; gap:8px; cursor:pointer; padding:3px 0; }
+  .ms-picker-item input[type=checkbox] { accent-color:var(--color-primary,#6366f1); cursor:pointer; }
+  .ms-picker-name { font-size:0.85rem; color:var(--color-heading); flex:1; }
+  .ms-picker-folder { font-size:0.75rem; color:var(--color-sidebar-text); }
 
   /* Details grid */
   .proj-detail-grid { display:grid; grid-template-columns: 1fr; gap:0.75rem; padding:1rem 1.25rem; }
