@@ -27,6 +27,8 @@ var NOTIFICATIONS_SHEET_ = 'notifications';
 var NOTIFICATIONS_HEADERS_ = ['notification_id', 'user_id', 'title', 'description', 'type', 'related_id', 'is_read', 'created_at'];
 var USER_SETTINGS_SHEET_ = 'user_settings';
 var USER_SETTINGS_HEADERS_ = ['user_id', 'settings_json', 'updated_at'];
+var USERS_SHEET_ = 'users';
+var USERS_HEADERS_ = ['user_id', 'full_name', 'email', 'password_hash', 'phone', 'department', 'status', 'role', 'created_at', 'first_login_date', 'profile_photo_url', 'profile_photo_file_id', 'profile_photo_updated_at', 'email_verified', 'otp_hash', 'otp_expires_at', 'otp_attempts', 'otp_last_sent_at'];
 var INTERN_SCHEDULES_SHEET_ = 'intern_schedules';
 var INTERN_SCHEDULES_HEADERS_ = ['schedule_id', 'intern_id', 'supervisor_id', 'days_off', 'shift_start', 'shift_end', 'created_at', 'updated_at'];
 
@@ -335,6 +337,7 @@ function handleGetStudentDashboard_(payload) {
     return { ok: false, error: 'User not found.' };
   }
 
+  repairLegacyUserRecord_(userRecord);
   var profile = getStudentProfileByUserId_(userId);
   // Load only the most recent 10 time logs for display (much faster)
   var logsResult = handleListTimeLogsByUser_({ user_id: userId, limit: 10 });
@@ -359,14 +362,7 @@ function handleGetStudentDashboard_(payload) {
 
   return {
     ok: true,
-    user: {
-      user_id: String(userRecord.user.user_id || ''),
-      full_name: String(userRecord.user.full_name || ''),
-      email: String(userRecord.user.email || ''),
-      role: String(userRecord.user.role || ''),
-      status: String(userRecord.user.status || ''),
-      department: String(userRecord.user.department || '')
-    },
+    user: buildUserForClient_(userRecord.user, profile),
     profile: profile,
     total_completed_hours: totalCompletedHours,
     time_logs: Array.isArray(logsResult.logs) ? logsResult.logs : [],
@@ -477,7 +473,7 @@ function handleRegisterAccount_(payload) {
     };
   }
 
-  var usersSheet = getSheet_('users');
+  var usersSheet = getUsersSheet_();
   var users = readSheetObjects_(usersSheet);
   var existingByEmail = users.find(function (row) {
     return normalizeEmail_(row.email) === email;
@@ -553,7 +549,7 @@ function handleLoginAccount_(payload) {
     return { ok: false, error: 'email and password are required.' };
   }
 
-  var usersSheet = getSheet_('users');
+  var usersSheet = getUsersSheet_();
   var users = readSheetObjects_(usersSheet);
   var found = users.find(function (row) {
     return normalizeEmail_(row.email) === email;
@@ -586,6 +582,12 @@ function handleLoginAccount_(payload) {
     };
   }
 
+  var foundRecord = findUserRecordByUserId_(String(found.user_id || ''));
+  if (foundRecord) {
+    repairLegacyUserRecord_(foundRecord);
+    found = foundRecord.user || found;
+  }
+
   // Track first login: if first_login_date is not set, set it now
   var firstLoginDate = String(found.first_login_date || '').trim();
   if (!firstLoginDate) {
@@ -603,19 +605,7 @@ function handleLoginAccount_(payload) {
   return {
     ok: true,
     message: 'Login successful.',
-    user: {
-      user_id: String(found.user_id || ''),
-      full_name: String(found.full_name || ''),
-      email: String(found.email || ''),
-      phone: String(found.phone || ''),
-      department: String(found.department || ''),
-      role: String(found.role || ''),
-      status: String(found.status || ''),
-      created_at: String(found.created_at || ''),
-      first_login_date: firstLoginDate,
-      profile_photo_url: String(found.profile_photo_url || ''),
-      ojt: profile
-    }
+    user: buildUserForClient_(Object.assign({}, found, { first_login_date: firstLoginDate }), profile)
   };
 }
 
@@ -631,23 +621,12 @@ function handleGetUserById_(payload) {
     return { ok: false, error: 'User not found.' };
   }
 
+  repairLegacyUserRecord_(record);
   var profile = getStudentProfileByUserId_(String(record.user.user_id || ''));
 
   return {
     ok: true,
-    user: {
-      user_id: String(record.user.user_id || ''),
-      full_name: String(record.user.full_name || ''),
-      email: String(record.user.email || ''),
-      phone: String(record.user.phone || ''),
-      department: String(record.user.department || ''),
-      role: String(record.user.role || ''),
-      status: String(record.user.status || ''),
-      created_at: String(record.user.created_at || ''),
-      first_login_date: String(record.user.first_login_date || ''),
-      profile_photo_url: String(record.user.profile_photo_url || ''),
-      ojt: profile
-    }
+    user: buildUserForClient_(record.user, profile)
   };
 }
 
@@ -677,7 +656,7 @@ function handleVerifyEmailOtp_(payload) {
       return { ok: false, error: 'Invalid OTP code.' };
     }
 
-    var usersSheet = getSheet_('users');
+    var usersSheet = getUsersSheet_();
     var users = readSheetObjects_(usersSheet);
     var existingByEmail = users.find(function (row) {
       return normalizeEmail_(row.email) === email;
@@ -738,7 +717,7 @@ function handleVerifyEmailOtp_(payload) {
         email: String(userRow.email || ''),
         phone: String(userRow.phone || ''),
         department: String(userRow.department || ''),
-        role: String(userRow.role || ''),
+        role: normalizeUserRoleForClient_(userRow.role, pending.ojt_profile || null),
         status: String(userRow.status || ''),
         created_at: String(userRow.created_at || ''),
         profile_photo_url: String(userRow.profile_photo_url || '')
@@ -895,17 +874,7 @@ function handleUpdateUserProfile_(payload) {
   return {
     ok: true,
     message: 'Profile updated successfully.',
-    user: {
-      user_id: String(record.user.user_id || ''),
-      full_name: String(record.user.full_name || ''),
-      email: String(record.user.email || ''),
-      phone: String(record.user.phone || ''),
-      department: String(record.user.department || ''),
-      role: String(record.user.role || ''),
-      status: String(record.user.status || ''),
-      created_at: String(record.user.created_at || ''),
-      profile_photo_url: String(record.user.profile_photo_url || '')
-    }
+    user: buildUserForClient_(record.user)
   };
 }
 
@@ -982,16 +951,7 @@ function handleUpdateProfilePhoto_(payload) {
   return {
     ok: true,
     message: 'Profile photo updated successfully.',
-    user: {
-      user_id: String(record.user.user_id || ''),
-      full_name: String(record.user.full_name || ''),
-      email: String(record.user.email || ''),
-      department: String(record.user.department || ''),
-      role: String(record.user.role || ''),
-      status: String(record.user.status || ''),
-      created_at: String(record.user.created_at || ''),
-      profile_photo_url: String(record.user.profile_photo_url || '')
-    }
+    user: buildUserForClient_(record.user)
   };
 }
 
@@ -1548,11 +1508,11 @@ function handleListStudentsForAssignment_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can assign students.' };
   }
 
-  var usersSheet = getSheet_('users');
+  var usersSheet = getUsersSheet_();
 
   var assignedIds = {};
   var assignments = getActiveSupervisorAssignments_(supervisorUserId);
@@ -1563,7 +1523,7 @@ function handleListStudentsForAssignment_(payload) {
   var users = readSheetObjects_(usersSheet);
   var students = users
     .filter(function (row) {
-      var roleValue = String(row.role || '').trim().toLowerCase();
+      var roleValue = getEffectiveUserRole_(row).toLowerCase();
       var userId = String(row.user_id || '').trim();
       var fullName = String(row.full_name || '').trim();
 
@@ -1610,7 +1570,7 @@ function handleAssignStudentsToSupervisor_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can assign students.' };
   }
 
@@ -1625,11 +1585,11 @@ function handleAssignStudentsToSupervisor_(payload) {
     studentUserIds.push(studentUserId);
   }
 
-  var usersSheet = getSheet_('users');
+  var usersSheet = getUsersSheet_();
   var users = readSheetObjects_(usersSheet);
   var validStudents = {};
   for (var j = 0; j < users.length; j++) {
-    var roleValue = String(users[j].role || '').trim().toLowerCase();
+    var roleValue = getEffectiveUserRole_(users[j]).toLowerCase();
     var rowUserId = String(users[j].user_id || '').trim();
     var fullName = String(users[j].full_name || '').trim();
 
@@ -1708,7 +1668,7 @@ function handleSaveInternSchedule_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can save schedules.' };
   }
 
@@ -1785,7 +1745,7 @@ function handleListSupervisorAssignedStudents_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can view assigned students.' };
   }
 
@@ -1805,7 +1765,7 @@ function handleListSupervisorAssignedStudents_(payload) {
     studentIds.push(studentId);
   }
 
-  var users = readSheetObjects_(getSheet_('users'));
+  var users = readSheetObjects_(getUsersSheet_());
   var userLookup = {};
   for (var j = 0; j < users.length; j++) {
     userLookup[String(users[j].user_id || '').trim()] = users[j];
@@ -1848,7 +1808,7 @@ function handleListSupervisorAssignedStudents_(payload) {
       continue;
     }
 
-    if (String(student.role || '').trim().toLowerCase() === 'supervisor') {
+    if (isSupervisorUser_(student)) {
       continue;
     }
 
@@ -1897,7 +1857,7 @@ function handleListSupervisorTimeLogs_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can view student time logs.' };
   }
 
@@ -1935,7 +1895,7 @@ function handleListSupervisorActiveSessions_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can view active sessions.' };
   }
 
@@ -1980,7 +1940,7 @@ function handleDeleteSupervisorTimeLog_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim() !== 'Supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can delete student time logs.' };
   }
 
@@ -2022,7 +1982,7 @@ function handleDebugSupervisorAssignment_(payload) {
 
   var users = [];
   try {
-    users = readSheetObjects_(getSheet_('users'));
+    users = readSheetObjects_(getUsersSheet_());
   } catch (err) {
     return {
       ok: true,
@@ -2044,7 +2004,7 @@ function handleDebugSupervisorAssignment_(payload) {
 
   for (var i = 0; i < users.length; i++) {
     var rowUserId = String(users[i].user_id || '').trim();
-    var roleValue = String(users[i].role || '').trim().toLowerCase();
+    var roleValue = getEffectiveUserRole_(users[i]).toLowerCase();
     var fullName = String(users[i].full_name || '').trim();
 
     if (rowUserId && rowUserId !== supervisorUserId && roleValue !== 'supervisor') {
@@ -2055,7 +2015,7 @@ function handleDebugSupervisorAssignment_(payload) {
       sampleUsers.push({
         user_id: rowUserId,
         full_name: fullName,
-        role: String(users[i].role || ''),
+        role: getEffectiveUserRole_(users[i]),
       });
     }
   }
@@ -2067,7 +2027,7 @@ function handleDebugSupervisorAssignment_(payload) {
       users_count: users.length,
       candidate_students_count: candidateCount,
       supervisor_found: Boolean(supervisorRecord),
-      supervisor_role: supervisorRecord ? String(supervisorRecord.user.role || '') : '',
+      supervisor_role: supervisorRecord ? getEffectiveUserRole_(supervisorRecord.user) : '',
       sample_users: sampleUsers,
       sheet_error: '',
     },
@@ -2095,8 +2055,7 @@ function handleCreateRequest_(payload) {
     return { ok: false, error: 'User not found.' };
   }
 
-  var requesterRole = String(requesterRecord.user.role || '').trim().toLowerCase();
-  if (requesterRole === 'supervisor') {
+  if (isSupervisorUser_(requesterRecord.user)) {
     return { ok: false, error: 'Supervisor accounts cannot create requests.' };
   }
 
@@ -2254,7 +2213,7 @@ function handleListAssignedStudentRequests_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim().toLowerCase() !== 'supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can view assigned student requests.' };
   }
 
@@ -2312,7 +2271,7 @@ function handleUpdateRequestStatus_(payload) {
     return { ok: false, error: 'Supervisor not found.' };
   }
 
-  if (String(supervisorRecord.user.role || '').trim().toLowerCase() !== 'supervisor') {
+  if (!isSupervisorUser_(supervisorRecord.user)) {
     return { ok: false, error: 'Only supervisors can update request status.' };
   }
 
@@ -2402,7 +2361,7 @@ function handleDeleteRequest_(payload) {
     return { ok: false, error: 'User not found.' };
   }
 
-  if (String(requesterRecord.user.role || '').trim().toLowerCase() === 'supervisor') {
+  if (isSupervisorUser_(requesterRecord.user)) {
     return { ok: false, error: 'Supervisor accounts cannot delete requests.' };
   }
 
@@ -3236,6 +3195,10 @@ function getUserSettingsSheet_() {
   return getOrCreateSheetWithHeaders_(USER_SETTINGS_SHEET_, USER_SETTINGS_HEADERS_);
 }
 
+function getUsersSheet_() {
+  return getOrCreateSheetWithHeaders_(USERS_SHEET_, USERS_HEADERS_);
+}
+
 function getInternSchedulesSheet_() {
   return getOrCreateSheetWithHeaders_(INTERN_SCHEDULES_SHEET_, INTERN_SCHEDULES_HEADERS_);
 }
@@ -3462,7 +3425,7 @@ function getNextSequenceId_(sheetName, prefix, idColumnName, digits) {
 
 function findUserRecordByEmail_(email) {
   var normalizedEmail = normalizeEmail_(email);
-  var sheet = getSheet_('users');
+  var sheet = getUsersSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
   var emailCol = findColumnIndex_(headers, 'email');
@@ -3491,7 +3454,7 @@ function findUserRecordByUserId_(userId) {
     return null;
   }
 
-  var sheet = getSheet_('users');
+  var sheet = getUsersSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
   var userIdCol = findColumnIndex_(headers, 'user_id');
@@ -3515,6 +3478,132 @@ function findUserRecordByUserId_(userId) {
 
 function updateUserRecord_(record) {
   updateObjectRow_(record.sheet, record.rowIndex, record.user);
+}
+
+function inferDisplayNameFromEmail_(email) {
+  var localPart = String(email || '').trim().split('@')[0] || '';
+  if (!localPart) {
+    return 'User';
+  }
+
+  var words = localPart
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(function (part) { return Boolean(part); })
+    .slice(0, 4);
+
+  if (!words.length) {
+    return 'User';
+  }
+
+  return words.map(function (part) {
+    var lower = String(part || '').toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join(' ');
+}
+
+function repairLegacyUserRecord_(record) {
+  if (!record || !record.user || !record.sheet || !record.rowIndex) {
+    return false;
+  }
+
+  var user = record.user;
+  var roleRaw = String(user.role || '').trim();
+  var roleLower = roleRaw.toLowerCase();
+  var userId = String(user.user_id || '').trim();
+  var profile = userId ? getStudentProfileByUserId_(userId) : null;
+  var normalizedRole = normalizeUserRoleForClient_(roleRaw, profile);
+  var fullName = String(user.full_name || '').trim();
+  var changed = false;
+
+  // Normalize legacy role values (blank/User/mentor/intern variants) into
+  // the canonical role labels consumed by the frontend.
+  if (!roleRaw ||
+      roleLower === 'user' ||
+      roleLower === 'mentor' ||
+      roleLower === 'intern' ||
+      roleLower === 'ojt' ||
+      roleLower === 'student' ||
+      roleLower === 'supervisor') {
+    if (normalizedRole && normalizedRole !== roleRaw) {
+      user.role = normalizedRole;
+      changed = true;
+    }
+  }
+
+  if (!fullName) {
+    user.full_name = inferDisplayNameFromEmail_(user.email);
+    changed = true;
+  }
+
+  if (!changed) {
+    return false;
+  }
+
+  ensureSheetColumns_(record.sheet, ['full_name', 'role', 'updated_at']);
+  user.updated_at = isoNow_();
+  updateUserRecord_(record);
+  return true;
+}
+
+function normalizeUserRoleForClient_(role, profile) {
+  var value = String(role || '').trim().toLowerCase();
+
+  if (value === 'supervisor' || value === 'mentor') {
+    return 'Supervisor';
+  }
+
+  if (value === 'student' || value === 'intern' || value === 'ojt') {
+    return 'Student';
+  }
+
+  // Older sheets/accounts may have an empty or generic role. Students have
+  // an OJT profile; supervisor accounts do not.
+  if (!value || value === 'user') {
+    return profile ? 'Student' : 'Supervisor';
+  }
+
+  return String(role || '').trim();
+}
+
+function getEffectiveUserRole_(user) {
+  var value = String(user && user.role || '').trim().toLowerCase();
+  if (value === 'supervisor' || value === 'mentor') {
+    return 'Supervisor';
+  }
+  if (value === 'student' || value === 'intern' || value === 'ojt') {
+    return 'Student';
+  }
+
+  var userId = String(user && user.user_id || '').trim();
+  var profile = userId ? getStudentProfileByUserId_(userId) : null;
+  return normalizeUserRoleForClient_(user && user.role, profile);
+}
+
+function isSupervisorUser_(user) {
+  return getEffectiveUserRole_(user) === 'Supervisor';
+}
+
+function buildUserForClient_(user, profile) {
+  var userId = String(user && user.user_id || '').trim();
+  var resolvedProfile = typeof profile === 'undefined'
+    ? (userId ? getStudentProfileByUserId_(userId) : null)
+    : profile;
+
+  return {
+    user_id: userId,
+    full_name: String(user && user.full_name || ''),
+    email: String(user && user.email || ''),
+    phone: String(user && user.phone || ''),
+    department: String(user && user.department || ''),
+    role: normalizeUserRoleForClient_(user && user.role, resolvedProfile),
+    status: String(user && user.status || ''),
+    created_at: String(user && user.created_at || ''),
+    first_login_date: String(user && user.first_login_date || ''),
+    profile_photo_url: String(user && user.profile_photo_url || ''),
+    ojt: resolvedProfile
+  };
 }
 
 function mapRowValuesToObject_(headers, rowValues) {
@@ -4584,7 +4673,7 @@ function getUserNamesMap_(userIds) {
   var names = {};
   if (!userIds || !userIds.length) return names;
 
-  var sheet = getSheet_('users');
+  var sheet = getUsersSheet_();
   var headers = getHeaders_(sheet);
   var values = getSheetValues_(sheet);
   var userIdCol = findColumnIndex_(headers, 'user_id');
@@ -4828,7 +4917,7 @@ function sendDailyTimeLogReminders() {
 
   if (incompleteLogsUsers.length === 0) return;
 
-  var usersSheet = getSheet_('users');
+  var usersSheet = getUsersSheet_();
   var usersList = readSheetObjects_(usersSheet);
   
   var settingsSheet = getSheet_('user_settings');
@@ -4883,7 +4972,7 @@ function sendDailyTimeLogReminders() {
  * To run: Copy this function into a temporary script or run directly from Apps Script editor.
  */
 function migrateAllToSequentialIDs() {
-  var usersSheet = getSheet_('users');
+  var usersSheet = getUsersSheet_();
   var usersHeaders = getHeaders_(usersSheet);
   var userIdCol = findColumnIndex_(usersHeaders, 'user_id');
   var usersValues = getSheetValues_(usersSheet);
