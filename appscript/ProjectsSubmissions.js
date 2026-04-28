@@ -9,7 +9,7 @@ var PROJ_FOLDERS_HEADERS_ = [
 
 var SUBMISSION_INTERN_SHEET_   = 'submission_intern';
 var SUBMISSION_INTERN_HEADERS_ = [
-  'submission_id', 'proj_id', 'folder_id', 'kind',
+  'submission_id', 'proj_id', 'folder_id', 'gdrive', 'kind',
   'file_name', 'file_type', 'file_size',
   'link_label', 'link_url',
   'uploaded_at', 'uploaded_by'
@@ -76,14 +76,15 @@ function submissionRowToObj_(row) {
     submission_id: String(row[0]  || ''),
     proj_id:       String(row[1]  || ''),
     folder_id:     String(row[2]  || ''),
-    kind:          String(row[3]  || ''),
-    file_name:     String(row[4]  || ''),
-    file_type:     String(row[5]  || ''),
-    file_size:     String(row[6]  || ''),
-    link_label:    String(row[7]  || ''),
-    link_url:      String(row[8]  || ''),
-    uploaded_at:   String(row[9]  || ''),
-    uploaded_by:   String(row[10] || '')
+    gdrive:        String(row[3]  || ''),
+    kind:          String(row[4]  || ''),
+    file_name:     String(row[5]  || ''),
+    file_type:     String(row[6]  || ''),
+    file_size:     String(row[7]  || ''),
+    link_label:    String(row[8]  || ''),
+    link_url:      String(row[9]  || ''),
+    uploaded_at:   String(row[10]  || ''),
+    uploaded_by:   String(row[11] || '')
   };
 }
 
@@ -306,9 +307,10 @@ function handleCreateProjSubmission_(payload) {
       }
     }
 
-    // Store: kind=fileKind (category), link_url=driveFileUrl (Drive link for viewing)
+    // Store: gdrive=folder link, kind=fileKind (category), link_url=driveFileUrl (Drive link for viewing)
     row = [
       submissionId, projId, folderId,
+      driveLink,          // gdrive - the folder's gdrive link (where the file was uploaded)
       fileKind,           // kind column
       fileName, fileType, fileSizeMb,
       '',                 // link_label empty
@@ -324,8 +326,9 @@ function handleCreateProjSubmission_(payload) {
 
     row = [
       submissionId, projId, folderId,
-      'link',
-      '', '', '',         // file fields empty
+      '',               // gdrive empty for link submissions
+      'link',           // kind
+      '', '', '',       // file_name, file_type, file_size empty
       linkLabel, linkUrl,
       now, userId
     ];
@@ -339,7 +342,7 @@ function handleCreateProjSubmission_(payload) {
     submission_id: submissionId,
     kind:          kind,
     uploaded_at:   now,
-    drive_url:     kind === 'file' ? row[8] : ''
+    drive_url:     kind === 'file' ? row[9] : ''
   };
 }
 

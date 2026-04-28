@@ -592,6 +592,7 @@
       file_size:     s.file_size || '',
       uploaded_at:   s.uploaded_at || '',
       drive_url:     isFile ? (s.link_url || '') : '',   // link_url stores the Drive file URL for files
+      gdrive:        s.gdrive || '',                     // gdrive stores the folder's Google Drive link
       // link fields
       title:         !isFile ? (s.link_label || s.link_url || '') : '',
       url:           !isFile ? (s.link_url || '') : '',
@@ -745,6 +746,7 @@
       });
       if (!res?.ok) { formError = res?.error || 'Upload failed.'; return; }
 
+      const folderGdrive = projects.find(p => p.id === projectId)?.folders?.find(f => f.id === folderId)?.gdrive_link || '';
       const submission = {
         id:            res.submission_id,
         submission_id: res.submission_id,
@@ -754,7 +756,8 @@
         file_size:     (String(fileSizeMb || '').trim() && !/\s*MB$/i.test(String(fileSizeMb || '')))
                         ? String(fileSizeMb) + ' MB' : String(fileSizeMb || ''),
         uploaded_at:   res.uploaded_at || new Date().toISOString().slice(0, 10),
-        drive_url:     res.drive_url || ''
+        drive_url:     res.drive_url || '',
+        gdrive:        folderGdrive
       };
       projects = projects.map(p => p.id === projectId ? {
         ...p,
