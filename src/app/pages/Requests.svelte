@@ -87,6 +87,9 @@
   let selectAllChecked = false;
   let showBulkActions = false;
 
+  // Edit mode state
+  let editingRequestId = null;
+
   let form = {
     requestType: "Absence",
     date: "",
@@ -491,7 +494,8 @@
         (req) =>
           req.requestType === "Absence" &&
           req.date === form.date &&
-          (req.status === "Pending" || req.status === "Approved"),
+          (req.status === "Pending" || req.status === "Approved") &&
+          (req.id || req.request_id) !== editingRequestId,
       );
       if (existingAbsenceOnDate)
         return `You already have an absence request for ${new Date(form.date + "T00:00:00").toLocaleDateString()}. Please edit the existing request or select a different date.`;
@@ -533,6 +537,8 @@
       lunchBreak: 0,
       reason: "",
     };
+    editingRequestId = null;
+    formError = "";
   }
 
   async function submitRequest() {
@@ -547,27 +553,73 @@
     if (errorMessage) return;
     isSubmitting = true;
     try {
-      const result = await callBackend("create_request", {
-        user_id: currentUser.user_id,
-        requester_name: String(currentUser?.full_name || "").trim() || "Intern",
-        request_type: form.requestType,
-        request_date: form.date,
-        start_time: form.requestType === "Overtime" ? form.startTime : "",
-        end_time: form.requestType === "Overtime" ? form.endTime : "",
-        lunch_break:
-          form.requestType === "Overtime" ? Number(form.lunchBreak) || 0 : 0,
-        total_hours: form.requestType === "Overtime" ? overtimeHours : 0,
-        reason: String(form.reason || "").trim(),
-      });
-      if (result && result.ok) {
-        formSuccess = "Request submitted successfully!";
-        formError = "";
-        resetForm();
-        await loadRequests();
-        activeTab = "my-requests";
+      const isEditing = editingRequestId !== null;
+      
+      if (isEditing) {
+        // Delete the old request and create a new one
+        try {
+          const deleteResult = await callBackend("delete_request", {
+            request_id: editingRequestId,
+          });
+          if (!deleteResult || !deleteResult.ok) {
+            formError = "Failed to update request (delete step failed).";
+            formSuccess = "";
+            return;
+          }
+        } catch (err) {
+          formError = "Failed to update request (delete step failed).";
+          formSuccess = "";
+          return;
+        }
+        
+        // Now create the updated request
+        const result = await callBackend("create_request", {
+          user_id: currentUser.user_id,
+          requester_name: String(currentUser?.full_name || "").trim() || "Intern",
+          request_type: form.requestType,
+          request_date: form.date,
+          start_time: form.requestType === "Overtime" ? form.startTime : "",
+          end_time: form.requestType === "Overtime" ? form.endTime : "",
+          lunch_break:
+            form.requestType === "Overtime" ? Number(form.lunchBreak) || 0 : 0,
+          total_hours: form.requestType === "Overtime" ? overtimeHours : 0,
+          reason: String(form.reason || "").trim(),
+        });
+        if (result && result.ok) {
+          formSuccess = "Request updated successfully!";
+          formError = "";
+          resetForm();
+          editingRequestId = null;
+          await loadRequests();
+          activeTab = "my-requests";
+        } else {
+          formError = result?.error || "Failed to update request.";
+          formSuccess = "";
+        }
       } else {
-        formError = result?.error || "Failed to submit request.";
-        formSuccess = "";
+        // Create new request
+        const result = await callBackend("create_request", {
+          user_id: currentUser.user_id,
+          requester_name: String(currentUser?.full_name || "").trim() || "Intern",
+          request_type: form.requestType,
+          request_date: form.date,
+          start_time: form.requestType === "Overtime" ? form.startTime : "",
+          end_time: form.requestType === "Overtime" ? form.endTime : "",
+          lunch_break:
+            form.requestType === "Overtime" ? Number(form.lunchBreak) || 0 : 0,
+          total_hours: form.requestType === "Overtime" ? overtimeHours : 0,
+          reason: String(form.reason || "").trim(),
+        });
+        if (result && result.ok) {
+          formSuccess = "Request submitted successfully!";
+          formError = "";
+          resetForm();
+          await loadRequests();
+          activeTab = "my-requests";
+        } else {
+          formError = result?.error || "Failed to submit request.";
+          formSuccess = "";
+        }
       }
     } catch (err) {
       console.error("Submit request error:", err);
@@ -608,11 +660,13 @@
   }
 
   function editRequest(request) {
-    form.requestType = request.requestType;
-    form.date = request.date;
+    editingRequestId = request.id || request.request_id;
+    form.requestType = request.requestType || request.request_type;
+    form.date = request.date || request.request_date;
     form.startTime = request.start_time || "";
     form.endTime = request.end_time || "";
     form.reason = request.reason || "";
+    form.lunchBreak = request.lunch_break || 0;
     activeTab = "create-request";
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -695,6 +749,18 @@
     selectedRequests = selectedRequests; // Trigger reactivity
   }
 
+  function hasArchivableRequests() {
+    if (isSupervisor) return true;
+    // For interns, check if any selected requests are approved or rejected
+    for (const requestId of selectedRequests) {
+      const request = requests.find(r => r.id === requestId);
+      if (request && (request.status === "Approved" || request.status === "Rejected")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function toggleSelectAll() {
     if (selectAllChecked) {
       selectedRequests.clear();
@@ -710,17 +776,27 @@
     if (selectedRequests.size === 0) return;
     isArchiving = true;
     try {
+      let archivedCount = 0;
       for (const requestId of selectedRequests) {
+        // For interns, only allow archiving approved or rejected requests
+        if (!isSupervisor) {
+          const request = requests.find(r => r.id === requestId);
+          if (!request || (request.status !== "Approved" && request.status !== "Rejected")) {
+            continue; // Skip pending requests for interns
+          }
+        }
+        
         await callBackend("update_request_status", {
           request_id: requestId,
           status: "Archived",
           supervisor_user_id: String(currentUser?.user_id || "").trim(),
         });
+        archivedCount++;
       }
       selectedRequests.clear();
       selectAllChecked = false;
       await loadRequests();
-      formSuccess = `${selectedRequests.size} request(s) archived.`;
+      formSuccess = `${archivedCount} request(s) archived.`;
       setTimeout(() => (formSuccess = ""), 3000);
     } catch (err) {
       console.error("Archive requests error:", err);
@@ -951,22 +1027,20 @@
             >
               <Clock3 size={14} /> Overtime
             </button>
-            {#if isSupervisor}
-              <button
-                class="filter-chip"
-                class:active={requestFilter === "archive"}
-                on:click={() => (requestFilter = "archive")}
-              >
-                <FileText size={14} /> Archive
-              </button>
-            {/if}
+            <button
+              class="filter-chip"
+              class:active={requestFilter === "archive"}
+              on:click={() => (requestFilter = "archive")}
+            >
+              <FileText size={14} /> Archive
+            </button>
           </div>
           <div class="bulk-action-buttons">
             {#if showBulkActions}
               <button class="cancel-btn" on:click={() => { showBulkActions = false; selectedRequests.clear(); selectAllChecked = false; selectedRequests = selectedRequests; }}>
                 Cancel
               </button>
-              {#if isSupervisor && selectedRequests.size > 0}
+              {#if selectedRequests.size > 0}
                 {#if requestFilter === "archive"}
                   <button class="recover-btn" on:click={recoverSelectedRequests} disabled={isArchiving}>
                     {#if isArchiving}
@@ -976,7 +1050,7 @@
                       ↻ Recover ({selectedRequests.size})
                     {/if}
                   </button>
-                {:else}
+                {:else if isSupervisor || hasArchivableRequests()}
                   <button class="archive-btn" on:click={archiveSelectedRequests} disabled={isArchiving}>
                     {#if isArchiving}
                       <span class="spinning-icon"><Loader2 size={14} /></span>
@@ -1125,6 +1199,13 @@
                     >
                       <Trash2 size={12} /> Delete
                     </button>
+                  {:else if !isSupervisor && (request.status === "Approved" || request.status === "Rejected") && String(request?.status || "").toLowerCase() !== "archived"}
+                    <button
+                      class="btn-archive"
+                      on:click={() => { selectedRequests.clear(); selectedRequests.add(request.id); archiveSelectedRequests(); }}
+                    >
+                      <Archive size={12} /> Archive
+                    </button>
                   {/if}
                 </div>
               </div>
@@ -1140,9 +1221,13 @@
     <div class="panel">
       <div class="form-panel">
         <div>
-          <div class="form-title">Create Request</div>
+          <div class="form-title">
+            {editingRequestId ? "Edit Request" : "Create Request"}
+          </div>
           <div class="form-subtitle">
-            Fill out the request details before submission.
+            {editingRequestId
+              ? "Update the request details and submit to save changes."
+              : "Fill out the request details before submission."}
           </div>
         </div>
 
@@ -1282,10 +1367,10 @@
           >
             {#if isSubmitting}
               <span class="spinning-icon"><Loader2 size={14} /></span>
-              Submitting...
+              {editingRequestId ? "Updating..." : "Submitting..."}
             {:else}
               <Send size={14} />
-              Submit Request
+              {editingRequestId ? "Update Request" : "Submit Request"}
             {/if}
           </button>
         </div>
@@ -2049,7 +2134,8 @@
   .btn-edit,
   .btn-delete,
   .btn-approve,
-  .btn-reject {
+  .btn-reject,
+  .btn-archive {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -2068,6 +2154,16 @@
     color: #fff;
     box-shadow: 0 2px 6px var(--accent-glow);
   }
+  .btn-delete {
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--red-dim);
+  }
+  .btn-delete:hover:not(:disabled) {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--red-dim);
+  }
   .btn-reject {
     background: var(--red);
     color: #fff;
@@ -2077,6 +2173,16 @@
     background: #b91c1c;
     transform: translateY(-1px);
     box-shadow: 0 4px 10px var(--red-dim);
+  }
+  .btn-archive {
+    background: var(--purple);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--purple-dim);
+  }
+  .btn-archive:hover:not(:disabled) {
+    background: #6d28d9;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--purple-dim);
   }
   
   /* Action buttons base styling */
@@ -2129,7 +2235,8 @@
   .btn-edit :global(svg),
   .btn-delete :global(svg),
   .btn-approve :global(svg),
-  .btn-reject :global(svg) {
+  .btn-reject :global(svg),
+  .btn-archive :global(svg) {
     flex-shrink: 0;
   }
 
