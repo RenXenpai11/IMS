@@ -36,6 +36,11 @@ var INTERN_SCHEDULES_HEADERS_ = ['schedule_id', 'intern_id', 'supervisor_id', 'd
 var DEFAULT_WORK_DAYS_ = [1, 2, 3, 4, 5]; // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
 var DEFAULT_WORK_START_TIME_ = '09:00'; // 24-hour format
 var DEFAULT_WORK_END_TIME_ = '17:00';   // 24-hour format
+var DAILY_TIME_LOG_REMINDER_FUNCTION_ = 'sendDailyTimeLogReminders';
+var DAILY_TIME_LOG_REMINDER_HOUR_ = 17;
+var DAILY_TIME_LOG_REMINDER_MINUTE_ = 5;
+var TIME_LOG_REMINDER_SENT_PREFIX_ = 'IMS_TIME_LOG_REMINDER_SENT_';
+var SUPERVISOR_TIME_LOG_REMINDER_SENT_PREFIX_ = 'IMS_SUP_TIME_LOG_REMINDER_SENT_';
 
 function isTimeLogsBackendDisabled_() {
   return TIME_LOGS_BACKEND_ENABLED_ !== true;
@@ -5250,7 +5255,462 @@ function handleChangePassword_(payload) {
   return { ok: true, message: 'Password updated successfully.' };
 }
 
-function sendDailyTimeLogReminders() {
+function sendDailyTimeLogReminders(options) {
+  var opts = options || {};
+  var now = opts.now instanceof Date ? opts.now : new Date();
+  var todayISOStr = formatDateYMD_(now);
+
+  if (!todayISOStr) {
+    return { ok: false, error: 'Unable to resolve reminder date.' };
+  }
+
+  if (opts.force !== true && DEFAULT_WORK_DAYS_.indexOf(now.getDay()) === -1) {
+    return { ok: true, skipped: true, reason: 'not_a_work_day', date: todayISOStr };
+  }
+
+  if (opts.force !== true && !isAfterDailyTimeLogReminderTime_(now)) {
+    return { ok: true, skipped: true, reason: 'before_reminder_time', date: todayISOStr };
+  }
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    return { ok: false, error: 'A time log reminder run is already in progress.' };
+  }
+
+  try {
+    return sendDailyTimeLogRemindersForDate_(todayISOStr);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function runDailyTimeLogRemindersNow() {
+  return sendDailyTimeLogReminders({ force: true });
+}
+
+function installDailyTimeLogReminderTrigger() {
+  var removed = removeDailyTimeLogReminderTriggers();
+  ScriptApp.newTrigger(DAILY_TIME_LOG_REMINDER_FUNCTION_)
+    .timeBased()
+    .atHour(DAILY_TIME_LOG_REMINDER_HOUR_)
+    .nearMinute(DAILY_TIME_LOG_REMINDER_MINUTE_)
+    .everyDays(1)
+    .inTimezone(Session.getScriptTimeZone())
+    .create();
+
+  return {
+    ok: true,
+    message: 'Daily time log reminder trigger installed.',
+    handler: DAILY_TIME_LOG_REMINDER_FUNCTION_,
+    schedule: 'Every day near 17:05 Asia/Manila',
+    removed_existing_triggers: removed.deleted || 0
+  };
+}
+
+function removeDailyTimeLogReminderTriggers() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var deleted = 0;
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === DAILY_TIME_LOG_REMINDER_FUNCTION_) {
+      ScriptApp.deleteTrigger(triggers[i]);
+      deleted++;
+    }
+  }
+
+  return { ok: true, deleted: deleted };
+}
+
+function sendDailyTimeLogRemindersForDate_(todayISOStr) {
+  var openSessions = getOpenActiveSessionsForDate_(todayISOStr);
+  if (!openSessions.length) {
+    return {
+      ok: true,
+      date: todayISOStr,
+      open_sessions: 0,
+      intern_emails_sent: 0,
+      supervisor_emails_sent: 0
+    };
+  }
+
+  var usersById = buildUsersById_();
+  var settingsByUserId = buildNotificationSettingsByUserId_();
+  var supervisorIdsByStudentId = buildActiveSupervisorIdsByStudentId_();
+  var props = PropertiesService.getScriptProperties();
+  var supervisorDigest = {};
+  var internEmailsSent = 0;
+  var supervisorEmailsSent = 0;
+  var internDuplicatesSkipped = 0;
+  var supervisorDuplicatesSkipped = 0;
+  var internErrors = 0;
+  var supervisorErrors = 0;
+
+  for (var i = 0; i < openSessions.length; i++) {
+    var session = openSessions[i];
+    var studentUserId = String(session.user_id || '').trim();
+    var student = usersById[studentUserId];
+
+    if (!student || !isReminderEligibleUser_(student) || isSupervisorUser_(student)) {
+      continue;
+    }
+
+    if (getNotificationPreference_(settingsByUserId, studentUserId, 'time_log_reminder') === true) {
+      var internMarkerKey = buildReminderMarkerKey_(TIME_LOG_REMINDER_SENT_PREFIX_, todayISOStr, studentUserId);
+      if (props.getProperty(internMarkerKey)) {
+        internDuplicatesSkipped++;
+      } else {
+        try {
+          if (sendInternTimeLogReminderEmail_(student, session, todayISOStr)) {
+            props.setProperty(internMarkerKey, isoNow_());
+            internEmailsSent++;
+          }
+        } catch (internErr) {
+          internErrors++;
+          Logger.log('Unable to send time log reminder email (user_id=' + studentUserId + '): ' + (internErr && internErr.message ? internErr.message : String(internErr)));
+        }
+      }
+    }
+
+    var supervisorIds = supervisorIdsByStudentId[studentUserId] || [];
+    for (var j = 0; j < supervisorIds.length; j++) {
+      var supervisorUserId = String(supervisorIds[j] || '').trim();
+      if (!supervisorUserId) {
+        continue;
+      }
+
+      if (!supervisorDigest[supervisorUserId]) {
+        supervisorDigest[supervisorUserId] = [];
+      }
+
+      supervisorDigest[supervisorUserId].push({
+        student: student,
+        session: session
+      });
+    }
+  }
+
+  var supervisorUserIds = Object.keys(supervisorDigest);
+  for (var k = 0; k < supervisorUserIds.length; k++) {
+    var digestSupervisorId = supervisorUserIds[k];
+    var supervisor = usersById[digestSupervisorId];
+
+    if (!supervisor || !isReminderEligibleUser_(supervisor) || !isSupervisorUser_(supervisor)) {
+      continue;
+    }
+
+    if (getNotificationPreference_(settingsByUserId, digestSupervisorId, 'inactive_student_alert') !== true) {
+      continue;
+    }
+
+    var supervisorMarkerKey = buildReminderMarkerKey_(SUPERVISOR_TIME_LOG_REMINDER_SENT_PREFIX_, todayISOStr, digestSupervisorId);
+    if (props.getProperty(supervisorMarkerKey)) {
+      supervisorDuplicatesSkipped++;
+      continue;
+    }
+
+    try {
+      if (sendSupervisorInactiveStudentsReminderEmail_(supervisor, supervisorDigest[digestSupervisorId], todayISOStr)) {
+        props.setProperty(supervisorMarkerKey, isoNow_());
+        supervisorEmailsSent++;
+      }
+    } catch (supervisorErr) {
+      supervisorErrors++;
+      Logger.log('Unable to send supervisor inactive-student reminder email (supervisor_user_id=' + digestSupervisorId + '): ' + (supervisorErr && supervisorErr.message ? supervisorErr.message : String(supervisorErr)));
+    }
+  }
+
+  return {
+    ok: true,
+    date: todayISOStr,
+    open_sessions: openSessions.length,
+    intern_emails_sent: internEmailsSent,
+    supervisor_emails_sent: supervisorEmailsSent,
+    intern_duplicates_skipped: internDuplicatesSkipped,
+    supervisor_duplicates_skipped: supervisorDuplicatesSkipped,
+    intern_errors: internErrors,
+    supervisor_errors: supervisorErrors
+  };
+}
+
+function getOpenActiveSessionsForDate_(targetDate) {
+  var rows = readSheetObjects_(getActiveSessionsSheet_());
+  var sessions = [];
+  var seenUserIds = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var userId = String(rows[i].user_id || '').trim();
+    var logDate = formatCellDate_(rows[i].log_date);
+    var timeOut = String(serializeCellValue_(rows[i].time_out) || '').trim();
+
+    if (!userId || seenUserIds[userId] || logDate !== targetDate || timeOut) {
+      continue;
+    }
+
+    seenUserIds[userId] = true;
+    sessions.push({
+      session_id: String(serializeCellValue_(rows[i].session_id) || '').trim(),
+      user_id: userId,
+      log_date: logDate,
+      time_in: formatReminderTimeValue_(rows[i].time_in),
+      created_at: String(serializeCellValue_(rows[i].created_at) || '').trim()
+    });
+  }
+
+  return sessions;
+}
+
+function buildUsersById_() {
+  var rows = readSheetObjects_(getUsersSheet_());
+  var usersById = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var userId = String(rows[i].user_id || '').trim();
+    if (userId) {
+      usersById[userId] = rows[i];
+    }
+  }
+
+  return usersById;
+}
+
+function buildNotificationSettingsByUserId_() {
+  var rows = readSheetObjects_(getUserSettingsSheet_());
+  var settingsByUserId = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var userId = String(rows[i].user_id || '').trim();
+    if (!userId) {
+      continue;
+    }
+
+    try {
+      settingsByUserId[userId] = JSON.parse(rows[i].settings_json || '{}') || {};
+    } catch (err) {
+      settingsByUserId[userId] = {};
+    }
+  }
+
+  return settingsByUserId;
+}
+
+function buildActiveSupervisorIdsByStudentId_() {
+  var rows = readSheetObjects_(getSupervisorAssignmentsSheet_());
+  var supervisorIdsByStudentId = {};
+  var seenPairs = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var status = String(rows[i].status || 'active').trim().toLowerCase();
+    if (status === 'inactive') {
+      continue;
+    }
+
+    var studentUserId = String(rows[i].student_user_id || '').trim();
+    var supervisorUserId = String(rows[i].supervisor_user_id || '').trim();
+    var pairKey = studentUserId + '::' + supervisorUserId;
+
+    if (!studentUserId || !supervisorUserId || seenPairs[pairKey]) {
+      continue;
+    }
+
+    if (!supervisorIdsByStudentId[studentUserId]) {
+      supervisorIdsByStudentId[studentUserId] = [];
+    }
+
+    seenPairs[pairKey] = true;
+    supervisorIdsByStudentId[studentUserId].push(supervisorUserId);
+  }
+
+  return supervisorIdsByStudentId;
+}
+
+function getNotificationPreference_(settingsByUserId, userId, key) {
+  var prefs = settingsByUserId[String(userId || '').trim()] || {};
+  return prefs[String(key || '').trim()] === true;
+}
+
+function isReminderEligibleUser_(user) {
+  var status = String(user && user.status || '').trim().toLowerCase();
+  return status !== 'inactive' && status !== 'disabled' && status !== 'deleted' && status !== 'archived';
+}
+
+function isAfterDailyTimeLogReminderTime_(date) {
+  var timeParts = Utilities.formatDate(date, Session.getScriptTimeZone(), 'HH:mm').split(':');
+  var currentMinutes = Number(timeParts[0] || 0) * 60 + Number(timeParts[1] || 0);
+  return currentMinutes >= timeToMinutes_(DEFAULT_WORK_END_TIME_);
+}
+
+function buildReminderMarkerKey_(prefix, dateStr, userId) {
+  return String(prefix || '') + String(dateStr || '').replace(/[^0-9]/g, '') + '_' + String(userId || '').replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+function formatReminderTimeValue_(value) {
+  var normalized = normalizeTimeForCompare_(value);
+  var match = String(normalized || '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) {
+    return String(serializeCellValue_(value) || '').trim() || '-';
+  }
+
+  var hour = Number(match[1]);
+  var minute = Number(match[2]);
+  var suffix = hour >= 12 ? 'PM' : 'AM';
+  var displayHour = hour % 12;
+  if (displayHour === 0) {
+    displayHour = 12;
+  }
+
+  return displayHour + ':' + String(minute).padStart(2, '0') + ' ' + suffix;
+}
+
+function buildHashDeepLinkUrl_(path) {
+  var baseUrl = getAppBaseUrl_();
+  if (!baseUrl) {
+    return '';
+  }
+
+  var cleanPath = String(path || '/').trim();
+  if (cleanPath.charAt(0) !== '/') {
+    cleanPath = '/' + cleanPath;
+  }
+
+  return baseUrl + '#' + cleanPath;
+}
+
+function buildInternTimeLogReminderText_(user, session, todayISOStr, deepLinkUrl) {
+  var lines = [
+    'Hi ' + String(user.full_name || 'Student') + ',',
+    '',
+    'This is a reminder that you are still logged in after 5:00 PM for today (' + todayISOStr + ').',
+    'Time In: ' + String(session.time_in || '-'),
+    '',
+    'Please log out if your shift has ended so your time records stay accurate.'
+  ];
+
+  if (deepLinkUrl) {
+    lines.push('');
+    lines.push('Open Time Log: ' + deepLinkUrl);
+  }
+
+  lines.push('');
+  lines.push('Internship Management System');
+  return lines.join('\n');
+}
+
+function buildInternTimeLogReminderHtml_(user, session, todayISOStr, deepLinkUrl) {
+  var actionBlock = deepLinkUrl
+    ? '<a href="' + deepLinkUrl + '" style="display:inline-block;margin-top:14px;padding:10px 16px;background:#0f6cbd;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">Open Time Log</a>'
+    : '<p style="margin:14px 0 0;color:#64748b;font-size:13px;">Open the IMS app and go to Time Log.</p>';
+
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 10px;">Hi ' + escapeHtml_(user.full_name || 'Student') + ',</p>',
+    '<p style="margin:0 0 12px;">This is a reminder that you are still logged in after 5:00 PM for today.</p>',
+    '<table style="border-collapse:collapse;min-width:260px;">',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Date</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(todayISOStr) + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Time In</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(session.time_in || '-') + '</td></tr>',
+    '</table>',
+    '<p style="margin:12px 0 0;">Please log out if your shift has ended so your time records stay accurate.</p>',
+    actionBlock,
+    '</div>'
+  ].join('');
+}
+
+function sendInternTimeLogReminderEmail_(user, session, todayISOStr) {
+  var email = normalizeEmail_(user && user.email);
+  if (!email) {
+    return false;
+  }
+
+  var deepLinkUrl = buildHashDeepLinkUrl_('/time-log');
+  MailApp.sendEmail(
+    email,
+    'IMS Time Log Reminder',
+    buildInternTimeLogReminderText_(user, session, todayISOStr, deepLinkUrl),
+    {
+      htmlBody: buildInternTimeLogReminderHtml_(user, session, todayISOStr, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
+
+  return true;
+}
+
+function buildSupervisorInactiveStudentsReminderText_(supervisor, entries, todayISOStr, deepLinkUrl) {
+  var lines = [
+    'Hi ' + String(supervisor.full_name || 'Supervisor') + ',',
+    '',
+    'The following assigned intern(s) are still logged in after 5:00 PM today (' + todayISOStr + '):',
+    ''
+  ];
+
+  for (var i = 0; i < entries.length; i++) {
+    lines.push('- ' + String(entries[i].student.full_name || entries[i].student.user_id || 'Student') + ' | Time In: ' + String(entries[i].session.time_in || '-'));
+  }
+
+  if (deepLinkUrl) {
+    lines.push('');
+    lines.push('Open Supervisor Time Logs: ' + deepLinkUrl);
+  }
+
+  lines.push('');
+  lines.push('Internship Management System');
+  return lines.join('\n');
+}
+
+function buildSupervisorInactiveStudentsReminderHtml_(supervisor, entries, todayISOStr, deepLinkUrl) {
+  var rows = [];
+  for (var i = 0; i < entries.length; i++) {
+    rows.push(
+      '<tr>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;color:#0f172a;">' + escapeHtml_(entries[i].student.full_name || entries[i].student.user_id || 'Student') + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;color:#0f172a;">' + escapeHtml_(entries[i].session.time_in || '-') + '</td>' +
+      '</tr>'
+    );
+  }
+
+  var actionBlock = deepLinkUrl
+    ? '<a href="' + deepLinkUrl + '" style="display:inline-block;margin-top:14px;padding:10px 16px;background:#0f6cbd;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">Open Supervisor Time Logs</a>'
+    : '<p style="margin:14px 0 0;color:#64748b;font-size:13px;">Open the IMS app and go to Supervisor Time Logs.</p>';
+
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 10px;">Hi ' + escapeHtml_(supervisor.full_name || 'Supervisor') + ',</p>',
+    '<p style="margin:0 0 12px;">The following assigned intern(s) are still logged in after 5:00 PM today (' + escapeHtml_(todayISOStr) + '):</p>',
+    '<table style="border-collapse:collapse;min-width:320px;border:1px solid #e2e8f0;">',
+    '<thead><tr><th style="padding:8px 10px;background:#f8fafc;color:#475569;text-align:left;">Intern</th><th style="padding:8px 10px;background:#f8fafc;color:#475569;text-align:left;">Time In</th></tr></thead>',
+    '<tbody>',
+    rows.join(''),
+    '</tbody>',
+    '</table>',
+    actionBlock,
+    '</div>'
+  ].join('');
+}
+
+function sendSupervisorInactiveStudentsReminderEmail_(supervisor, entries, todayISOStr) {
+  var email = normalizeEmail_(supervisor && supervisor.email);
+  if (!email || !entries || !entries.length) {
+    return false;
+  }
+
+  var deepLinkUrl = buildHashDeepLinkUrl_('/supervisor/time-logs');
+  var count = entries.length;
+  var subject = 'IMS 5 PM Logout Reminder - ' + count + ' intern' + (count === 1 ? '' : 's') + ' still logged in';
+
+  MailApp.sendEmail(
+    email,
+    subject,
+    buildSupervisorInactiveStudentsReminderText_(supervisor, entries, todayISOStr, deepLinkUrl),
+    {
+      htmlBody: buildSupervisorInactiveStudentsReminderHtml_(supervisor, entries, todayISOStr, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
+
+  return true;
+}
+
+function sendDailyTimeLogRemindersLegacy_() {
   if (isTimeLogsBackendDisabled_()) {
     return;
   }
