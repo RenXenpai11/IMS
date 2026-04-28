@@ -442,3 +442,96 @@ function handleUpdateMilestone_(payload) {
   }
   return { ok: false, error: 'Milestone not found: ' + id };
 }
+
+// ── Feedback (CRUD) ──────────────────────────────────────────────────────────
+var FEEDBACK_SHEET_ = 'feedback_intern';
+var FEEDBACK_HEADERS_ = [
+  'feedback_id', 'proj_id', 'parent_id',
+  'commenter_id', 'commenter_role', 'comment_text',
+  'created_at', 'created_by', 'updated_by'
+];
+
+function feedbackSheet_() {
+  return getOrCreateSheetWithHeaders_(FEEDBACK_SHEET_, FEEDBACK_HEADERS_);
+}
+
+function feedbackNextId_() {
+  var sheet = feedbackSheet_();
+  var data  = sheet.getDataRange().getValues();
+  var lastId = 0;
+  for (var i = 1; i < data.length; i++) {
+    var val = String(data[i][0] || '');
+    if (/^FEED_\d+$/.test(val)) {
+      var n = parseInt(val.replace('FEED_', ''), 10);
+      if (!isNaN(n) && n > lastId) lastId = n;
+    }
+  }
+  return 'FEED_' + String(lastId + 1).padStart(4, '0');
+}
+
+function feedbackRowToObj_(row) {
+  return {
+    feedback_id:    String(row[0]  || ''),
+    proj_id:        String(row[1]  || ''),
+    parent_id:      String(row[2]  || ''),
+    commenter_id:   String(row[3]  || ''),
+    commenter_role: String(row[4]  || ''),
+    comment_text:   String(row[5]  || ''),
+    created_at:     String(row[6] || ''),
+    created_by:     String(row[7] || ''),
+    updated_by:     String(row[8] || '')
+  };
+}
+// For feedback, we can have root comments (parent_id = '') and replies (parent_id = feedback_id of the parent comment).
+function handleListFeedback_(payload) {
+  var projId = String(payload.proj_id || '').trim();
+  if (!projId) return { ok: false, error: 'proj_id is required.' };
+  var sheet = feedbackSheet_();
+  var data  = sheet.getDataRange().getValues();
+  var items = [];
+  for (var i = 1; i < data.length; i++) {
+    if (!String(data[i][0] || '').trim()) continue;
+    var obj = feedbackRowToObj_(data[i]);
+    if (obj.proj_id === projId) items.push(obj);
+  }
+  return { ok: true, feedback: items };
+}
+
+function handleCreateFeedback_(payload) {
+  var projId  = String(payload.proj_id       || '').trim();
+  var userId  = String(payload.user_id       || '').trim();
+  var text    = String(payload.comment_text  || '').trim();
+  var role    = String(payload.commenter_role|| '').trim();
+  if (!projId)  return { ok: false, error: 'proj_id is required.' };
+  if (!userId)  return { ok: false, error: 'user_id is required.' };
+  if (!text)    return { ok: false, error: 'comment_text is required.' };
+
+  var sheet = feedbackSheet_();
+  var id    = feedbackNextId_();
+  var now   = formatTimestamp_(new Date());
+
+  var row = [
+    id,
+    projId,
+    String(payload.parent_id     || '').trim(),
+    userId,
+    role,
+    text,
+    now,         // created_at
+    userId,      // created_by
+    userId       // updated_by
+  ];
+  sheet.appendRow(row);
+  return { ok: true, feedback_id: id, created_at: now };
+}
+
+function handleDeleteFeedback_(payload) {
+  var id = String(payload.feedback_id || '').trim();
+  if (!id) return { ok: false, error: 'feedback_id is required.' };
+  var sheet = feedbackSheet_();
+  var data  = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() === id) { sheet.deleteRow(i + 1); return { ok: true, feedback_id: id }; }
+  }
+  return { ok: false, error: 'Feedback not found: ' + id };
+}
