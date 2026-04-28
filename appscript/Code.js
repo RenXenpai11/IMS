@@ -2672,26 +2672,56 @@ function handleListNotifications_(payload) {
 
   try {
     var sheet = getNotificationsSheet_();
-    var rows = readSheetObjects_(sheet)
-      .filter(function (row) {
-        return String(serializeCellValue_(row.user_id) || '').trim() === userId;
-      })
+    var headers = getHeaders_(sheet);
+    var values = getSheetValues_(sheet);
+    var notifIdCol = findColumnIndex_(headers, 'notification_id');
+    var userIdCol = findColumnIndex_(headers, 'user_id');
+    var titleCol = findColumnIndex_(headers, 'title');
+    var descriptionCol = findColumnIndex_(headers, 'description');
+    var typeCol = findColumnIndex_(headers, 'type');
+    var relatedIdCol = findColumnIndex_(headers, 'related_id');
+    var isReadCol = findColumnIndex_(headers, 'is_read');
+    var createdAtCol = findColumnIndex_(headers, 'created_at');
+
+    if (notifIdCol === 0 || userIdCol === 0) {
+      return { ok: false, error: 'Notifications sheet is missing required columns.' };
+    }
+
+    var rows = [];
+    var seenNotificationIds = {};
+
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(serializeCellValue_(values[i][userIdCol - 1]) || '').trim();
+      if (rowUserId !== userId) {
+        continue;
+      }
+
+      var notificationId = String(serializeCellValue_(values[i][notifIdCol - 1]) || '').trim();
+      if (!notificationId || seenNotificationIds[notificationId]) {
+        notificationId = createId_('NOTIF');
+        sheet.getRange(i + 1, notifIdCol, 1, 1).setValue(notificationId);
+      }
+      seenNotificationIds[notificationId] = true;
+
+      var createdAt = createdAtCol > 0 ? serializeCellValue_(values[i][createdAtCol - 1]) : '';
+      rows.push({
+        id: notificationId,
+        client_key: notificationId + '-' + String(i + 1),
+        title: titleCol > 0 ? String(serializeCellValue_(values[i][titleCol - 1]) || '') : '',
+        description: descriptionCol > 0 ? String(serializeCellValue_(values[i][descriptionCol - 1]) || '') : '',
+        type: typeCol > 0 ? String(serializeCellValue_(values[i][typeCol - 1]) || 'system') : 'system',
+        related_id: relatedIdCol > 0 ? String(serializeCellValue_(values[i][relatedIdCol - 1]) || '') : '',
+        unread: isReadCol > 0 ? String(serializeCellValue_(values[i][isReadCol - 1]) || '').toLowerCase() !== 'true' : true,
+        time: formatRelativeTime_(createdAt),
+        created_at: String(createdAt || '')
+      });
+    }
+
+    rows = rows
       .sort(function (a, b) {
         return String(b.created_at || '').localeCompare(String(a.created_at || ''));
       })
-      .slice(0, 50)
-      .map(function (row) {
-        return {
-          id: String(serializeCellValue_(row.notification_id) || ''),
-          title: String(serializeCellValue_(row.title) || ''),
-          description: String(serializeCellValue_(row.description) || ''),
-          type: String(serializeCellValue_(row.type) || 'system'),
-          related_id: String(serializeCellValue_(row.related_id) || ''),
-          unread: String(serializeCellValue_(row.is_read) || '').toLowerCase() !== 'true',
-          time: formatRelativeTime_(serializeCellValue_(row.created_at)),
-          created_at: String(serializeCellValue_(row.created_at) || '')
-        };
-      });
+      .slice(0, 50);
 
     return { ok: true, notifications: rows };
   } catch (err) {

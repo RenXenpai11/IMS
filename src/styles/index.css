@@ -427,7 +427,8 @@ button {
   border-bottom: 1px solid var(--color-border);
   backdrop-filter: blur(12px);
   box-sizing: border-box;
-  z-index: 20;
+  z-index: 80;
+  overflow: visible;
 }
 
 .header-copy {
@@ -532,6 +533,7 @@ button {
 
 .menu-shell {
   position: relative;
+  z-index: 90;
 }
 
 .icon-button {
@@ -578,29 +580,43 @@ button {
   width: 0.5rem;
   height: 0.5rem;
   box-shadow: 0 0 0 2px var(--color-surface);
+  pointer-events: none;
 }
 
 .backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 900;
   cursor: default;
 }
 
 .menu-card {
-  position: absolute;
-  right: 0;
-  top: 2.75rem;
+  position: fixed;
+  right: 1.5rem;
+  top: 4.65rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 1rem;
   box-shadow: var(--shadow-xl);
-  z-index: 50;
+  z-index: 910;
   overflow: hidden;
 }
 
 .notifications-card {
-  width: 20rem;
+  width: min(20rem, calc(100vw - 2rem));
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-0.25rem);
+  visibility: hidden;
+  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
+}
+
+.notifications-card.menu-card-open,
+.menu-shell:focus-within .notifications-card {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+  visibility: visible;
 }
 
 .profile-card {

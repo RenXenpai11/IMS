@@ -85,6 +85,24 @@
 
   function toggleNotifications() {
     notifOpen = !notifOpen;
+    if (notifOpen) {
+      loadNotifications();
+    }
+  }
+
+  function handleNotificationPointerDown(event) {
+    event?.stopPropagation?.();
+    toggleNotifications();
+  }
+
+  function handleNotificationKeydown(event) {
+    var key = event && event.key ? event.key : '';
+    if (key === 'Enter' || key === ' ') {
+      event.preventDefault();
+      toggleNotifications();
+    } else if (key === 'Escape') {
+      closePanels();
+    }
   }
 
   function closePanels() {
@@ -203,7 +221,14 @@
     </button>
 
     <div class="menu-shell">
-      <button class="icon-button" type="button" on:click={toggleNotifications} aria-label="Notifications">
+      <button
+        class="icon-button"
+        type="button"
+        on:pointerdown={handleNotificationPointerDown}
+        on:keydown={handleNotificationKeydown}
+        aria-label="Notifications"
+        aria-expanded={notifOpen}
+      >
         <Bell size={17} />
         {#if unreadCount > 0}
           <span class="dot"></span>
@@ -212,58 +237,63 @@
 
       {#if notifOpen}
         <button class="backdrop" type="button" aria-label="Close notifications" on:click={closePanels}></button>
-        <div class="menu-card notifications-card">
-          <div class="menu-header">
-            <div class="menu-title">
-              <span>Notifications</span>
-              {#if unreadCount > 0}
-                <span class="pill">{unreadCount} new</span>
-              {/if}
-            </div>
-            {#if unreadCount > 0}
-              <button class="menu-link" type="button" on:click={markAllRead}>
-                <Check size={12} />
-                Mark all read
-              </button>
-            {/if}
-          </div>
-
-          <div class="notification-list">
-            {#if notifications.length === 0}
-              <div class="notification-empty">
-                <p>No notifications yet</p>
-              </div>
-            {:else}
-            {#each notifications as item (item.id)}
-              <button
-                class:notification-unread={item.unread}
-                class="notification-item"
-                type="button"
-                on:click={() => markRead(item.id)}
-              >
-                <div class={typeColors[item.type] ?? 'notif-badge notif-badge-system'}>
-                  <Bell size={12} />
-                </div>
-                <div class="notification-copy">
-                  <div class="notification-title-row">
-                    <p class="notification-title">{item.title}</p>
-                    {#if item.unread}
-                      <span class="notification-dot"></span>
-                    {/if}
-                  </div>
-                  <p class="notification-description">{item.description}</p>
-                  <p class="notification-time">{item.time}</p>
-                </div>
-              </button>
-            {/each}
-            {/if}
-          </div>
-
-          <div class="menu-footer">
-            <button class="menu-link center" type="button">View all notifications</button>
-          </div>
-        </div>
       {/if}
+
+      <div
+        class:menu-card-open={notifOpen}
+        class="menu-card notifications-card"
+        aria-hidden={!notifOpen && notifications.length === 0}
+      >
+        <div class="menu-header">
+          <div class="menu-title">
+            <span>Notifications</span>
+            {#if unreadCount > 0}
+              <span class="pill">{unreadCount} new</span>
+            {/if}
+          </div>
+          {#if unreadCount > 0}
+            <button class="menu-link" type="button" on:click={markAllRead}>
+              <Check size={12} />
+              Mark all read
+            </button>
+          {/if}
+        </div>
+
+        <div class="notification-list">
+          {#if notifications.length === 0}
+            <div class="notification-empty">
+              <p>No notifications yet</p>
+            </div>
+          {:else}
+          {#each notifications as item, index (item.id || item.client_key || `${item.created_at}-${index}`)}
+            <button
+              class:notification-unread={item.unread}
+              class="notification-item"
+              type="button"
+              on:click={() => item.id && markRead(item.id)}
+            >
+              <div class={typeColors[item.type] ?? 'notif-badge notif-badge-system'}>
+                <Bell size={12} />
+              </div>
+              <div class="notification-copy">
+                <div class="notification-title-row">
+                  <p class="notification-title">{item.title}</p>
+                  {#if item.unread}
+                    <span class="notification-dot"></span>
+                  {/if}
+                </div>
+                <p class="notification-description">{item.description}</p>
+                <p class="notification-time">{item.time}</p>
+              </div>
+            </button>
+          {/each}
+          {/if}
+        </div>
+
+        <div class="menu-footer">
+          <button class="menu-link center" type="button">View all notifications</button>
+        </div>
+      </div>
     </div>
   </div>
 </header>
