@@ -1052,9 +1052,15 @@
   {#if activeTab === "my-requests"}
     <div class="requests-section">
       {#if isLoading}
-        <div class="empty-requests">
-          <div class="empty-icon"><Loader2 size={22} /></div>
+        <div class="empty-requests loading-requests-state">
+          <div class="empty-icon loading-empty-icon">
+            <span class="spinning-icon"><Loader2 size={22} /></span>
+          </div>
           <div class="empty-text">Loading requests...</div>
+          <div class="loading-skeleton-lines" aria-hidden="true">
+            <span class="loading-line loading-line-primary"></span>
+            <span class="loading-line loading-line-secondary"></span>
+          </div>
         </div>
       {:else if requests.length === 0}
         <div class="empty-requests">
@@ -1944,6 +1950,44 @@
     text-align: center;
   }
 
+  .loading-requests-state {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .loading-empty-icon {
+    color: var(--accent2);
+  }
+
+  .loading-skeleton-lines {
+    width: min(420px, 88%);
+    display: grid;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .loading-line {
+    height: 10px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--surface2) 78%, transparent) 0%,
+      color-mix(in srgb, var(--accent2) 22%, var(--surface2) 78%) 50%,
+      color-mix(in srgb, var(--surface2) 78%, transparent) 100%
+    );
+    background-size: 220% 100%;
+    animation: loading-shimmer 1.25s ease-in-out infinite;
+  }
+
+  .loading-line-primary {
+    width: 100%;
+  }
+
+  .loading-line-secondary {
+    width: 72%;
+    animation-delay: 0.15s;
+  }
+
   /* ========== FILTER ROW ========== */
   .filter-row {
     display: flex;
@@ -2698,6 +2742,15 @@
     }
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  @keyframes loading-shimmer {
+    0% {
+      background-position: 100% 0;
+    }
+    100% {
+      background-position: -120% 0;
     }
   }
 
