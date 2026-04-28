@@ -340,6 +340,20 @@ function dispatchAction_(payload) {
     return { ok: false, error: 'Handler not available: handleDeleteMilestone_' };
   }
 
+  // --- Feedback (intern) ---
+  if (action === 'list_feedback') {
+    if (typeof handleListFeedback_ === 'function') return handleListFeedback_(payload);
+    return { ok: false, error: 'Handler not available: handleListFeedback_' };
+  }
+  if (action === 'create_feedback') {
+    if (typeof handleCreateFeedback_ === 'function') return handleCreateFeedback_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateFeedback_' };
+  }
+  if (action === 'delete_feedback') {
+    if (typeof handleDeleteFeedback_ === 'function') return handleDeleteFeedback_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteFeedback_' };
+  }
+
   return { ok: false, error: 'Unknown action: ' + action };
 }
 
