@@ -7,9 +7,9 @@ var PROJ_INTERN_HEADERS_ = [
 ];
 
 var MILESTONE_SHEET_ = 'milestone_intern';
-// Added `done` column to track completion state
+// Columns: milestone_id, proj_id, milestone, status, date, done, created_at, created_by, updated_by
 var MILESTONE_HEADERS_ = [
-  'milestone_id', 'proj_id', 'milestone', 'date', 'done',
+  'milestone_id', 'proj_id', 'milestone', 'status', 'date', 'done',
   'created_at', 'created_by', 'updated_by'
 ];
 
@@ -74,11 +74,12 @@ function milestoneRowToObj_(row) {
     milestone_id: String(row[0] || ''),
     proj_id:      String(row[1] || ''),
     milestone:    String(row[2] || ''),
-    date:         row[3] ? Utilities.formatDate(new Date(row[3]), Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
-    done:         (function(v){ v = String(v || '').toLowerCase(); return v === 'true' || v === '1' || v === 'yes'; })(row[4]),
-    created_at:   String(row[5] || ''),
-    created_by:   String(row[6] || ''),
-    updated_by:   String(row[7] || '')
+    status:       String(row[3] || '') || 'Not Started',
+    date:         row[4] ? Utilities.formatDate(new Date(row[4]), Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
+    done:         (function(v){ v = String(v || '').toLowerCase(); return v === 'true' || v === '1' || v === 'yes'; })(row[5]),
+    created_at:   String(row[6] || ''),
+    created_by:   String(row[7] || ''),
+    updated_by:   String(row[8] || '')
   };
 }
 
@@ -392,6 +393,7 @@ function handleCreateMilestone_(payload) {
   var projId = String(payload.proj_id || '').trim();
   var text   = String(payload.milestone || '').trim();
   var date   = String(payload.date || '').trim();
+  var status = String(payload.status || '').trim() || 'Not Started';
   var userId = String(payload.user_id || '').trim();
   if (!projId) return { ok: false, error: 'proj_id is required.' };
   if (!text) return { ok: false, error: 'milestone is required.' };
@@ -402,7 +404,7 @@ function handleCreateMilestone_(payload) {
   var now   = formatTimestamp_(new Date());
 
   var doneVal = payload.done ? 'TRUE' : 'FALSE';
-  var row = [ id, projId, text, date || '', doneVal, now, userId, userId ];
+  var row = [ id, projId, text, status, date || '', doneVal, now, userId, userId ];
   sheet.appendRow(row);
   return { ok: true, milestone_id: id, created_at: now };
 }
@@ -431,9 +433,10 @@ function handleUpdateMilestone_(payload) {
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0] || '').trim() === id) {
       if (text !== undefined) sheet.getRange(i + 1, 3).setValue(text);
-      if (date !== undefined) sheet.getRange(i + 1, 4).setValue(date);
-      if (payload.done !== undefined) sheet.getRange(i + 1, 5).setValue(payload.done ? 'TRUE' : 'FALSE');
-      sheet.getRange(i + 1, 8).setValue(userId);
+      if (payload.status !== undefined) sheet.getRange(i + 1, 4).setValue(String(payload.status));
+      if (date !== undefined) sheet.getRange(i + 1, 5).setValue(date);
+      if (payload.done !== undefined) sheet.getRange(i + 1, 6).setValue(payload.done ? 'TRUE' : 'FALSE');
+      sheet.getRange(i + 1, 9).setValue(userId);
       return { ok: true, milestone_id: id };
     }
   }
