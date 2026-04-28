@@ -676,7 +676,8 @@
       }
     } catch (err) {
       console.error("Update request status error:", err);
-      formError = "Error updating request status";
+      formError =
+        err?.message || "Error updating request status";
       setTimeout(() => (formError = ""), 3000);
     } finally {
       approvingRequestId = null;
@@ -735,6 +736,8 @@
       }
     } catch (err) {
       console.error("Reject request error:", err);
+      formError = err?.message || "Failed to reject request.";
+      setTimeout(() => (formError = ""), 3000);
     } finally {
       isRejectingRequest = false;
     }

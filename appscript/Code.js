@@ -2151,9 +2151,14 @@ function handleCreateRequest_(payload) {
 
   sheet.appendRow(row);
 
-  // Notify the student's assigned supervisor
-  var supervisorUserId = findSupervisorForStudent_(userId);
-  if (supervisorUserId) {
+  // Notify all active supervisors assigned to this student.
+  var supervisorUserIds = findSupervisorsForStudent_(userId);
+  if (!supervisorUserIds.length) {
+    Logger.log('No active supervisor assignment found for request ' + requestId + ' (student_user_id=' + userId + ').');
+  }
+
+  for (var supervisorIndex = 0; supervisorIndex < supervisorUserIds.length; supervisorIndex++) {
+    var supervisorUserId = supervisorUserIds[supervisorIndex];
     createNotification_(
       supervisorUserId,
       'New ' + requestType + ' Request',
@@ -2174,7 +2179,11 @@ function handleCreateRequest_(payload) {
         totalHours: totalHours,
       });
     } catch (mailErr) {
-      Logger.log('Unable to send supervisor request email: ' + (mailErr && mailErr.message ? mailErr.message : String(mailErr)));
+      Logger.log(
+        'Unable to send supervisor request email (request_id=' + requestId +
+        ', supervisor_user_id=' + supervisorUserId + '): ' +
+        (mailErr && mailErr.message ? mailErr.message : String(mailErr))
+      );
     }
   }
 
@@ -2341,9 +2350,7 @@ function handleUpdateRequestStatus_(payload) {
     return { ok: false, error: 'User not found.' };
   }
 
-  var userRole = String(userRecord.user.role || '').trim().toLowerCase();
-  var isSupervisor = userRole === 'supervisor';
-  var isIntern = userRole === 'intern';
+  var isSupervisor = isSupervisorUser_(userRecord.user);
 
   // Get the request sheet
   var sheet = getRequestsSheet_();
@@ -2359,8 +2366,8 @@ function handleUpdateRequestStatus_(payload) {
 
   // Find the request
   var requestRowIndex = -1;
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i][requestIdColIndex] || '').trim() === requestId) {
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
       requestRowIndex = i;
       break;
     }
@@ -2370,7 +2377,7 @@ function handleUpdateRequestStatus_(payload) {
     return { ok: false, error: 'Request not found.' };
   }
   
-  var studentUserId = String(rows[requestRowIndex][userIdColIndex] || '').trim();
+  var studentUserId = String(rows[requestRowIndex][userIdColIndex - 1] || '').trim();
   
   // Permission checks
   if (isSupervisor) {
@@ -2382,13 +2389,11 @@ function handleUpdateRequestStatus_(payload) {
     if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
       return { ok: false, error: 'You are not assigned to this student request.' };
     }
-  } else if (isIntern) {
+  } else {
     // Interns can only archive/recover their own requests
     if ((newStatus !== 'Archived' && newStatus !== 'Pending') || studentUserId !== supervisorUserId) {
       return { ok: false, error: 'You can only archive or recover your own requests.' };
     }
-  } else {
-    return { ok: false, error: 'Invalid user role.' };
   }
 
   // Update the request status
@@ -2401,7 +2406,7 @@ function handleUpdateRequestStatus_(payload) {
 
   // Auto-extend estimated_end_date if approving an absence request
   if (newStatus.toLowerCase() === 'approved') {
-    var requestType = String(rows[requestRowIndex][requestTypeColIndex] || '').trim();
+    var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim();
     if (requestType.toLowerCase() === 'absence' && studentUserId) {
       try {
         // Get the current student profile
@@ -2416,10 +2421,10 @@ function handleUpdateRequestStatus_(payload) {
           var profileRowIndex = -1;
           
           // Find the student's profile
-          for (var p = 0; p < profileRows.length; p++) {
-            if (String(profileRows[p][profileUserIdColIndex] || '').trim() === studentUserId) {
+          for (var p = 1; p < profileRows.length; p++) {
+            if (String(profileRows[p][profileUserIdColIndex - 1] || '').trim() === studentUserId) {
               profileRowIndex = p;
-              currentEstimatedEndDate = String(profileRows[p][profileEstimatedEndDateColIndex] || '').trim();
+              currentEstimatedEndDate = String(profileRows[p][profileEstimatedEndDateColIndex - 1] || '').trim();
               break;
             }
           }
@@ -2439,7 +2444,7 @@ function handleUpdateRequestStatus_(payload) {
 
   // Notify the student who created the request (only for supervisors)
   if (isSupervisor && studentUserId) {
-    var requestType = String(rows[requestRowIndex][requestTypeColIndex] || '').trim();
+    var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim();
     var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
     var notifMessage = 'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.';
     if (newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
@@ -2934,20 +2939,41 @@ function checkAbsenceOnWeekend_(requestDate) {
   return '';
 }
 
-function findSupervisorForStudent_(studentUserId) {
+function findSupervisorsForStudent_(studentUserId) {
   var targetStudentId = String(studentUserId || '').trim();
   if (!targetStudentId) {
-    return null;
+    return [];
   }
 
   var rows = readSheetObjects_(getSupervisorAssignmentsSheet_());
+  var supervisorIds = [];
+  var seenSupervisorIds = {};
+
   for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i].student_user_id || '').trim() === targetStudentId &&
-        String(rows[i].status || 'active').trim().toLowerCase() !== 'inactive') {
-      return String(rows[i].supervisor_user_id || '').trim();
+    if (String(rows[i].student_user_id || '').trim() !== targetStudentId) {
+      continue;
     }
+
+    var status = String(rows[i].status || 'active').trim().toLowerCase();
+    if (status === 'inactive') {
+      continue;
+    }
+
+    var supervisorUserId = String(rows[i].supervisor_user_id || '').trim();
+    if (!supervisorUserId || seenSupervisorIds[supervisorUserId]) {
+      continue;
+    }
+
+    seenSupervisorIds[supervisorUserId] = true;
+    supervisorIds.push(supervisorUserId);
   }
-  return null;
+
+  return supervisorIds;
+}
+
+function findSupervisorForStudent_(studentUserId) {
+  var supervisorIds = findSupervisorsForStudent_(studentUserId);
+  return supervisorIds.length ? supervisorIds[0] : null;
 }
 
 function formatRelativeTime_(dateValue) {
@@ -4879,7 +4905,8 @@ function handleGetStudentSupervisor_(payload) {
   var assignments = readSheetObjects_(getSheet_(SUPERVISOR_ASSIGNMENTS_SHEET_));
   var activeAssignments = [];
   for (var i = 0; i < assignments.length; i++) {
-    if (String(assignments[i].student_user_id || '').trim() === studentId && String(assignments[i].status || '').trim() !== 'inactive') {
+    if (String(assignments[i].student_user_id || '').trim() === studentId &&
+        String(assignments[i].status || 'active').trim().toLowerCase() !== 'inactive') {
       activeAssignments.push(assignments[i]);
     }
   }
