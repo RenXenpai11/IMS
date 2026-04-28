@@ -280,17 +280,20 @@
   }
 
   function formatOvertimeDisplay(hours) {
-    if (!hours || hours <= 0) return "0 hours";
+    if (!hours || hours <= 0) return "0 minutes";
+    
     const wholeHours = Math.floor(hours);
     const remainingMinutes = Math.round((hours - wholeHours) * 60);
     
-    let result = `${hours.toFixed(2)} hour${hours !== 1 ? "s" : ""}`;
-    
-    if (remainingMinutes > 0) {
-      result += ` (${wholeHours}h ${remainingMinutes}m)`;
+    if (wholeHours === 0) {
+      return `${remainingMinutes} minute${remainingMinutes !== 1 ? "s" : ""}`;
     }
     
-    return result;
+    if (remainingMinutes === 0) {
+      return `${wholeHours} hour${wholeHours !== 1 ? "s" : ""}`;
+    }
+    
+    return `${wholeHours} hour${wholeHours !== 1 ? "s" : ""} ${remainingMinutes} minute${remainingMinutes !== 1 ? "s" : ""}`;
   }
 
   async function callBackend(action, payload) {
@@ -800,13 +803,19 @@
     if (selectedRequests.size === 0) return;
     isArchiving = true;
     try {
+      const requestsToArchive = Array.from(selectedRequests);
       let archivedCount = 0;
-      for (const requestId of selectedRequests) {
+      let failedRequests = [];
+      
+      console.log("Starting archive. Requests to archive:", requestsToArchive);
+      
+      for (const requestId of requestsToArchive) {
         // For interns, only allow archiving approved or rejected requests
         if (!isSupervisor) {
           const request = requests.find(r => r.id === requestId);
           if (!request || (request.status !== "Approved" && request.status !== "Rejected")) {
-            continue; // Skip pending requests for interns
+            console.log("Skipping request", requestId, "- not approved/rejected");
+            continue;
           }
         }
         
@@ -820,30 +829,41 @@
           payload.supervisor_user_id = String(currentUser.user_id).trim();
         }
         
+        console.log("Archiving request with payload:", payload);
         const result = await callBackend("update_request_status", payload);
-        console.log("Archive result:", result);
+        console.log("Archive result for request", requestId, ":", result);
         if (result && result.ok) {
           archivedCount++;
+          console.log("✓ Successfully archived request:", requestId);
         } else {
-          console.error("Failed to archive request:", requestId, result?.error);
+          console.error("✗ Failed to archive request:", requestId, "Error:", result?.error || "Unknown error");
+          failedRequests.push({ id: requestId, error: result?.error });
         }
       }
       
       // Force reload with a slight delay to ensure backend is updated
+      console.log("Total archived:", archivedCount, "Failed:", failedRequests.length);
       selectedRequests.clear();
       selectAllChecked = false;
       showBulkActions = false;
       
       // Reload requests to update stat cards
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log("Before loadRequests, current requests count:", requests.length);
       await loadRequests();
+      console.log("After loadRequests, current requests count:", requests.length);
       
-      formSuccess = `${archivedCount} request(s) archived.`;
-      setTimeout(() => (formSuccess = ""), 3000);
+      if (failedRequests.length > 0) {
+        formError = `${archivedCount} archived, but ${failedRequests.length} failed: ${failedRequests[0].error}`;
+        setTimeout(() => (formError = ""), 5000);
+      } else {
+        formSuccess = `${archivedCount} request(s) archived.`;
+        setTimeout(() => (formSuccess = ""), 3000);
+      }
     } catch (err) {
       console.error("Archive requests error:", err);
-      formError = "Failed to archive requests.";
-      setTimeout(() => (formError = ""), 3000);
+      formError = "Failed to archive requests: " + (err?.message || String(err));
+      setTimeout(() => (formError = ""), 5000);
     } finally {
       isArchiving = false;
     }
@@ -1201,16 +1221,18 @@
                           <span class="info-label">Time:</span>
                           <span class="info-value">
                             {formatTime(request.start_time)} - {formatTime(request.end_time)}
-                            {#if request.total_hours}
-                              <span class="time-duration">({formatOvertimeDisplay(request.total_hours)})</span>
-                            {/if}
                           </span>
                         </span>
                       {/if}
                       {#if request.created_at}
                         <span class="request-info-item">
                           <span class="info-label">Submitted:</span>
-                          <span class="info-value">{formatCreatedDate(request.created_at)}</span>
+                          <span class="info-value">
+                            {formatCreatedDate(request.created_at)}
+                            {#if request.requestType === "Overtime" && request.total_hours}
+                              <span class="duration-badge">({formatOvertimeDisplay(request.total_hours)})</span>
+                            {/if}
+                          </span>
                         </span>
                       {/if}
                       {#if isSupervisor}
@@ -1229,12 +1251,6 @@
                         <div class="req-reason-label">Reason</div>
                         <p class="req-reason-text">{previewReason(request.reason)}</p>
                       </div>
-                      {#if request.requestType === "Overtime" && request.total_hours}
-                        <div class="req-duration-info">
-                          <span class="info-label">Duration:</span>
-                          <span class="info-value">{formatOvertimeDisplay(request.total_hours)}</span>
-                        </div>
-                      {/if}
                     </div>
                   </div>
                 </div>
