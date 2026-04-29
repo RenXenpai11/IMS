@@ -281,6 +281,10 @@ function dispatchAction_(payload) {
     if (typeof handleUpdateProjIntern_ === 'function') return handleUpdateProjIntern_(payload);
     return { ok: false, error: 'Handler not available: handleUpdateProjIntern_' };
   }
+  if (action === 'restore_proj_intern') {
+    if (typeof handleRestoreProjIntern_ === 'function') return handleRestoreProjIntern_(payload);
+    return { ok: false, error: 'Handler not available: handleRestoreProjIntern_' };
+  }
   if (action === 'delete_proj_intern') {
     if (typeof handleDeleteProjIntern_ === 'function') return handleDeleteProjIntern_(payload);
     return { ok: false, error: 'Handler not available: handleDeleteProjIntern_' };
@@ -346,6 +350,10 @@ function dispatchAction_(payload) {
   if (action === 'delete_feedback') {
     if (typeof handleDeleteFeedback_ === 'function') return handleDeleteFeedback_(payload);
     return { ok: false, error: 'Handler not available: handleDeleteFeedback_' };
+  }
+  if (action === 'get_proj_recent_activity') {
+    if (typeof handleGetProjRecentActivity_ === 'function') return handleGetProjRecentActivity_(payload);
+    return { ok: false, error: 'Handler not available: handleGetProjRecentActivity_' };
   }
 
   return { ok: false, error: 'Unknown action: ' + action };
@@ -471,6 +479,9 @@ function handleListTasksByUser_(payload) {
     return { ok: false, error: 'Unable to load tasks. ' + message };
   }
 }
+
+// Returns hours per day for the week containing the given date (Monday-Sunday)
+
 
 function handleRegisterAccount_(payload) {
   var fullName = String(payload.full_name || '').trim();

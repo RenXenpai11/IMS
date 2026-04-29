@@ -5,7 +5,8 @@
   import {
     FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2, Eye,
     CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2,
-    Grid, List, Archive, Download
+    MessageSquare, Flag,
+    Grid, List, Archive, Download, RotateCcw
   } from 'lucide-svelte';
 
   export let currentUser = null;
@@ -77,7 +78,7 @@
     'Approved':     { cls: 'status-approved',      label: 'Approved'     },
     // legacy aliases
     'For Review':   { cls: 'status-submitted',     label: 'Submitted'    },
-    'Pending':      { cls: 'status-not-started',   label: 'Pending'      },
+    'Pending':      { cls: 'status-pending',        label: 'Pending'      },
     'Completed':    { cls: 'status-approved',      label: 'Completed'    }
   };
 
@@ -120,6 +121,28 @@
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const yyyy = d.getFullYear();
     return `${dd}-${mm}-${yyyy}`;
+  }
+
+  function humanizeTime(val) {
+    if (!val) return '';
+    const d = new Date(val);
+    if (isNaN(d)) return String(val);
+    const diff = Date.now() - d.getTime();
+    const sec = Math.floor(Math.abs(diff) / 1000);
+    if (sec < 5) return 'updated just now';
+    if (sec < 60) return `updated ${sec} second${sec === 1 ? '' : 's'} ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `updated ${min} minute${min === 1 ? '' : 's'} ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `updated ${hr} hour${hr === 1 ? '' : 's'} ago`;
+    const days = Math.floor(hr / 24);
+    if (days < 7) return `updated ${days} day${days === 1 ? '' : 's'} ago`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 5) return `updated ${weeks} week${weeks === 1 ? '' : 's'} ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `updated ${months} month${months === 1 ? '' : 's'} ago`;
+    const years = Math.floor(days / 365);
+    return `updated ${years} year${years === 1 ? '' : 's'} ago`;
   }
 
   function isDeadlineNear(val) {
@@ -255,7 +278,7 @@
       deadline:       p.end_date     || '',
       created_at:     p.created_at   || '',
       created_by:     p.created_by   || '',
-      archived:       false,
+      archived:       p.status === 'Archived',
       folders:        null,           // null = not yet loaded; [] = loaded and empty
       progress_logs:  [],
       milestones:     null
@@ -818,7 +841,7 @@
       const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, status: String(newStatus || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update status.'; return; }
       // update local state immediately and then reload for consistency
-      projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: String(newStatus || 'Not Started') } : mm) } : p);
+      projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: String(newStatus || 'Not Started'), done: (String(newStatus || '').toLowerCase() === 'approved' || Boolean(mm.done)) } : mm) } : p);
       try { await loadProjectMilestones(projectId); } catch (e) { /* fallback */ }
       formSuccess = 'Status updated.';
       setTimeout(() => { formSuccess = ''; }, 1200);
@@ -1219,12 +1242,32 @@
       });
       if (!res?.ok) { formError = res?.error || 'Archive failed.'; return; }
       projects = projects.map(item => item.id === p.id ? { ...item, archived: true, status: 'Archived' } : item);
+      viewingProjectId = null;
       formSuccess = 'Project archived.';
       setTimeout(() => { formSuccess = ''; }, 2000);
     } catch (e) {
       formError = e?.message || 'Archive failed.';
     }
   }
+
+  async function restoreProject(p) {
+    if (!p) return;
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('restore_proj_intern', {
+        proj_id: p.proj_id || p.id,
+        user_id: uid
+      });
+      if (!res?.ok) { formError = res?.error || 'Restore failed.'; return; }
+      projects = projects.map(item => item.id === p.id ? { ...item, archived: false, status: res.status || 'Not Started' } : item);
+      formSuccess = 'Project restored.';
+      setTimeout(() => { formSuccess = ''; }, 2000);
+    } catch (e) {
+      formError = e?.message || 'Restore failed.';
+    }
+  }
+
+  
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   onMount(() => {
@@ -1236,19 +1279,78 @@
 
   // ── Derived ───────────────────────────────────────────────────────────────
   $: filteredProjects = projects.filter(p => {
+    if (p.archived) return false;
     const matchPriority = filterPriority === 'all' || p.priority_level === filterPriority;
     const matchStatus   = filterStatus   === 'all' || p.status === filterStatus;
     return matchPriority && matchStatus;
   });
 
-  $: totalProjects     = projects.length;
-  $: inProgressCount   = projects.filter(p => p.status === 'In Progress').length;
-  $: completedCount    = projects.filter(p => p.status === 'Completed').length;
+  $: totalProjects     = projects.filter(p => !p.archived).length;
+  $: inProgressCount   = projects.filter(p => !p.archived && p.status === 'In Progress').length;
+  $: completedCount    = projects.filter(p => !p.archived && p.status === 'Completed').length;
   $: isFormValid       = String(form.title || '').trim() && String(form.timeline_start || '').trim() && String(form.timeline_end || '').trim();
 
   // Derived sets for tab views
   $: archivedProjects = projects.filter(p => !!p.archived);
   $: recentProjects   = projects.slice(0, 3);
+
+  // ── Overview extras ────────────────────────────────────────────────────────
+  let overviewActivity     = [];
+  let isLoadingActivity    = false;
+  let overviewActivityLoaded = false;
+
+  async function loadOverviewActivity() {
+    isLoadingActivity = true;
+    try {
+      const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+      if (!uid) return;
+      const res = await dispatchAction('get_proj_recent_activity', { user_id: uid });
+      if (res?.ok) overviewActivity = res.activities || [];
+    } catch(e) {
+      console.warn('loadOverviewActivity error', e);
+    } finally {
+      isLoadingActivity = false;
+      overviewActivityLoaded = true;
+    }
+  }
+
+
+
+  async function loadOverviewMilestones() {
+    const snippets = projects.filter(p => !p.archived).slice(0, 6);
+    await Promise.all(
+      snippets
+        .filter(p => !Array.isArray(p.milestones))
+        .map(p => loadProjectMilestones(p.id).catch(() => {}))
+    );
+  }
+
+  // Auto-load activity when the user first opens Overview and projects are ready
+  $: if (activeView === 'Overview' && !isLoading && projects.length > 0 && !overviewActivityLoaded && !isLoadingActivity) {
+    loadOverviewActivity();
+    loadOverviewMilestones();
+  }
+
+  $: upcomingDeadlines = projects
+    .filter(p => !p.archived && String(p.timeline_end || '').trim())
+    .sort((a, b) => String(a.timeline_end).localeCompare(String(b.timeline_end)))
+    .slice(0, 5);
+
+  $: statusBreakdown = STATUS_OPTIONS.map(s => ({
+    status: s,
+    count: projects.filter(p => !p.archived && p.status === s).length,
+    meta: STATUS_META[s] || STATUS_META['Not Started']
+  }));
+
+  $: overviewSnippets = projects.filter(p => !p.archived).slice(0, 6);
+
+  $: overviewMilestoneRows = overviewSnippets
+    .filter(p => Array.isArray(p.milestones) && p.milestones.length > 0)
+    .map(p => ({
+      title: p.title,
+      total: p.milestones.length,
+      done: p.milestones.filter(m => Boolean(m.done) || String(m.status) === 'Approved').length
+    }));
 </script>
 <section class="projects-page">
 
@@ -1303,9 +1405,15 @@
             <input class="search-input" type="text" placeholder="Search" bind:value={searchQuery} />
           </label>
           <select class="quick-status" bind:value={filterStatus} aria-label="Filter by status">
-            <option value="all">All status</option>
+            <option value="all">All Status</option>
             {#each STATUS_OPTIONS as s}
               <option value={s}>{s}</option>
+            {/each}
+          </select>
+          <select class="quick-priority" bind:value={filterPriority} aria-label="Filter by priority">
+            <option value="all">All Priority</option>
+            {#each PRIORITY_OPTIONS as p}
+              <option value={p}>{p}</option>
             {/each}
           </select>
           <button class="primary" on:click={openAddProjectModal}>+ Add Project</button>
@@ -1335,16 +1443,161 @@
         <div class="empty-state">
           <FolderOpen size={32} />
           <div class="empty-title">No projects yet</div>
-          <div class="empty-sub">Click "Add Project" to get started.</div>
+          <div class="empty-sub">Click "+ Add Project" to get started.</div>
         </div>
       {:else}
-        <div class="project-list">
-          <ul>
-            {#each recentProjects as p (p.id)}
-              <li class="proj-item">{p.title} <span class="muted">— {p.status}</span></li>
-            {/each}
-          </ul>
+
+        <!-- ── Overview: top 2-col grid ── -->
+        <div class="ov-top-grid">
+
+          <!-- Milestone Summary -->
+          <section class="card ov-card">
+            <div class="ov-card-title">Milestone Summary</div>
+            {#if overviewMilestoneRows.length === 0}
+              <div class="ov-empty">No milestone data yet.</div>
+            {:else}
+              <div class="ov-status-bars">
+                {#each overviewMilestoneRows as row}
+                  {@const mpct = Math.round((row.done / row.total) * 100)}
+                  <div class="ov-bar-row">
+                    <span class="ov-ms-row-name ov-bar-label">{row.title}</span>
+                    <div class="ov-bar-track">
+                      <div class="progress-bar-inner" style="width:{mpct}%"></div>
+                    </div>
+                    <span class="ov-bar-count"><span class="ov-ms-done">{row.done}</span>/{row.total}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            {#if archivedProjects.length > 0}
+              <div class="ov-archived-note">
+                <Archive size={11} /> {archivedProjects.length} archived project{archivedProjects.length === 1 ? '' : 's'}
+              </div>
+            {/if}
+          </section>
+
+          <!-- Upcoming Deadlines -->
+          <section class="card ov-card">
+            <div class="ov-card-title">Upcoming Deadlines</div>
+            {#if upcomingDeadlines.length === 0}
+              <div class="ov-empty">No upcoming deadlines.</div>
+            {:else}
+              <div class="ov-deadline-list">
+                {#each upcomingDeadlines as p}
+                  {@const past = isDeadlinePast(p.timeline_end)}
+                  {@const near = isDeadlineNear(p.timeline_end)}
+                  {@const sm   = STATUS_META[p.status] || STATUS_META['Not Started']}
+                  <div class="ov-deadline-row">
+                    <div class="ov-deadline-dot" class:ov-dot-past={past} class:ov-dot-near={near && !past}></div>
+                    <div class="ov-deadline-info">
+                      <div class="ov-deadline-name">{p.title}</div>
+                      <div class="ov-deadline-date" class:ov-date-past={past} class:ov-date-near={near && !past}>
+                        <CalendarDays size={11} /> {formatDate(p.timeline_end)}
+                      </div>
+                    </div>
+                    <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </section>
         </div>
+
+        <!-- ── Project Snippets ── -->
+        <section class="card ov-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
+            <div class="ov-card-title">Your Projects</div>
+            <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all →</button>
+          </div>
+          {#if overviewSnippets.length === 0}
+            <div class="ov-empty">No active projects.</div>
+          {:else}
+            <div class="ov-snippets-grid">
+              {#each overviewSnippets as p (p.id)}
+                {@const sm  = STATUS_META[p.status] || STATUS_META['Not Started']}
+                {@const pl  = getPriorityLabel(p.priority_level)}
+                {@const pct = p.progress_percent != null ? p.progress_percent : statusToProgress(p.status)}
+                {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+                <div class="ov-snippet-card">
+                  <div class="ov-snippet-top">
+                    <div class="ov-snippet-name">{p.title}</div>
+                    <div class="ov-snippet-top-right">
+                      <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                      <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
+                    </div>
+                  </div>
+                  <div class="ov-snippet-progress">
+                    <div class="progress-bar-outer">
+                      <div class="progress-bar-inner" style="width:{pct}%"></div>
+                    </div>
+                    <span class="ov-snippet-pct">{pct}%</span>
+                  </div>
+                  {#if p.timeline_end || p.deadline}
+                    <div class="ov-snippet-due" class:ov-date-past={past}>
+                      <CalendarDays size={11} /> Due: {formatDate(p.timeline_end || p.deadline)}
+                    </div>
+                  {/if}
+                  <div class="ov-snippet-actions">
+                    <button class="sub-action-btn" on:click={() => { activeView = 'Projects'; viewProject(p); }}>
+                      <Eye size={12} /> Open
+                    </button>
+                    <button class="sub-action-btn" title="Archive project" on:click={() => archiveProject(p)}>
+                      <Archive size={12} /> Archive
+                    </button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+
+        <!-- ── Recent Activity (expanded) ── -->
+        <div class="ov-bottom-grid">
+          <section class="card ov-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;">
+              <div class="ov-card-title">Recent Activity</div>
+              <button class="ov-refresh-btn" title="Refresh" on:click={loadOverviewActivity} disabled={isLoadingActivity}>
+                {#if isLoadingActivity}<Loader2 size={13} class="spin" />{:else}↻{/if}
+              </button>
+            </div>
+          {#if isLoadingActivity}
+            <div class="ov-empty"><Loader2 size={14} class="spin" /> Loading activity…</div>
+          {:else if overviewActivity.length === 0}
+            <div class="ov-empty">No recent activity found.</div>
+          {:else}
+            <div class="ov-activity-feed">
+              {#each overviewActivity as act}
+                {@const proj = projects.find(p => p.proj_id === act.proj_id || p.id === act.proj_id)}
+                <div class="ov-act-row">
+                  <div class="ov-act-icon {act.type === 'feedback' ? 'ov-act-icon-fb' : 'ov-act-icon-ms'}">
+                    {#if act.type === 'feedback'}
+                      <MessageSquare size={14} />
+                    {:else}
+                      <Flag size={14} />
+                    {/if}
+                  </div>
+                  <div class="ov-act-body">
+                    <div class="ov-act-text">
+                      {act.type === 'feedback' ? act.text : 'Milestone: ' + act.text}
+                    </div>
+                    <div class="ov-act-meta">
+                      {#if act.proj_name || proj}
+                        <span class="ov-act-proj">{act.proj_name || proj?.title || ''}</span>
+                      {/if}
+                      <!-- role and milestone status badges removed for cleaner activity feed -->
+                      {#if act.created_at}
+                        <span class="ov-act-date">{humanizeTime(act.created_at)}</span>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          </section>
+
+        </div>
+
       {/if}
     {:else if activeView === 'Projects'}
       <section class="proj-table-panel">
@@ -1938,21 +2191,38 @@
         {/if}
       </section>
     {:else if activeView === 'Archive'}
-      {#if archivedProjects.length === 0}
-        <div class="empty-state">
-          <FolderOpen size={28} />
-          <div class="empty-title">No archived projects</div>
-          <div class="empty-sub">Archived projects will appear here.</div>
-        </div>
-      {:else}
-        <div class="project-list">
-          <ul>
+      <section class="proj-table-panel archive-view">
+        <header class="proj-table-header">
+          <span class="proj-col-name">Archive</span>
+          <span class="proj-col-actions">Actions</span>
+        </header>
+        {#if archivedProjects.length === 0}
+          <div class="empty-state">
+            <Archive size={28} />
+            <div class="empty-title">No archived projects</div>
+            <div class="empty-sub">Archived projects will appear here.</div>
+          </div>
+        {:else}
+          <div class="proj-table-body">
             {#each archivedProjects as p (p.id)}
-              <li class="proj-item">{p.title}</li>
+              {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+              <div class="proj-table-row proj-arc-row">
+                <span class="proj-col-name proj-name-cell">
+                  <div class="proj-arc-title">{p.title}</div>
+                  {#if p.timeline_end || p.deadline}
+                    <div class="proj-arc-meta"><CalendarDays size={14} /><span class="proj-arc-date">{formatDate(p.timeline_end || p.deadline)}</span></div>
+                  {/if}
+                </span>
+                <div class="proj-arc-corner">
+                    <button class="icon-btn restore" title="Restore project" on:click={() => restoreProject(p)}>
+                      <RotateCcw size={16} />
+                    </button>
+                </div>
+              </div>
             {/each}
-          </ul>
-        </div>
-      {/if}
+          </div>
+        {/if}
+      </section>
     {/if}
   {/if}
 
@@ -2081,6 +2351,8 @@
   </div>
 {/if}
 
+ 
+
 <style>
   .projects-page { padding: 4px 0 12px; display: flex; flex-direction: column; gap: 10px; }
 
@@ -2160,6 +2432,10 @@
     font-weight: 700;
     letter-spacing: -0.01em;
   }
+  /* Archive view header narrower layout to align Actions with corner button */
+  .proj-table-panel.archive-view .proj-table-header {
+    grid-template-columns: minmax(0,1fr) 3.5rem;
+  }
   :global(body.dark) .proj-table-header { background: #161c27 !important; border-bottom-color: #ffffff0f !important; color: #e5edf8 !important; }
 
   .proj-table-body { display: grid; background: var(--color-soft); padding: 0.4rem; gap: 0.4rem; }
@@ -2195,6 +2471,7 @@
   .proj-status-pill.status-submitted { background: rgba(124,58,237,0.08); color: #7c3aed; border-color: rgba(124,58,237,0.12); }
   .proj-status-pill.status-needs-revision { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
   .proj-status-pill.status-approved { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
+  .proj-status-pill.status-pending { background: rgba(251,146,60,0.10); color: #ea7a1e; border-color: rgba(251,146,60,0.18); }
 
   /* center non-name header labels */
   .proj-table-header > .proj-col-priority,
@@ -2620,6 +2897,30 @@
   }
   .icon-btn:hover { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)); border-color: var(--color-accent); transform: translateY(-1px); }
   .icon-btn.archive { background: transparent; border-color: rgba(255,255,255,0.06); color: var(--color-accent); }
+  .icon-btn.restore { background: transparent; border-color: rgba(255,255,255,0.06); color: #10b981; }
+  .icon-btn.restore:hover { background: rgba(16,185,129,0.1); border-color: #10b981; }
+
+  /* ── Archive table ───────────────────────────────────────────────────── */
+  .arc-table-wrap { padding: 1rem 1.25rem; }
+  /* Archive row corner action positioning */
+  .proj-arc-row { position: relative; }
+  .proj-arc-corner { position: absolute; top: 0.5rem; right: 0.9rem; display:flex; gap:0.4rem; }
+  /* Archive view header alignment */
+  .proj-table-panel.archive-view .proj-table-header > .proj-col-actions { justify-self: end; padding-top: 0.4rem; }
+
+  .proj-arc-meta { display:flex; align-items:center; gap:8px; margin-top:6px; color:var(--color-sidebar-text); font-size:0.77rem; }
+  .proj-arc-date { font-weight:700; color:var(--color-heading); margin-left:2px; }
+  .arc-table { width: 100%; border-collapse: collapse; }
+  .arc-th { padding: 0.55rem 0.75rem; font-size: 0.78rem; font-weight: 700; color: var(--color-heading); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.08)); text-align: left; }
+  .arc-th-main { width: 100%; }
+  .arc-th-actions { white-space: nowrap; text-align: center; }
+  .arc-row { border-bottom: 1px solid var(--color-border, rgba(255,255,255,0.05)); }
+  .arc-row:last-child { border-bottom: none; }
+  .arc-row:hover { background: rgba(255,255,255,0.02); }
+  .arc-td { padding: 0.65rem 0.75rem; vertical-align: middle; }
+  .arc-td-actions { text-align: center; }
+  .arc-project-name { font-size: 0.9rem; font-weight: 600; color: var(--color-heading); }
+  .arc-project-meta { font-size: 0.77rem; color: var(--color-sidebar-text); display: flex; align-items: center; gap: 4px; margin-top: 2px; }
   .icon-btn :global(svg) { display: block; }
 
   /* restore project-name color only; keep other column colors as defaults */
@@ -2682,7 +2983,10 @@
   .search-wrap { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.7rem; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.7rem; }
   .search-input { border:0; background:transparent; color:var(--color-text); font-size:0.85rem; width:9rem; outline:none; padding:0.34rem 0; }
   /* search-icon removed */
-  .quick-actions select, .quick-status { padding:0.34rem 0.6rem; border-radius:0.7rem; font-size:0.85rem }
+  .quick-actions select, .quick-status, .quick-priority {
+    padding:0.34rem 0.6rem; border-radius:0.7rem; font-size:0.85rem;
+    border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text);
+  }
   .quick-actions .primary { padding:0.36rem 0.9rem; font-size:0.85rem; border-radius:0.7rem; background: #2563eb; color: #fff; border: none }
 
   .meta-link {
@@ -2811,4 +3115,302 @@
   /* View toggle (tabs below stat cards) */
   /* view-toggle removed */
 
+  /* ── Overview Layout ──────────────────────────────────────────────────── */
+  .ov-top-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  @media (max-width: 680px) {
+    .ov-top-grid { grid-template-columns: 1fr; }
+  }
+
+  .ov-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.9rem;
+    padding: 1rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  :global(body.dark) .ov-card { background: #161c27 !important; border-color: #ffffff0f !important; }
+
+  .ov-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .ov-card-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--color-heading);
+    letter-spacing: -0.01em;
+  }
+
+  .ov-refresh-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.88rem;
+    color: var(--color-sidebar-text);
+    cursor: pointer;
+    line-height: 1.2;
+    transition: background 0.14s;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .ov-refresh-btn:hover { background: var(--color-soft); color: var(--color-heading); }
+  .ov-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .ov-view-all-btn {
+    background: transparent;
+    border: none;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #3b82f6;
+    cursor: pointer;
+    padding: 0;
+    transition: opacity 0.14s;
+  }
+  .ov-view-all-btn:hover { opacity: 0.75; }
+
+  .ov-empty {
+    font-size: 0.83rem;
+    color: var(--color-sidebar-text);
+    padding: 0.25rem 0;
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  /* ── Status breakdown bars ── */
+  .ov-status-bars { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  .ov-bar-row {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr 1.8rem;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .ov-bar-label {
+    font-size: 0.75rem !important;
+    white-space: nowrap;
+    justify-self: start;
+  }
+
+  .ov-bar-track {
+    height: 8px;
+    background: var(--color-border);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .ov-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 500ms ease;
+  }
+
+  /* Bar fill colours mapped to status classes */
+  .ov-fill-not-started   { background: #f38f49; }
+  .ov-fill-in-progress   { background: #10b981; }
+  .ov-fill-submitted     { background: #7c3aed; }
+  .ov-fill-needs-revision { background: #ef4444; }
+  .ov-fill-approved      { background: #3b82f6; }
+
+  .ov-bar-count {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--color-heading);
+    text-align: right;
+  }
+
+  .ov-archived-note {
+    font-size: 0.77rem;
+    color: var(--color-sidebar-text);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 0.15rem;
+  }
+
+  /* ── Upcoming Deadlines ── */
+  .ov-deadline-list { display: flex; flex-direction: column; gap: 0.55rem; }
+
+  .ov-deadline-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .ov-deadline-dot {
+    width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+    background: var(--color-border);
+    border: 1.5px solid var(--color-border);
+  }
+  .ov-deadline-dot.ov-dot-near { background: #fbbf24; border-color: #f59e0b; }
+  .ov-deadline-dot.ov-dot-past { background: #ef4444; border-color: #dc2626; }
+
+  .ov-deadline-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+
+  .ov-deadline-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-heading);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ov-deadline-date {
+    font-size: 0.77rem;
+    color: var(--color-sidebar-text);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .ov-deadline-date.ov-date-near { color: #d97706; }
+  .ov-deadline-date.ov-date-past { color: #dc2626; }
+
+  /* ── Activity Feed ── */
+  .ov-activity-feed { display: flex; flex-direction: column; gap: 0; }
+
+  /* Expanded activity card styles (removed) */
+
+  .ov-bottom-grid { display: grid; grid-template-columns: 1fr; gap: 0.8rem; align-items: start; }
+
+  /* card title styling */
+  .ov-card-title { font-size: 0.85rem; font-weight: 700; color: var(--color-heading); letter-spacing: -0.01em; }
+
+  .ov-act-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .ov-act-row:last-child { border-bottom: none; }
+
+  .ov-act-icon {
+    width: 28px; height: 28px; border-radius: 7px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 0.95rem;
+  }
+  .ov-act-icon-fb { background: rgba(99,102,241,0.1); }
+  .ov-act-icon-ms { background: rgba(16,185,129,0.1); }
+
+  .ov-act-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+
+  .ov-act-text {
+    font-size: 0.85rem;
+    color: var(--color-heading);
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ov-act-meta {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+
+  .ov-act-proj {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #3b82f6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+  }
+
+  .ov-act-date {
+    font-size: 0.74rem;
+    color: var(--color-sidebar-text);
+    white-space: nowrap;
+  }
+
+  /* ── Project Snippets Grid ── */
+  .ov-snippets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.8rem;
+  }
+
+  .ov-snippet-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 1.1rem 1.2rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.75rem;
+    background: var(--color-soft);
+    transition: border-color 140ms, box-shadow 140ms;
+  }
+  .ov-snippet-card:hover { border-color: var(--color-accent); box-shadow: 0 6px 18px -14px rgba(15,23,42,.3); }
+  :global(body.dark) .ov-snippet-card { background: #0d1117 !important; border-color: #ffffff0f !important; }
+
+  .ov-snippet-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .ov-snippet-top-right { display:flex; align-items:center; gap:0.5rem; }
+
+  .ov-snippet-name {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--color-heading);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ov-snippet-status { display: flex; }
+
+  .ov-snippet-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+  .ov-snippet-progress .progress-bar-outer { flex: 1; }
+
+  .ov-snippet-pct {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--color-heading);
+    white-space: nowrap;
+    width: 32px;
+    text-align: right;
+  }
+
+  .ov-snippet-due {
+    font-size: 0.77rem;
+    color: var(--color-sidebar-text);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .ov-snippet-due.ov-date-past { color: #dc2626; }
+
+  .ov-ms-section { margin-top: 0.75rem; border-top: 1px solid var(--color-border, rgba(255,255,255,0.07)); padding-top: 0.65rem; display: flex; flex-direction: column; gap: 0.45rem; }
+  .ov-ms-section-title { font-size: 0.77rem; font-weight: 700; color: var(--color-sidebar-text); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.1rem; }
+  .ov-ms-row { display: flex; align-items: center; gap: 0.55rem; }
+  .ov-ms-row-name { font-size: 0.78rem; color: var(--color-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; flex-shrink: 0; }
+  .ov-ms-row .ov-bar-track { flex: 1; height: 5px; }
+  .ov-ms-row-count { font-size: 0.77rem; color: var(--color-sidebar-text); white-space: nowrap; }
+  .ov-ms-done { font-weight: 700; color: var(--color-heading); }
+
+  .ov-snippet-actions {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.1rem;
+  }
+  .ov-snippet-actions .sub-action-btn {
+    flex: 1;
+    justify-content: center;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+  }
 </style>
