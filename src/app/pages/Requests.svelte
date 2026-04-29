@@ -679,7 +679,8 @@
       }
     } catch (err) {
       console.error("Update request status error:", err);
-      formError = "Error updating request status";
+      formError =
+        err?.message || "Error updating request status";
       setTimeout(() => (formError = ""), 3000);
     } finally {
       approvingRequestId = null;
@@ -738,6 +739,8 @@
       }
     } catch (err) {
       console.error("Reject request error:", err);
+      formError = err?.message || "Failed to reject request.";
+      setTimeout(() => (formError = ""), 3000);
     } finally {
       isRejectingRequest = false;
     }
@@ -1072,8 +1075,10 @@
   {#if activeTab === "my-requests"}
     <div class="requests-section">
       {#if isLoading}
-        <div class="empty-requests">
-          <div class="empty-icon"><Loader2 size={22} /></div>
+        <div class="empty-requests loading-requests-state">
+          <div class="empty-icon loading-empty-icon">
+            <span class="spinning-icon"><Loader2 size={22} /></span>
+          </div>
           <div class="empty-text">Loading requests...</div>
         </div>
       {:else if requests.length === 0}
@@ -1158,8 +1163,8 @@
           </div>
         {:else}
           <div class="requests-list">
-            <!-- Select All Checkbox (for supervisor) -->
-            {#if isSupervisor && showBulkActions}
+            <!-- Select All Checkbox (for supervisor, all filter, and archived requests) -->
+            {#if showBulkActions && ((isSupervisor) || (requestFilter === "archive") || (requestFilter === "all"))}
               <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
                 <input 
                   type="checkbox" 
@@ -1190,7 +1195,7 @@
                 role={showBulkActions ? "button" : "article"}
                 tabindex={showBulkActions ? 0 : -1}
               >
-                {#if showBulkActions && (request.status === "Approved" || request.status === "Rejected")}
+                {#if showBulkActions && (request.status === "Approved" || request.status === "Rejected" || requestFilter === "archive")}
                   <div class="request-card-checkbox">
                     <input 
                       type="checkbox" 
@@ -1958,6 +1963,15 @@
     font-size: 12.5px;
     color: var(--text3);
     text-align: center;
+  }
+
+  .loading-requests-state {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .loading-empty-icon {
+    color: var(--accent2);
   }
 
   /* ========== FILTER ROW ========== */

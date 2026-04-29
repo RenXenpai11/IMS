@@ -47,7 +47,7 @@
   let isDeleting        = false;
 
   const PRIORITY_OPTIONS  = ['Low', 'Medium', 'High'];
-  const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'For Review', 'Completed'];
+  const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Submitted', 'Needs Revision', 'Approved'];
 
   // Populated from backend on mount
   let SUPERVISOR_OPTIONS = [];
@@ -70,12 +70,15 @@
   }
 
   const STATUS_META = {
-    'Pending':      { cls: 'status-pending',       label: 'Pending'      },
-    'In Progress':  { cls: 'status-in-progress',   label: 'In Progress'  },
-    'For Review':   { cls: 'status-review',        label: 'For Review'   },
-    'Completed':    { cls: 'status-completed',     label: 'Completed'    },
-    // legacy mappings
     'Not Started':  { cls: 'status-not-started',   label: 'Not Started'  },
+    'In Progress':  { cls: 'status-in-progress',   label: 'In Progress'  },
+    'Submitted':    { cls: 'status-submitted',     label: 'Submitted'    },
+    'Needs Revision': { cls: 'status-needs-revision', label: 'Needs Revision' },
+    'Approved':     { cls: 'status-approved',      label: 'Approved'     },
+    // legacy aliases
+    'For Review':   { cls: 'status-submitted',     label: 'Submitted'    },
+    'Pending':      { cls: 'status-not-started',   label: 'Pending'      },
+    'Completed':    { cls: 'status-approved',      label: 'Completed'    }
   };
 
   // Form
@@ -617,7 +620,7 @@
     try {
       const res = await dispatchAction('list_milestones', { proj_id: projId });
       if (res?.ok) {
-        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by }));
+        const list = (res.milestones || []).map(m => ({ id: m.milestone_id, milestone: m.milestone, date: m.date, status: String(m.status || 'Not Started'), done: Boolean(m.done), created_at: m.created_at, created_by: m.created_by, linked_files: m.linked_files || '' }));
         projects = projects.map(p => p.id === projectId ? { ...p, milestones: list } : p);
         try { localStorage.setItem('projects.milestones.' + String(projectId), JSON.stringify(list)); } catch (e) {}
       } else {
@@ -643,6 +646,70 @@
   let editingMilestoneInputs = {};
   let showAddMilestoneFor = {};
 
+  // Collapsible milestones and file-linker
+  let expandedMilestoneIds = new Set();
+  let milestoneFilePicker  = {};  // { [milestoneId]: boolean }
+
+  function toggleMilestoneExpand(milestoneId) {
+    if (expandedMilestoneIds.has(milestoneId)) expandedMilestoneIds.delete(milestoneId);
+    else expandedMilestoneIds.add(milestoneId);
+    expandedMilestoneIds = new Set(expandedMilestoneIds);
+  }
+
+  function toggleMilestoneFilePicker(milestoneId) {
+    milestoneFilePicker = { ...milestoneFilePicker, [milestoneId]: !milestoneFilePicker[milestoneId] };
+  }
+
+  // Parse linked_files JSON stored on a milestone; fall back to []
+  function parseMilestoneFiles(m) {
+    try { const v = m.linked_files || ''; if (!v) return []; return JSON.parse(v); } catch(e) { return []; }
+  }
+
+  // Returns all file submissions in a project (across all folders) for the linker picker
+  function projectFileSubmissions(projectId) {
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj || !proj.folders) return [];
+    const files = [];
+    for (const folder of proj.folders) {
+      for (const s of (folder.submissions || [])) {
+        if (s.kind === 'file') files.push({ ...s, folder_name: folder.name });
+      }
+    }
+    return files;
+  }
+
+  // Toggle a file in/out of a milestone's linked_files list and persist
+  async function toggleMilestoneFile(projectId, milestoneId, submission) {
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+    const m = (proj.milestones || []).find(x => x.id === milestoneId);
+    if (!m) return;
+    const current = parseMilestoneFiles(m);
+    const exists = current.find(f => f.id === submission.id);
+    const updated = exists
+      ? current.filter(f => f.id !== submission.id)
+      : [...current, { id: submission.id, name: submission.name, drive_url: submission.drive_url || '' }];
+    const linkedJson = JSON.stringify(updated);
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, linked_files: linkedJson, user_id: uid });
+      if (!res?.ok) { formError = res?.error || 'Failed to update linked files.'; return; }
+      projects = projects.map(proj2 => proj2.id !== projectId ? proj2 : {
+        ...proj2,
+        milestones: (proj2.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, linked_files: linkedJson } : mm)
+      });
+    } catch(e) { formError = e?.message || 'Failed to update linked files.'; }
+  }
+
+  function milestoneStatusIcon(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'approved') return '✅';
+    if (s === 'in progress') return '🔵';
+    if (s === 'submitted') return '📤';
+    if (s === 'needs revision') return '🔴';
+    return '🟡';  // Not Started default
+  }
+
   function toggleAddMilestone(projectId) {
     const init = newMilestoneInputs[projectId] || { milestone: '', date: '' };
     newMilestoneInputs = { ...newMilestoneInputs, [projectId]: init };
@@ -660,9 +727,9 @@
     if (!text) { formError = 'Milestone text is required.'; return; }
     const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     try {
-      const res = await dispatchAction('create_milestone', { proj_id: projId, milestone: text, date: date, done: false, user_id: uid });
+      const res = await dispatchAction('create_milestone', { proj_id: projId, milestone: text, date: date, status: 'Not Started', done: false, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to create milestone.'; console.warn('createMilestone failed', res); return; }
-      const item = { id: res.milestone_id, milestone: text, date: date, created_at: res.created_at, created_by: uid, done: false };
+      const item = { id: res.milestone_id, milestone: text, date: date, status: 'Not Started', created_at: res.created_at, created_by: uid, done: false };
       projects = projects.map(p => p.id === projectId ? { ...p, milestones: [ ...(p.milestones || []), item ] } : p);
       // save to cache
       try {
@@ -704,7 +771,7 @@
 
   function startEditMilestone(projectId, m) {
     editingMilestoneId = m.id;
-    editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { milestone: m.milestone || '', date: m.date || '', done: Boolean(m.done) } };
+    editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { milestone: m.milestone || '', date: m.date || '', status: m.status || 'Not Started' } };
   }
 
   function cancelEditMilestone() {
@@ -719,20 +786,20 @@
     if (!text) { formError = 'Milestone text is required.'; return; }
     const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
     try {
-      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, done: Boolean(inputs.done), user_id: uid });
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, status: String(inputs.status || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update milestone.'; return; }
       // refresh from server to ensure we reflect persisted `done` state
       try {
         await loadProjectMilestones(projectId);
       } catch (e) {
         // fallback to local update if reload fails
-        projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, done: Boolean(inputs.done) } : mm) } : p);
+        projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: String(inputs.status || 'Not Started') } : mm) } : p);
       }
       // update cache (best-effort)
       try {
         const key = 'projects.milestones.' + String(projectId);
         const cur = JSON.parse(localStorage.getItem(key) || '[]');
-        const updated = (cur || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, done: Boolean(inputs.done) } : mm);
+        const updated = (cur || []).map(mm => mm.id === milestoneId ? { ...mm, milestone: text, date: date, status: String(inputs.status || 'Not Started') } : mm);
         localStorage.setItem(key, JSON.stringify(updated));
       } catch (e) {}
       editingMilestoneId = null;
@@ -741,6 +808,85 @@
     } catch (e) {
       formError = e?.message || 'Failed to update milestone.';
     }
+  }
+
+  // Change milestone status directly from view-select
+  async function changeMilestoneStatus(projectId, milestoneId, newStatus) {
+    if (!milestoneId) return;
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, status: String(newStatus || 'Not Started'), user_id: uid });
+      if (!res?.ok) { formError = res?.error || 'Failed to update status.'; return; }
+      // update local state immediately and then reload for consistency
+      projects = projects.map(p => p.id === projectId ? { ...p, milestones: (p.milestones || []).map(mm => mm.id === milestoneId ? { ...mm, status: String(newStatus || 'Not Started') } : mm) } : p);
+      try { await loadProjectMilestones(projectId); } catch (e) { /* fallback */ }
+      formSuccess = 'Status updated.';
+      setTimeout(() => { formSuccess = ''; }, 1200);
+    } catch (e) {
+      formError = e?.message || 'Failed to update status.';
+    }
+  }
+
+  // ── Feedback ────────────────────────────────────────────────────────────────
+  let feedbackMap       = {};   // { [projectId]: FeedbackItem[] }
+  let feedbackLoading   = {};   // { [projectId]: boolean }
+  let newFeedbackText   = {};   // { [projectId]: string }
+  let replyingTo        = {};   // { [projectId]: feedbackId | null }
+  let replyText         = {};   // { [projectId]: string }
+  // feedback actions removed: status / approve / reject
+
+  async function loadFeedback(projectId) {
+    feedbackLoading = { ...feedbackLoading, [projectId]: true };
+    try {
+      const res = await dispatchAction('list_feedback', { proj_id: String(projectId) });
+      if (res?.ok) feedbackMap = { ...feedbackMap, [projectId]: res.feedback || [] };
+      else feedbackMap = { ...feedbackMap, [projectId]: [] };
+    } catch (e) {
+      feedbackMap = { ...feedbackMap, [projectId]: [] };
+    } finally {
+      feedbackLoading = { ...feedbackLoading, [projectId]: false };
+    }
+  }
+
+  function feedbackChildren(projectId, parentId) {
+    const list = feedbackMap[projectId] || [];
+    return list.filter(f => String(f.parent_id || '') === String(parentId || ''));
+  }
+
+  async function submitFeedback(projectId) {
+    const text = String(newFeedbackText[projectId] || '').trim();
+    if (!text) return;
+    const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
+    try {
+      const res = await dispatchAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
+      if (!res?.ok) { formError = res?.error || 'Failed to post comment.'; return; }
+      newFeedbackText = { ...newFeedbackText, [projectId]: '' };
+      await loadFeedback(projectId);
+    } catch (e) { formError = e?.message || 'Failed to post comment.'; }
+  }
+
+  async function submitReply(projectId, parentId) {
+    const text = String(replyText[projectId] || '').trim();
+    if (!text) return;
+    const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
+    try {
+      const res = await dispatchAction('create_feedback', { proj_id: String(projectId), parent_id: String(parentId), user_id: uid, commenter_role: role, comment_text: text });
+      if (!res?.ok) { formError = res?.error || 'Failed to post reply.'; return; }
+      replyText    = { ...replyText,    [projectId]: '' };
+      replyingTo   = { ...replyingTo,   [projectId]: null };
+      await loadFeedback(projectId);
+    } catch (e) { formError = e?.message || 'Failed to post reply.'; }
+  }
+
+  async function deleteFeedback(projectId, feedbackId) {
+    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    try {
+      const res = await dispatchAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
+      if (!res?.ok) { formError = res?.error || 'Delete failed.'; return; }
+      await loadFeedback(projectId);
+    } catch (e) { formError = e?.message || 'Delete failed.'; }
   }
 
   function normalizeSubmission_(s) {
@@ -1258,7 +1404,7 @@
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Details'} on:click={() => viewingProjectTab = 'Details'}>Details</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Submissions'} on:click={() => { viewingProjectTab = 'Submissions'; if (!p.folders) loadProjectFolders(p.id); }}>Submissions</button>
                         <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Milestones'} on:click={() => { viewingProjectTab = 'Milestones'; if (!p.milestones || p.milestones === null) loadProjectMilestones(p.id); }}>Milestones</button>
-                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => viewingProjectTab = 'Feedback'}>Feedback</button>
+                        <button class="proj-detail-tab-btn" class:active={viewingProjectTab === 'Feedback'} on:click={() => { viewingProjectTab = 'Feedback'; if (!feedbackMap[p.id]) loadFeedback(p.id); }}>Feedback</button>
                       </div>
                       <div class="proj-detail-body">
                     {#if viewingProjectTab === 'Details'}
@@ -1573,38 +1719,216 @@
                       {#if p.milestones && p.milestones.length > 0}
                         <div class="milestone-list">
                           {#each p.milestones as m}
-                            {#if editingMilestoneId === m.id}
-                              <div class="milestone-row editing">
-                                <div style="flex:1;display:flex;gap:8px;align-items:center">
-                                  <input type="checkbox" style="width:18px;height:18px" checked={editingMilestoneInputs[m.id]?.done} on:change={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), done: e.target.checked } }; }} />
-                                  <input class="input" type="text" value={editingMilestoneInputs[m.id]?.milestone || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), milestone: e.target.value } }; }} />
-                                  <input class="input" type="date" value={editingMilestoneInputs[m.id]?.date || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), date: e.target.value } }; }} style="width:170px" />
-                                </div>
-                                <div style="display:flex;gap:6px;margin-left:12px">
-                                  <button class="sub-action-btn" on:click={() => saveEditedMilestone(p.id, m.id)}>Save</button>
-                                  <button class="sub-cancel-btn" on:click={cancelEditMilestone}>Cancel</button>
-                                </div>
+                            <div class="ms-card" class:ms-expanded={expandedMilestoneIds.has(m.id)}>
+                              <!-- ── Collapsed header (always visible) ── -->
+                              <div class="ms-header" on:click={() => toggleMilestoneExpand(m.id)} role="button" tabindex="0" on:keydown={(e)=>{ if(e.key==='Enter'||e.key===' ') toggleMilestoneExpand(m.id); }}>
+                                <span class={"ms-icon " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}></span>
+                                <span class="ms-title">{m.milestone}</span>
+                                {#if m.date}<span class="ms-due">Due: {formatDate(m.date)}</span>{/if}
+                                <span class="ms-chevron">{expandedMilestoneIds.has(m.id) ? '▲' : '▼'}</span>
                               </div>
-                            {:else}
-                              <div class="milestone-row">
-                                  <div style="display:flex;align-items:center;gap:12px;flex:1">
-                                    <input type="checkbox" disabled style="width:18px;height:18px;margin-right:8px" checked={Boolean(m.done)} />
-                                    <div class="milestone-text" style="flex:1">{m.milestone}</div>
-                                    <div class="milestone-due">| Due: <span class="muted">{formatDate(m.date)}</span></div>
+
+                              <!-- ── Expanded body ── -->
+                              {#if expandedMilestoneIds.has(m.id)}
+                                <div class="ms-body">
+                                  <!-- Linked files list -->
+                                  {#if parseMilestoneFiles(m).length > 0}
+                                    <div class="ms-linked-section">
+                                      <div class="ms-linked-label">Linked Files:</div>
+                                      <ul class="ms-linked-list">
+                                        {#each parseMilestoneFiles(m) as lf}
+                                          <li class="ms-linked-item">
+                                            <span>📄 {lf.name}</span>
+                                            {#if lf.drive_url}<a href={lf.drive_url} target="_blank" rel="noopener" class="ms-open-link">Open</a>{/if}
+                                            {#if editingMilestoneId === m.id}
+                                              <button class="ms-unlink-btn" title="Unlink" on:click={() => toggleMilestoneFile(p.id, m.id, lf)}>✕</button>
+                                            {/if}
+                                          </li>
+                                        {/each}
+                                      </ul>
+                                    </div>
+                                  {:else}
+                                    <div class="ms-no-links">No linked files yet.</div>
+                                  {/if}
+
+                                  <!-- Action bar: read-only in view mode, controls in edit mode -->
+                                  <div class="ms-actions">
+                                    {#if editingMilestoneId === m.id}
+                                      <button class="sub-action-btn" on:click={() => toggleMilestoneFilePicker(m.id)}>
+                                        📎 {milestoneFilePicker[m.id] ? 'Close Picker' : 'Link Files'}
+                                      </button>
+                                      <select class="status-select" value={editingMilestoneInputs[m.id]?.status || m.status || 'Not Started'}
+                                        on:change={async (e) => {
+                                          const v = String(e.target.value || 'Not Started');
+                                          // keep local edit input in sync
+                                          editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), status: v } };
+                                          await changeMilestoneStatus(p.id, m.id, v);
+                                        }}>
+                                        {#each STATUS_OPTIONS as so}
+                                          <option>{so}</option>
+                                        {/each}
+                                      </select>
+                                      <div style="flex:1"></div>
+                                      <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
+                                      <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
+                                    {:else}
+                                      <!-- view-only: show status pill matching project status style -->
+                                      <span class={"proj-status-pill " + (STATUS_META[m.status]?.cls || STATUS_META['Not Started'].cls)}>{STATUS_META[m.status]?.label || STATUS_META['Not Started'].label}</span>
+                                      <div style="flex:1"></div>
+                                      <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
+                                      <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
+                                    {/if}
                                   </div>
-                                  <div style="margin-left:12px;display:flex;gap:6px">
-                                    <button class="sub-action-btn" on:click={() => startEditMilestone(p.id, m)}>Edit</button>
-                                    <button class="sub-cancel-btn" on:click={() => deleteMilestone(p.id, m.id)}>Delete</button>
-                                  </div>
-                              </div>
-                            {/if}
+
+                                  <!-- Edit form -->
+                                  {#if editingMilestoneId === m.id}
+                                    <div class="add-milestone-bar" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                                      <input class="input" type="text" value={editingMilestoneInputs[m.id]?.milestone || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), milestone: e.target.value } }; }} placeholder="Milestone" />
+                                      <input class="input" type="date" value={editingMilestoneInputs[m.id]?.date || ''} on:input={(e) => { editingMilestoneInputs = { ...editingMilestoneInputs, [m.id]: { ...(editingMilestoneInputs[m.id] || {}), date: e.target.value } }; }} style="width:170px" />
+                                      <button class="sub-action-btn" on:click={() => saveEditedMilestone(p.id, m.id)}>Save</button>
+                                      <button class="sub-cancel-btn" on:click={cancelEditMilestone}>Cancel</button>
+                                    </div>
+                                  {/if}
+
+                                  <!-- File picker -->
+                                  {#if milestoneFilePicker[m.id]}
+                                    <div class="ms-file-picker">
+                                      <div class="ms-picker-label">Select files from submissions to link:</div>
+                                      {#if projectFileSubmissions(p.id).length === 0}
+                                        <div class="ms-picker-empty">No files uploaded in the Submissions tab yet.</div>
+                                      {:else}
+                                        {#each projectFileSubmissions(p.id) as sub}
+                                          <label class="ms-picker-item">
+                                            <input type="checkbox"
+                                              checked={!!parseMilestoneFiles(m).find(f => f.id === sub.id)}
+                                              on:change={() => toggleMilestoneFile(p.id, m.id, sub)} />
+                                            <span class="ms-picker-name">📄 {sub.name}</span>
+                                            <span class="ms-picker-folder">{sub.folder_name}</span>
+                                          </label>
+                                        {/each}
+                                      {/if}
+                                    </div>
+                                  {/if}
+                                </div>
+                              {/if}
+                            </div>
                           {/each}
                         </div>
                       {:else}
                         <div class="proj-detail-empty">No milestones defined yet.</div>
                       {/if}
                     {:else if viewingProjectTab === 'Feedback'}
-                      <div class="proj-detail-empty">No feedback available.</div>
+                      <!-- ── Feedback Tab ─────────────────────────────────── -->
+                      <div class="feedback-wrap">
+                        {#if feedbackLoading[p.id]}
+                          <div class="proj-detail-empty"><Loader2 size={16} class="spin" /> Loading feedback…</div>
+                        {:else}
+                          <!-- Root comment threads -->
+                          {#each (feedbackMap[p.id] || []).filter(f => !f.parent_id) as thread}
+                            <div class="feedback-thread">
+                              <!-- Root comment row -->
+                              <div class="feedback-card">
+                                <div class="feedback-card-top">
+                                  <span class="fb-role-badge" class:fb-badge-sup={thread.commenter_role === 'Supervisor'}>{thread.commenter_role || 'Intern'}</span>
+                                  <div style="flex:1"></div>
+                                  {#if thread.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
+                                    <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, thread.feedback_id)}><Trash2 size={13}/></button>
+                                  {/if}
+                                </div>
+                                <div class="fb-comment-text">{thread.comment_text}</div>
+                                <div class="fb-actions">
+                                  <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === thread.feedback_id ? null : thread.feedback_id }; }}>↩ Reply</button>
+                                </div>
+                              </div>
+
+                              {#each feedbackChildren(p.id, thread.feedback_id) as c1}
+                                <div class="feedback-reply" style="margin-left:1.1rem">
+                                  <div class="feedback-card-top">
+                                    <span class="fb-role-badge" class:fb-badge-sup={c1.commenter_role === 'Supervisor'}>{c1.commenter_role || 'Intern'}</span>
+                                    <div style="flex:1"></div>
+                                    {#if c1.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
+                                      <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c1.feedback_id)}><Trash2 size={13}/></button>
+                                    {/if}
+                                  </div>
+                                  <div class="fb-comment-text">{c1.comment_text}</div>
+                                  <div class="fb-actions">
+                                    <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === c1.feedback_id ? null : c1.feedback_id }; }}>↩ Reply</button>
+                                  </div>
+                                  {#if replyingTo[p.id] === c1.feedback_id}
+                                    <div class="fb-reply-compose">
+                                      <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
+                                      <div class="fb-action-btns">
+                                        <button class="sub-action-btn" on:click={() => submitReply(p.id, c1.feedback_id)}>Send</button>
+                                        <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  {/if}
+
+                                  {#each feedbackChildren(p.id, c1.feedback_id) as c2}
+                                    <div class="feedback-reply" style="margin-left:1.1rem">
+                                      <div class="feedback-card-top">
+                                        <span class="fb-role-badge" class:fb-badge-sup={c2.commenter_role === 'Supervisor'}>{c2.commenter_role || 'Intern'}</span>
+                                        <div style="flex:1"></div>
+                                        {#if c2.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
+                                          <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c2.feedback_id)}><Trash2 size={13}/></button>
+                                        {/if}
+                                      </div>
+                                      <div class="fb-comment-text">{c2.comment_text}</div>
+                                      <div class="fb-actions">
+                                        <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === c2.feedback_id ? null : c2.feedback_id }; }}>↩ Reply</button>
+                                      </div>
+                                      {#if replyingTo[p.id] === c2.feedback_id}
+                                        <div class="fb-reply-compose">
+                                          <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
+                                          <div class="fb-action-btns">
+                                            <button class="sub-action-btn" on:click={() => submitReply(p.id, c2.feedback_id)}>Send</button>
+                                            <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
+                                          </div>
+                                        </div>
+                                      {/if}
+
+                                      {#each feedbackChildren(p.id, c2.feedback_id) as c3}
+                                        <div class="feedback-reply" style="margin-left:1.1rem">
+                                          <div class="feedback-card-top">
+                                            <span class="fb-role-badge" class:fb-badge-sup={c3.commenter_role === 'Supervisor'}>{c3.commenter_role || 'Intern'}</span>
+                                            <div style="flex:1"></div>
+                                            {#if c3.commenter_id === (currentUser?.user_id || getCurrentUser()?.user_id)}
+                                              <button class="icon-btn" title="Delete" on:click={() => deleteFeedback(p.id, c3.feedback_id)}><Trash2 size={13}/></button>
+                                            {/if}
+                                          </div>
+                                          <div class="fb-comment-text">{c3.comment_text}</div>
+                                          <div class="fb-actions">
+                                            <button class="fb-reply-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: replyingTo[p.id] === c3.feedback_id ? null : c3.feedback_id }; }}>↩ Reply</button>
+                                          </div>
+                                          {#if replyingTo[p.id] === c3.feedback_id}
+                                            <div class="fb-reply-compose">
+                                              <textarea class="fb-reply-input" rows="2" placeholder="Write a reply…" value={replyText[p.id] || ''} on:input={(e) => { replyText = { ...replyText, [p.id]: e.target.value }; }}></textarea>
+                                              <div class="fb-action-btns">
+                                                <button class="sub-action-btn" on:click={() => submitReply(p.id, c3.feedback_id)}>Send</button>
+                                                <button class="sub-cancel-btn" on:click={() => { replyingTo = { ...replyingTo, [p.id]: null }; }}>Cancel</button>
+                                              </div>
+                                            </div>
+                                          {/if}
+                                        </div>
+                                      {/each}
+
+                                    </div>
+                                  {/each}
+
+                                </div>
+                              {/each}
+                            </div>
+                          {/each}
+                          {#if !(feedbackMap[p.id] || []).filter(f => !f.parent_id).length}
+                            <div class="proj-detail-empty">No feedback yet. Be the first to comment.</div>
+                          {/if}
+                          <!-- New root comment composer -->
+                          <div class="fb-new-comment">
+                            <textarea class="fb-reply-input" rows="3" placeholder="Add a comment…" value={newFeedbackText[p.id] || ''} on:input={(e) => { newFeedbackText = { ...newFeedbackText, [p.id]: e.target.value }; }}></textarea>
+                            <button class="sub-action-btn" style="margin-top:6px" on:click={() => submitFeedback(p.id)}>Post Comment</button>
+                          </div>
+                        {/if}
+                      </div>
                     {/if}
                   </div>
                 </div>
@@ -1868,6 +2192,9 @@
   .proj-status-pill.status-in-progress { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
   .proj-status-pill.status-review { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
   .proj-status-pill.status-completed { background: rgba(59,130,246,0.08); color: #3b82f6; border-color: rgba(59,130,246,0.12); }
+  .proj-status-pill.status-submitted { background: rgba(124,58,237,0.08); color: #7c3aed; border-color: rgba(124,58,237,0.12); }
+  .proj-status-pill.status-needs-revision { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
+  .proj-status-pill.status-approved { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
 
   /* center non-name header labels */
   .proj-table-header > .proj-col-priority,
@@ -1968,8 +2295,31 @@
   .add-milestone-btn .icon { color:#7c3aed; }
   .add-milestone-bar .btn-primary { background:linear-gradient(90deg,#7c3aed,#6d28d9); color:#fff; border:none; font-size:0.87rem; font-family:inherit; }
 
+  /* Status dropdown styling to match action buttons */
+  .status-select {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    /* match the read-only pill sizing and font */
+    padding:0.12rem 0.6rem; border-radius:0.45rem; border:1px solid var(--color-border);
+    background: var(--color-surface); color:var(--color-heading); font-weight:700; cursor:pointer;
+    font-size:0.78rem; height:28px; min-width:96px; text-align:center; box-sizing:border-box; font-family:inherit;
+    -moz-text-align-last: center; text-align-last: center; -webkit-text-align-last: center;
+  }
+  .status-select:focus { outline:none; border-color:#3b82f6; }
+
+  /* Read-only small status pill for view mode */
+  .status-pill {
+    display:inline-flex; align-items:center; justify-content:center;
+    padding:0.12rem 0.6rem; border-radius:0.45rem; border:1px solid rgba(255,255,255,0.06);
+    background: rgba(59,130,246,0.08); color:var(--color-heading); font-weight:700;
+    font-size:0.78rem; height:28px; min-width:96px; text-align:center; box-sizing:border-box;
+  }
+  :global(body.dark) .status-pill { background: rgba(99,102,241,0.12); border-color: #ffffff20; color:#fff; }
+
   /* Milestone text to match Details labels */
   .milestone-text { font-size: 0.88rem; font-family: inherit; color: var(--color-text); }
+
+  /* Ensure edit-mode inputs match view-mode text sizing */
+  .milestone-row .input { font-size:0.88rem; font-family:inherit; }
 
   .submission-card {
     display:flex; justify-content:space-between; align-items:center;
@@ -2051,6 +2401,91 @@
   .progress-bar-outer { height:10px; background:var(--color-border); border-radius:999px; overflow:hidden; }
   .progress-bar-inner { height:100%; background:linear-gradient(90deg,#10b981,#3b82f6); border-radius:999px; transition:width 350ms ease; }
 
+  /* ── Feedback tab ──────────────────────────────────────────────────── */
+  .feedback-wrap { display:flex; flex-direction:column; gap:0.75rem; padding:0.75rem 1.25rem 1rem; }
+
+  .feedback-thread {
+    border:1px solid var(--color-border); border-radius:10px;
+    overflow:hidden; background:var(--color-surface);
+  }
+  .feedback-thread.fb-approved { border-left:3px solid #10b981; }
+  .feedback-thread.fb-rejected  { border-left:3px solid #ef4444; }
+  :global(body.dark) .feedback-thread { background:#0f1720; border-color:#ffffff0e; }
+
+  .feedback-card {
+    padding:0.75rem 1rem 0.6rem;
+  }
+  .feedback-card-top {
+    display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;
+    margin-bottom:0.4rem;
+  }
+
+  .feedback-reply {
+    padding:0.6rem 1rem 0.6rem 1.5rem;
+    border-top:1px solid var(--color-border);
+    background: rgba(0,0,0,0.02);
+  }
+  :global(body.dark) .feedback-reply { background:rgba(255,255,255,0.02); border-top-color:#ffffff10; }
+
+  .fb-role-badge {
+    font-size:0.72rem; font-weight:700; padding:0.15rem 0.5rem;
+    border-radius:999px; background:rgba(99,102,241,0.12);
+    color:#6366f1; border:1px solid rgba(99,102,241,0.2);
+    font-family:inherit;
+  }
+  .fb-badge-sup { background:rgba(16,185,129,0.12); color:#059669; border-color:rgba(16,185,129,0.22); }
+
+  .fb-meta { font-size:0.75rem; color:var(--color-sidebar-text); font-family:inherit; }
+
+  .fb-status-pill {
+    font-size:0.72rem; font-weight:700; padding:0.12rem 0.55rem;
+    border-radius:999px; border:1px solid transparent; font-family:inherit;
+  }
+  .fb-status-pending  { background:rgba(251,191,36,0.14); color:#b45309; border-color:rgba(251,191,36,0.3); }
+  .fb-status-approved { background:rgba(16,185,129,0.14); color:#059669; border-color:rgba(16,185,129,0.3); }
+  .fb-status-rejected { background:rgba(239,68,68,0.12);  color:#dc2626; border-color:rgba(239,68,68,0.25); }
+
+  .fb-comment-text {
+    font-size:0.88rem; font-family:inherit; color:var(--color-text);
+    line-height:1.55; white-space:pre-wrap;
+  }
+  .fb-status-note {
+    margin-top:0.4rem; padding:0.4rem 0.6rem;
+    border-radius:6px; background:rgba(239,68,68,0.07);
+    font-size:0.8rem; color:#dc2626; font-family:inherit;
+  }
+
+  .fb-actions { display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap; }
+  .fb-reply-btn {
+    font-size:0.78rem; background:transparent; border:1px solid var(--color-border);
+    border-radius:0.4rem; color:var(--color-sidebar-text); cursor:pointer;
+    padding:0.22rem 0.55rem; font-family:inherit;
+    transition:background 0.15s;
+  }
+  .fb-reply-btn:hover { background:var(--color-hover); color:var(--color-heading); }
+  /* Approve/reject UI removed */
+
+  .fb-reply-compose {
+    padding:0.55rem 1rem 0.6rem 1.5rem;
+    border-top:1px solid var(--color-border);
+    background:rgba(0,0,0,0.015);
+  }
+  :global(body.dark) .fb-reply-compose { background:rgba(255,255,255,0.015); }
+
+  .fb-reply-input {
+    resize:vertical; width:100%; font-size:0.82rem; font-family:inherit;
+    border:1px solid var(--color-border); border-radius:6px;
+    background:var(--color-surface); color:var(--color-heading);
+    padding:0.4rem 0.6rem; outline:none; margin-bottom:6px;
+    box-sizing:border-box;
+  }
+  .fb-reply-input:focus { border-color:#3b82f6; }
+
+  .fb-new-comment {
+    display:flex; flex-direction:column;
+    padding:0.6rem 0; border-top:1px solid var(--color-border); margin-top:0.25rem;
+  }
+
   .log-date { font-weight:600; padding:0.45rem 0.75rem; background:transparent; color:var(--color-text); font-size:0.9rem; font-family:inherit; }
   .log-date-block { margin-bottom:8px; overflow:hidden; }
   .log-entry { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:0.6rem 0.75rem; border-bottom:1px solid var(--color-border); }
@@ -2061,13 +2496,45 @@
   .log-entry-right { display:flex; gap:8px; align-items:center; }
 
   /* Milestones */
-  .milestone-list { display:flex; flex-direction:column; gap:6px; padding:0.5rem 0.75rem; }
+  .milestone-list { display:flex; flex-direction:column; gap:8px; padding:0.5rem 0.75rem; }
   .milestone-row { display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; border-radius:8px; background:transparent; }
   .milestone-left { display:flex; gap:12px; align-items:center; }
   .milestone-icon { width:30px; height:30px; display:grid; place-items:center; border-radius:6px; font-size:0.95rem; }
   .milestone-icon { border:1px solid rgba(255,255,255,0.04); }
   .milestone-title { font-size:0.95rem; font-weight:600; color:var(--color-heading); }
   .milestone-due { font-size:0.88rem; color:var(--color-sidebar-text); }
+
+  /* Collapsible milestone cards */
+  .ms-card { border:1px solid var(--color-border,rgba(255,255,255,0.08)); border-radius:10px; overflow:hidden; background:var(--color-card,rgba(255,255,255,0.03)); }
+  .ms-header { display:flex; align-items:center; gap:10px; padding:0.6rem 0.9rem; cursor:pointer; user-select:none; }
+  .ms-header:hover { background:rgba(255,255,255,0.04); }
+  /* small neutral status indicator */
+  .ms-icon { width:12px; height:12px; display:inline-block; border-radius:50%; border:1px solid rgba(255,255,255,0.06); background:transparent; box-shadow: none; }
+  .ms-icon.status-not-started { background: rgba(249,115,22,0.06); border-color: rgba(249,115,22,0.08); }
+  .ms-icon.status-in-progress { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.08); }
+  .ms-icon.status-submitted { background: rgba(124,58,237,0.06); border-color: rgba(124,58,237,0.08); }
+  .ms-icon.status-needs-revision { background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.08); }
+  .ms-icon.status-approved { background: rgba(59,130,246,0.06); border-color: rgba(59,130,246,0.08); }
+  .ms-title { flex:1; font-size:0.95rem; font-weight:600; color:var(--color-heading); }
+  .ms-due { font-size:0.82rem; color:var(--color-sidebar-text); white-space:nowrap; }
+  .ms-chevron { font-size:0.75rem; color:var(--color-sidebar-text); margin-left:4px; }
+  .ms-body { padding:0.6rem 0.9rem 0.75rem; border-top:1px solid var(--color-border,rgba(255,255,255,0.06)); display:flex; flex-direction:column; gap:10px; }
+  .ms-linked-section { display:flex; flex-direction:column; gap:4px; }
+  .ms-linked-label { font-size:0.85rem; font-weight:600; color:var(--color-heading); }
+  .ms-linked-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
+  .ms-linked-item { display:flex; align-items:center; gap:8px; font-size:0.85rem; color:var(--color-heading); }
+  .ms-open-link { font-size:0.78rem; color:var(--color-link,#60a5fa); text-decoration:none; }
+  .ms-open-link:hover { text-decoration:underline; }
+  .ms-unlink-btn { background:none; border:none; cursor:pointer; color:var(--color-muted,#9ca3af); font-size:0.75rem; padding:0 2px; }
+  .ms-no-links { font-size:0.82rem; color:var(--color-sidebar-text); }
+  .ms-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .ms-file-picker { border:1px solid var(--color-border,rgba(255,255,255,0.08)); border-radius:8px; padding:0.6rem 0.8rem; display:flex; flex-direction:column; gap:6px; background:var(--color-bg-alt,rgba(0,0,0,0.15)); }
+  .ms-picker-label { font-size:0.83rem; font-weight:600; color:var(--color-heading); }
+  .ms-picker-empty { font-size:0.82rem; color:var(--color-sidebar-text); }
+  .ms-picker-item { display:flex; align-items:center; gap:8px; cursor:pointer; padding:3px 0; }
+  .ms-picker-item input[type=checkbox] { accent-color:var(--color-primary,#6366f1); cursor:pointer; }
+  .ms-picker-name { font-size:0.85rem; color:var(--color-heading); flex:1; }
+  .ms-picker-folder { font-size:0.75rem; color:var(--color-sidebar-text); }
 
   /* Details grid */
   .proj-detail-grid { display:grid; grid-template-columns: 1fr; gap:0.75rem; padding:1rem 1.25rem; }

@@ -36,6 +36,11 @@ var INTERN_SCHEDULES_HEADERS_ = ['schedule_id', 'intern_id', 'supervisor_id', 'd
 var DEFAULT_WORK_DAYS_ = [1, 2, 3, 4, 5]; // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
 var DEFAULT_WORK_START_TIME_ = '09:00'; // 24-hour format
 var DEFAULT_WORK_END_TIME_ = '17:00';   // 24-hour format
+var DAILY_TIME_LOG_REMINDER_FUNCTION_ = 'sendDailyTimeLogReminders';
+var DAILY_TIME_LOG_REMINDER_HOUR_ = 17;
+var DAILY_TIME_LOG_REMINDER_MINUTE_ = 5;
+var TIME_LOG_REMINDER_SENT_PREFIX_ = 'IMS_TIME_LOG_REMINDER_SENT_';
+var SUPERVISOR_TIME_LOG_REMINDER_SENT_PREFIX_ = 'IMS_SUP_TIME_LOG_REMINDER_SENT_';
 
 function isTimeLogsBackendDisabled_() {
   return TIME_LOGS_BACKEND_ENABLED_ !== true;
@@ -338,6 +343,20 @@ function dispatchAction_(payload) {
   if (action === 'delete_milestone') {
     if (typeof handleDeleteMilestone_ === 'function') return handleDeleteMilestone_(payload);
     return { ok: false, error: 'Handler not available: handleDeleteMilestone_' };
+  }
+
+  // --- Feedback (intern) ---
+  if (action === 'list_feedback') {
+    if (typeof handleListFeedback_ === 'function') return handleListFeedback_(payload);
+    return { ok: false, error: 'Handler not available: handleListFeedback_' };
+  }
+  if (action === 'create_feedback') {
+    if (typeof handleCreateFeedback_ === 'function') return handleCreateFeedback_(payload);
+    return { ok: false, error: 'Handler not available: handleCreateFeedback_' };
+  }
+  if (action === 'delete_feedback') {
+    if (typeof handleDeleteFeedback_ === 'function') return handleDeleteFeedback_(payload);
+    return { ok: false, error: 'Handler not available: handleDeleteFeedback_' };
   }
 
   return { ok: false, error: 'Unknown action: ' + action };
@@ -2151,9 +2170,14 @@ function handleCreateRequest_(payload) {
 
   sheet.appendRow(row);
 
-  // Notify the student's assigned supervisor
-  var supervisorUserId = findSupervisorForStudent_(userId);
-  if (supervisorUserId) {
+  // Notify all active supervisors assigned to this student.
+  var supervisorUserIds = findSupervisorsForStudent_(userId);
+  if (!supervisorUserIds.length) {
+    Logger.log('No active supervisor assignment found for request ' + requestId + ' (student_user_id=' + userId + ').');
+  }
+
+  for (var supervisorIndex = 0; supervisorIndex < supervisorUserIds.length; supervisorIndex++) {
+    var supervisorUserId = supervisorUserIds[supervisorIndex];
     createNotification_(
       supervisorUserId,
       'New ' + requestType + ' Request',
@@ -2174,7 +2198,11 @@ function handleCreateRequest_(payload) {
         totalHours: totalHours,
       });
     } catch (mailErr) {
-      Logger.log('Unable to send supervisor request email: ' + (mailErr && mailErr.message ? mailErr.message : String(mailErr)));
+      Logger.log(
+        'Unable to send supervisor request email (request_id=' + requestId +
+        ', supervisor_user_id=' + supervisorUserId + '): ' +
+        (mailErr && mailErr.message ? mailErr.message : String(mailErr))
+      );
     }
   }
 
@@ -2341,9 +2369,7 @@ function handleUpdateRequestStatus_(payload) {
     return { ok: false, error: 'User not found.' };
   }
 
-  var userRole = String(userRecord.user.role || '').trim().toLowerCase();
-  var isSupervisor = userRole === 'supervisor';
-  var isIntern = userRole === 'intern';
+  var isSupervisor = isSupervisorUser_(userRecord.user);
 
   // Get the request sheet
   var sheet = getRequestsSheet_();
@@ -2359,8 +2385,8 @@ function handleUpdateRequestStatus_(payload) {
 
   // Find the request
   var requestRowIndex = -1;
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i][requestIdColIndex] || '').trim() === requestId) {
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][requestIdColIndex - 1] || '').trim() === requestId) {
       requestRowIndex = i;
       break;
     }
@@ -2370,7 +2396,7 @@ function handleUpdateRequestStatus_(payload) {
     return { ok: false, error: 'Request not found.' };
   }
   
-  var studentUserId = String(rows[requestRowIndex][userIdColIndex] || '').trim();
+  var studentUserId = String(rows[requestRowIndex][userIdColIndex - 1] || '').trim();
   
   // Permission checks
   if (isSupervisor) {
@@ -2382,13 +2408,11 @@ function handleUpdateRequestStatus_(payload) {
     if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
       return { ok: false, error: 'You are not assigned to this student request.' };
     }
-  } else if (isIntern) {
+  } else {
     // Interns can only archive/recover their own requests
     if ((newStatus !== 'Archived' && newStatus !== 'Pending') || studentUserId !== supervisorUserId) {
       return { ok: false, error: 'You can only archive or recover your own requests.' };
     }
-  } else {
-    return { ok: false, error: 'Invalid user role.' };
   }
 
   // Update the request status
@@ -2401,7 +2425,7 @@ function handleUpdateRequestStatus_(payload) {
 
   // Auto-extend estimated_end_date if approving an absence request
   if (newStatus.toLowerCase() === 'approved') {
-    var requestType = String(rows[requestRowIndex][requestTypeColIndex] || '').trim();
+    var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim();
     if (requestType.toLowerCase() === 'absence' && studentUserId) {
       try {
         // Get the current student profile
@@ -2416,10 +2440,10 @@ function handleUpdateRequestStatus_(payload) {
           var profileRowIndex = -1;
           
           // Find the student's profile
-          for (var p = 0; p < profileRows.length; p++) {
-            if (String(profileRows[p][profileUserIdColIndex] || '').trim() === studentUserId) {
+          for (var p = 1; p < profileRows.length; p++) {
+            if (String(profileRows[p][profileUserIdColIndex - 1] || '').trim() === studentUserId) {
               profileRowIndex = p;
-              currentEstimatedEndDate = String(profileRows[p][profileEstimatedEndDateColIndex] || '').trim();
+              currentEstimatedEndDate = String(profileRows[p][profileEstimatedEndDateColIndex - 1] || '').trim();
               break;
             }
           }
@@ -2439,7 +2463,8 @@ function handleUpdateRequestStatus_(payload) {
 
   // Notify the student who created the request (only for supervisors)
   if (isSupervisor && studentUserId) {
-    var requestType = String(rows[requestRowIndex][requestTypeColIndex] || '').trim();
+    var requestType = String(rows[requestRowIndex][requestTypeColIndex - 1] || '').trim();
+    var requestDate = requestDateColIndex > 0 ? formatDateValue_(rows[requestRowIndex][requestDateColIndex - 1]) : '';
     var notifType = newStatus.toLowerCase() === 'approved' ? 'approval' : 'rejection';
     var notifMessage = 'Your ' + requestType.toLowerCase() + ' request has been ' + newStatus.toLowerCase() + '.';
     if (newStatus.toLowerCase() === 'rejected' && rejectionRemarks) {
@@ -2455,6 +2480,25 @@ function handleUpdateRequestStatus_(payload) {
       notifType,
       requestId
     );
+
+    if (newStatus === 'Approved' || newStatus === 'Rejected') {
+      try {
+        sendStudentRequestStatusEmail_(studentUserId, {
+          requestId: requestId,
+          requestType: requestType,
+          requestDate: requestDate,
+          status: newStatus,
+          rejectionRemarks: rejectionRemarks,
+          absenceExtended: newStatus === 'Approved' && requestType.toLowerCase() === 'absence'
+        });
+      } catch (mailErr) {
+        Logger.log(
+          'Unable to send student request status email (request_id=' + requestId +
+          ', student_user_id=' + studentUserId + '): ' +
+          (mailErr && mailErr.message ? mailErr.message : String(mailErr))
+        );
+      }
+    }
   }
 
   return { ok: true, message: 'Request status updated.' };
@@ -2667,26 +2711,56 @@ function handleListNotifications_(payload) {
 
   try {
     var sheet = getNotificationsSheet_();
-    var rows = readSheetObjects_(sheet)
-      .filter(function (row) {
-        return String(serializeCellValue_(row.user_id) || '').trim() === userId;
-      })
+    var headers = getHeaders_(sheet);
+    var values = getSheetValues_(sheet);
+    var notifIdCol = findColumnIndex_(headers, 'notification_id');
+    var userIdCol = findColumnIndex_(headers, 'user_id');
+    var titleCol = findColumnIndex_(headers, 'title');
+    var descriptionCol = findColumnIndex_(headers, 'description');
+    var typeCol = findColumnIndex_(headers, 'type');
+    var relatedIdCol = findColumnIndex_(headers, 'related_id');
+    var isReadCol = findColumnIndex_(headers, 'is_read');
+    var createdAtCol = findColumnIndex_(headers, 'created_at');
+
+    if (notifIdCol === 0 || userIdCol === 0) {
+      return { ok: false, error: 'Notifications sheet is missing required columns.' };
+    }
+
+    var rows = [];
+    var seenNotificationIds = {};
+
+    for (var i = 1; i < values.length; i++) {
+      var rowUserId = String(serializeCellValue_(values[i][userIdCol - 1]) || '').trim();
+      if (rowUserId !== userId) {
+        continue;
+      }
+
+      var notificationId = String(serializeCellValue_(values[i][notifIdCol - 1]) || '').trim();
+      if (!notificationId || seenNotificationIds[notificationId]) {
+        notificationId = createId_('NOTIF');
+        sheet.getRange(i + 1, notifIdCol, 1, 1).setValue(notificationId);
+      }
+      seenNotificationIds[notificationId] = true;
+
+      var createdAt = createdAtCol > 0 ? serializeCellValue_(values[i][createdAtCol - 1]) : '';
+      rows.push({
+        id: notificationId,
+        client_key: notificationId + '-' + String(i + 1),
+        title: titleCol > 0 ? String(serializeCellValue_(values[i][titleCol - 1]) || '') : '',
+        description: descriptionCol > 0 ? String(serializeCellValue_(values[i][descriptionCol - 1]) || '') : '',
+        type: typeCol > 0 ? String(serializeCellValue_(values[i][typeCol - 1]) || 'system') : 'system',
+        related_id: relatedIdCol > 0 ? String(serializeCellValue_(values[i][relatedIdCol - 1]) || '') : '',
+        unread: isReadCol > 0 ? String(serializeCellValue_(values[i][isReadCol - 1]) || '').toLowerCase() !== 'true' : true,
+        time: formatRelativeTime_(createdAt),
+        created_at: String(createdAt || '')
+      });
+    }
+
+    rows = rows
       .sort(function (a, b) {
         return String(b.created_at || '').localeCompare(String(a.created_at || ''));
       })
-      .slice(0, 50)
-      .map(function (row) {
-        return {
-          id: String(serializeCellValue_(row.notification_id) || ''),
-          title: String(serializeCellValue_(row.title) || ''),
-          description: String(serializeCellValue_(row.description) || ''),
-          type: String(serializeCellValue_(row.type) || 'system'),
-          related_id: String(serializeCellValue_(row.related_id) || ''),
-          unread: String(serializeCellValue_(row.is_read) || '').toLowerCase() !== 'true',
-          time: formatRelativeTime_(serializeCellValue_(row.created_at)),
-          created_at: String(serializeCellValue_(row.created_at) || '')
-        };
-      });
+      .slice(0, 50);
 
     return { ok: true, notifications: rows };
   } catch (err) {
@@ -2885,6 +2959,95 @@ function sendSupervisorRequestEmail_(supervisorUserId, requestDetails) {
   );
 }
 
+function buildStudentRequestStatusEmailText_(requestDetails, deepLinkUrl) {
+  var status = String(requestDetails.status || '').trim();
+  var requestType = String(requestDetails.requestType || 'Request').trim();
+  var lines = [
+    'Your ' + requestType.toLowerCase() + ' request has been ' + status.toLowerCase() + '.',
+    '',
+    'Request Type: ' + requestType,
+    'Status: ' + status,
+    'Date: ' + String(requestDetails.requestDate || ''),
+  ];
+
+  if (status.toLowerCase() === 'rejected' && requestDetails.rejectionRemarks) {
+    lines.push('Remarks: ' + String(requestDetails.rejectionRemarks || ''));
+  }
+
+  if (requestDetails.absenceExtended) {
+    lines.push('Note: Your internship end date has been automatically extended by 1 day.');
+  }
+
+  if (deepLinkUrl) {
+    lines.push('');
+    lines.push('View Request: ' + deepLinkUrl);
+  }
+
+  return lines.join('\n');
+}
+
+function buildStudentRequestStatusEmailHtml_(requestDetails, deepLinkUrl) {
+  var status = String(requestDetails.status || '').trim();
+  var requestType = String(requestDetails.requestType || 'Request').trim();
+  var statusLower = status.toLowerCase();
+  var statusColor = statusLower === 'approved' ? '#16a34a' : '#dc2626';
+  var remarksRow = '';
+  var noteBlock = '';
+
+  if (statusLower === 'rejected' && requestDetails.rejectionRemarks) {
+    remarksRow = '<tr><td style="padding:6px 0;color:#475569;font-weight:600;vertical-align:top;">Remarks</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.rejectionRemarks || '').replace(/\n/g, '<br>') + '</td></tr>';
+  }
+
+  if (requestDetails.absenceExtended) {
+    noteBlock = '<p style="margin:14px 0 0;padding:10px 12px;background:#eff6ff;color:#1e40af;border-radius:8px;font-size:13px;">Your internship end date has been automatically extended by 1 day.</p>';
+  }
+
+  var actionBlock = deepLinkUrl
+    ? '<a href="' + deepLinkUrl + '" style="display:inline-block;margin-top:14px;padding:10px 16px;background:#0f6cbd;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">View Request</a>'
+    : '<p style="margin:14px 0 0;color:#64748b;font-size:13px;">Request link unavailable. Open the IMS app and go to Requests.</p>';
+
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 12px;">Your request status has been updated.</p>',
+    '<table style="border-collapse:collapse;min-width:320px;">',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Request Type</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestType) + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Status</td><td style="padding:6px 0;color:' + statusColor + ';font-weight:700;">' + escapeHtml_(status) + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Date</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(requestDetails.requestDate || '') + '</td></tr>',
+    remarksRow,
+    '</table>',
+    noteBlock,
+    actionBlock,
+    '<p style="margin:14px 0 0;color:#64748b;font-size:12px;">If you are not logged in, you will be redirected to login first, then back to Requests.</p>',
+    '</div>',
+  ].join('');
+}
+
+function sendStudentRequestStatusEmail_(studentUserId, requestDetails) {
+  var studentRecord = findUserRecordByUserId_(studentUserId);
+  if (!studentRecord) {
+    return;
+  }
+
+  var studentEmail = normalizeEmail_(studentRecord.user.email);
+  if (!studentEmail) {
+    return;
+  }
+
+  var deepLinkUrl = buildRequestDeepLinkUrl_(requestDetails.requestId);
+  var subject = String(requestDetails.requestType || 'Request') + ' Request ' + String(requestDetails.status || 'Updated') + ' - IMS';
+
+  MailApp.sendEmail(
+    studentEmail,
+    subject,
+    buildStudentRequestStatusEmailText_(requestDetails, deepLinkUrl),
+    {
+      htmlBody: buildStudentRequestStatusEmailHtml_(requestDetails, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
+}
+
 // Validates that overtime doesn't overlap with default work schedule (Mon-Fri, 9am-5pm)
 function checkOvertimeScheduleOverlap_(requestDate, startTime, endTime) {
   // Parse the date to check what day of week it is
@@ -2934,20 +3097,41 @@ function checkAbsenceOnWeekend_(requestDate) {
   return '';
 }
 
-function findSupervisorForStudent_(studentUserId) {
+function findSupervisorsForStudent_(studentUserId) {
   var targetStudentId = String(studentUserId || '').trim();
   if (!targetStudentId) {
-    return null;
+    return [];
   }
 
   var rows = readSheetObjects_(getSupervisorAssignmentsSheet_());
+  var supervisorIds = [];
+  var seenSupervisorIds = {};
+
   for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i].student_user_id || '').trim() === targetStudentId &&
-        String(rows[i].status || 'active').trim().toLowerCase() !== 'inactive') {
-      return String(rows[i].supervisor_user_id || '').trim();
+    if (String(rows[i].student_user_id || '').trim() !== targetStudentId) {
+      continue;
     }
+
+    var status = String(rows[i].status || 'active').trim().toLowerCase();
+    if (status === 'inactive') {
+      continue;
+    }
+
+    var supervisorUserId = String(rows[i].supervisor_user_id || '').trim();
+    if (!supervisorUserId || seenSupervisorIds[supervisorUserId]) {
+      continue;
+    }
+
+    seenSupervisorIds[supervisorUserId] = true;
+    supervisorIds.push(supervisorUserId);
   }
-  return null;
+
+  return supervisorIds;
+}
+
+function findSupervisorForStudent_(studentUserId) {
+  var supervisorIds = findSupervisorsForStudent_(studentUserId);
+  return supervisorIds.length ? supervisorIds[0] : null;
 }
 
 function formatRelativeTime_(dateValue) {
@@ -4879,7 +5063,8 @@ function handleGetStudentSupervisor_(payload) {
   var assignments = readSheetObjects_(getSheet_(SUPERVISOR_ASSIGNMENTS_SHEET_));
   var activeAssignments = [];
   for (var i = 0; i < assignments.length; i++) {
-    if (String(assignments[i].student_user_id || '').trim() === studentId && String(assignments[i].status || '').trim() !== 'inactive') {
+    if (String(assignments[i].student_user_id || '').trim() === studentId &&
+        String(assignments[i].status || 'active').trim().toLowerCase() !== 'inactive') {
       activeAssignments.push(assignments[i]);
     }
   }
@@ -5070,7 +5255,462 @@ function handleChangePassword_(payload) {
   return { ok: true, message: 'Password updated successfully.' };
 }
 
-function sendDailyTimeLogReminders() {
+function sendDailyTimeLogReminders(options) {
+  var opts = options || {};
+  var now = opts.now instanceof Date ? opts.now : new Date();
+  var todayISOStr = formatDateYMD_(now);
+
+  if (!todayISOStr) {
+    return { ok: false, error: 'Unable to resolve reminder date.' };
+  }
+
+  if (opts.force !== true && DEFAULT_WORK_DAYS_.indexOf(now.getDay()) === -1) {
+    return { ok: true, skipped: true, reason: 'not_a_work_day', date: todayISOStr };
+  }
+
+  if (opts.force !== true && !isAfterDailyTimeLogReminderTime_(now)) {
+    return { ok: true, skipped: true, reason: 'before_reminder_time', date: todayISOStr };
+  }
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    return { ok: false, error: 'A time log reminder run is already in progress.' };
+  }
+
+  try {
+    return sendDailyTimeLogRemindersForDate_(todayISOStr);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function runDailyTimeLogRemindersNow() {
+  return sendDailyTimeLogReminders({ force: true });
+}
+
+function installDailyTimeLogReminderTrigger() {
+  var removed = removeDailyTimeLogReminderTriggers();
+  ScriptApp.newTrigger(DAILY_TIME_LOG_REMINDER_FUNCTION_)
+    .timeBased()
+    .atHour(DAILY_TIME_LOG_REMINDER_HOUR_)
+    .nearMinute(DAILY_TIME_LOG_REMINDER_MINUTE_)
+    .everyDays(1)
+    .inTimezone(Session.getScriptTimeZone())
+    .create();
+
+  return {
+    ok: true,
+    message: 'Daily time log reminder trigger installed.',
+    handler: DAILY_TIME_LOG_REMINDER_FUNCTION_,
+    schedule: 'Every day near 17:05 Asia/Manila',
+    removed_existing_triggers: removed.deleted || 0
+  };
+}
+
+function removeDailyTimeLogReminderTriggers() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var deleted = 0;
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === DAILY_TIME_LOG_REMINDER_FUNCTION_) {
+      ScriptApp.deleteTrigger(triggers[i]);
+      deleted++;
+    }
+  }
+
+  return { ok: true, deleted: deleted };
+}
+
+function sendDailyTimeLogRemindersForDate_(todayISOStr) {
+  var openSessions = getOpenActiveSessionsForDate_(todayISOStr);
+  if (!openSessions.length) {
+    return {
+      ok: true,
+      date: todayISOStr,
+      open_sessions: 0,
+      intern_emails_sent: 0,
+      supervisor_emails_sent: 0
+    };
+  }
+
+  var usersById = buildUsersById_();
+  var settingsByUserId = buildNotificationSettingsByUserId_();
+  var supervisorIdsByStudentId = buildActiveSupervisorIdsByStudentId_();
+  var props = PropertiesService.getScriptProperties();
+  var supervisorDigest = {};
+  var internEmailsSent = 0;
+  var supervisorEmailsSent = 0;
+  var internDuplicatesSkipped = 0;
+  var supervisorDuplicatesSkipped = 0;
+  var internErrors = 0;
+  var supervisorErrors = 0;
+
+  for (var i = 0; i < openSessions.length; i++) {
+    var session = openSessions[i];
+    var studentUserId = String(session.user_id || '').trim();
+    var student = usersById[studentUserId];
+
+    if (!student || !isReminderEligibleUser_(student) || isSupervisorUser_(student)) {
+      continue;
+    }
+
+    if (getNotificationPreference_(settingsByUserId, studentUserId, 'time_log_reminder') === true) {
+      var internMarkerKey = buildReminderMarkerKey_(TIME_LOG_REMINDER_SENT_PREFIX_, todayISOStr, studentUserId);
+      if (props.getProperty(internMarkerKey)) {
+        internDuplicatesSkipped++;
+      } else {
+        try {
+          if (sendInternTimeLogReminderEmail_(student, session, todayISOStr)) {
+            props.setProperty(internMarkerKey, isoNow_());
+            internEmailsSent++;
+          }
+        } catch (internErr) {
+          internErrors++;
+          Logger.log('Unable to send time log reminder email (user_id=' + studentUserId + '): ' + (internErr && internErr.message ? internErr.message : String(internErr)));
+        }
+      }
+    }
+
+    var supervisorIds = supervisorIdsByStudentId[studentUserId] || [];
+    for (var j = 0; j < supervisorIds.length; j++) {
+      var supervisorUserId = String(supervisorIds[j] || '').trim();
+      if (!supervisorUserId) {
+        continue;
+      }
+
+      if (!supervisorDigest[supervisorUserId]) {
+        supervisorDigest[supervisorUserId] = [];
+      }
+
+      supervisorDigest[supervisorUserId].push({
+        student: student,
+        session: session
+      });
+    }
+  }
+
+  var supervisorUserIds = Object.keys(supervisorDigest);
+  for (var k = 0; k < supervisorUserIds.length; k++) {
+    var digestSupervisorId = supervisorUserIds[k];
+    var supervisor = usersById[digestSupervisorId];
+
+    if (!supervisor || !isReminderEligibleUser_(supervisor) || !isSupervisorUser_(supervisor)) {
+      continue;
+    }
+
+    if (getNotificationPreference_(settingsByUserId, digestSupervisorId, 'inactive_student_alert') !== true) {
+      continue;
+    }
+
+    var supervisorMarkerKey = buildReminderMarkerKey_(SUPERVISOR_TIME_LOG_REMINDER_SENT_PREFIX_, todayISOStr, digestSupervisorId);
+    if (props.getProperty(supervisorMarkerKey)) {
+      supervisorDuplicatesSkipped++;
+      continue;
+    }
+
+    try {
+      if (sendSupervisorInactiveStudentsReminderEmail_(supervisor, supervisorDigest[digestSupervisorId], todayISOStr)) {
+        props.setProperty(supervisorMarkerKey, isoNow_());
+        supervisorEmailsSent++;
+      }
+    } catch (supervisorErr) {
+      supervisorErrors++;
+      Logger.log('Unable to send supervisor inactive-student reminder email (supervisor_user_id=' + digestSupervisorId + '): ' + (supervisorErr && supervisorErr.message ? supervisorErr.message : String(supervisorErr)));
+    }
+  }
+
+  return {
+    ok: true,
+    date: todayISOStr,
+    open_sessions: openSessions.length,
+    intern_emails_sent: internEmailsSent,
+    supervisor_emails_sent: supervisorEmailsSent,
+    intern_duplicates_skipped: internDuplicatesSkipped,
+    supervisor_duplicates_skipped: supervisorDuplicatesSkipped,
+    intern_errors: internErrors,
+    supervisor_errors: supervisorErrors
+  };
+}
+
+function getOpenActiveSessionsForDate_(targetDate) {
+  var rows = readSheetObjects_(getActiveSessionsSheet_());
+  var sessions = [];
+  var seenUserIds = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var userId = String(rows[i].user_id || '').trim();
+    var logDate = formatCellDate_(rows[i].log_date);
+    var timeOut = String(serializeCellValue_(rows[i].time_out) || '').trim();
+
+    if (!userId || seenUserIds[userId] || logDate !== targetDate || timeOut) {
+      continue;
+    }
+
+    seenUserIds[userId] = true;
+    sessions.push({
+      session_id: String(serializeCellValue_(rows[i].session_id) || '').trim(),
+      user_id: userId,
+      log_date: logDate,
+      time_in: formatReminderTimeValue_(rows[i].time_in),
+      created_at: String(serializeCellValue_(rows[i].created_at) || '').trim()
+    });
+  }
+
+  return sessions;
+}
+
+function buildUsersById_() {
+  var rows = readSheetObjects_(getUsersSheet_());
+  var usersById = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var userId = String(rows[i].user_id || '').trim();
+    if (userId) {
+      usersById[userId] = rows[i];
+    }
+  }
+
+  return usersById;
+}
+
+function buildNotificationSettingsByUserId_() {
+  var rows = readSheetObjects_(getUserSettingsSheet_());
+  var settingsByUserId = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var userId = String(rows[i].user_id || '').trim();
+    if (!userId) {
+      continue;
+    }
+
+    try {
+      settingsByUserId[userId] = JSON.parse(rows[i].settings_json || '{}') || {};
+    } catch (err) {
+      settingsByUserId[userId] = {};
+    }
+  }
+
+  return settingsByUserId;
+}
+
+function buildActiveSupervisorIdsByStudentId_() {
+  var rows = readSheetObjects_(getSupervisorAssignmentsSheet_());
+  var supervisorIdsByStudentId = {};
+  var seenPairs = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var status = String(rows[i].status || 'active').trim().toLowerCase();
+    if (status === 'inactive') {
+      continue;
+    }
+
+    var studentUserId = String(rows[i].student_user_id || '').trim();
+    var supervisorUserId = String(rows[i].supervisor_user_id || '').trim();
+    var pairKey = studentUserId + '::' + supervisorUserId;
+
+    if (!studentUserId || !supervisorUserId || seenPairs[pairKey]) {
+      continue;
+    }
+
+    if (!supervisorIdsByStudentId[studentUserId]) {
+      supervisorIdsByStudentId[studentUserId] = [];
+    }
+
+    seenPairs[pairKey] = true;
+    supervisorIdsByStudentId[studentUserId].push(supervisorUserId);
+  }
+
+  return supervisorIdsByStudentId;
+}
+
+function getNotificationPreference_(settingsByUserId, userId, key) {
+  var prefs = settingsByUserId[String(userId || '').trim()] || {};
+  return prefs[String(key || '').trim()] === true;
+}
+
+function isReminderEligibleUser_(user) {
+  var status = String(user && user.status || '').trim().toLowerCase();
+  return status !== 'inactive' && status !== 'disabled' && status !== 'deleted' && status !== 'archived';
+}
+
+function isAfterDailyTimeLogReminderTime_(date) {
+  var timeParts = Utilities.formatDate(date, Session.getScriptTimeZone(), 'HH:mm').split(':');
+  var currentMinutes = Number(timeParts[0] || 0) * 60 + Number(timeParts[1] || 0);
+  return currentMinutes >= timeToMinutes_(DEFAULT_WORK_END_TIME_);
+}
+
+function buildReminderMarkerKey_(prefix, dateStr, userId) {
+  return String(prefix || '') + String(dateStr || '').replace(/[^0-9]/g, '') + '_' + String(userId || '').replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+function formatReminderTimeValue_(value) {
+  var normalized = normalizeTimeForCompare_(value);
+  var match = String(normalized || '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) {
+    return String(serializeCellValue_(value) || '').trim() || '-';
+  }
+
+  var hour = Number(match[1]);
+  var minute = Number(match[2]);
+  var suffix = hour >= 12 ? 'PM' : 'AM';
+  var displayHour = hour % 12;
+  if (displayHour === 0) {
+    displayHour = 12;
+  }
+
+  return displayHour + ':' + String(minute).padStart(2, '0') + ' ' + suffix;
+}
+
+function buildHashDeepLinkUrl_(path) {
+  var baseUrl = getAppBaseUrl_();
+  if (!baseUrl) {
+    return '';
+  }
+
+  var cleanPath = String(path || '/').trim();
+  if (cleanPath.charAt(0) !== '/') {
+    cleanPath = '/' + cleanPath;
+  }
+
+  return baseUrl + '#' + cleanPath;
+}
+
+function buildInternTimeLogReminderText_(user, session, todayISOStr, deepLinkUrl) {
+  var lines = [
+    'Hi ' + String(user.full_name || 'Student') + ',',
+    '',
+    'This is a reminder that you are still logged in after 5:00 PM for today (' + todayISOStr + ').',
+    'Time In: ' + String(session.time_in || '-'),
+    '',
+    'Please log out if your shift has ended so your time records stay accurate.'
+  ];
+
+  if (deepLinkUrl) {
+    lines.push('');
+    lines.push('Open Time Log: ' + deepLinkUrl);
+  }
+
+  lines.push('');
+  lines.push('Internship Management System');
+  return lines.join('\n');
+}
+
+function buildInternTimeLogReminderHtml_(user, session, todayISOStr, deepLinkUrl) {
+  var actionBlock = deepLinkUrl
+    ? '<a href="' + deepLinkUrl + '" style="display:inline-block;margin-top:14px;padding:10px 16px;background:#0f6cbd;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">Open Time Log</a>'
+    : '<p style="margin:14px 0 0;color:#64748b;font-size:13px;">Open the IMS app and go to Time Log.</p>';
+
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 10px;">Hi ' + escapeHtml_(user.full_name || 'Student') + ',</p>',
+    '<p style="margin:0 0 12px;">This is a reminder that you are still logged in after 5:00 PM for today.</p>',
+    '<table style="border-collapse:collapse;min-width:260px;">',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Date</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(todayISOStr) + '</td></tr>',
+    '<tr><td style="padding:6px 0;color:#475569;font-weight:600;">Time In</td><td style="padding:6px 0;color:#0f172a;">' + escapeHtml_(session.time_in || '-') + '</td></tr>',
+    '</table>',
+    '<p style="margin:12px 0 0;">Please log out if your shift has ended so your time records stay accurate.</p>',
+    actionBlock,
+    '</div>'
+  ].join('');
+}
+
+function sendInternTimeLogReminderEmail_(user, session, todayISOStr) {
+  var email = normalizeEmail_(user && user.email);
+  if (!email) {
+    return false;
+  }
+
+  var deepLinkUrl = buildHashDeepLinkUrl_('/time-log');
+  MailApp.sendEmail(
+    email,
+    'IMS Time Log Reminder',
+    buildInternTimeLogReminderText_(user, session, todayISOStr, deepLinkUrl),
+    {
+      htmlBody: buildInternTimeLogReminderHtml_(user, session, todayISOStr, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
+
+  return true;
+}
+
+function buildSupervisorInactiveStudentsReminderText_(supervisor, entries, todayISOStr, deepLinkUrl) {
+  var lines = [
+    'Hi ' + String(supervisor.full_name || 'Supervisor') + ',',
+    '',
+    'The following assigned intern(s) are still logged in after 5:00 PM today (' + todayISOStr + '):',
+    ''
+  ];
+
+  for (var i = 0; i < entries.length; i++) {
+    lines.push('- ' + String(entries[i].student.full_name || entries[i].student.user_id || 'Student') + ' | Time In: ' + String(entries[i].session.time_in || '-'));
+  }
+
+  if (deepLinkUrl) {
+    lines.push('');
+    lines.push('Open Supervisor Time Logs: ' + deepLinkUrl);
+  }
+
+  lines.push('');
+  lines.push('Internship Management System');
+  return lines.join('\n');
+}
+
+function buildSupervisorInactiveStudentsReminderHtml_(supervisor, entries, todayISOStr, deepLinkUrl) {
+  var rows = [];
+  for (var i = 0; i < entries.length; i++) {
+    rows.push(
+      '<tr>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;color:#0f172a;">' + escapeHtml_(entries[i].student.full_name || entries[i].student.user_id || 'Student') + '</td>' +
+      '<td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;color:#0f172a;">' + escapeHtml_(entries[i].session.time_in || '-') + '</td>' +
+      '</tr>'
+    );
+  }
+
+  var actionBlock = deepLinkUrl
+    ? '<a href="' + deepLinkUrl + '" style="display:inline-block;margin-top:14px;padding:10px 16px;background:#0f6cbd;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">Open Supervisor Time Logs</a>'
+    : '<p style="margin:14px 0 0;color:#64748b;font-size:13px;">Open the IMS app and go to Supervisor Time Logs.</p>';
+
+  return [
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.45">',
+    '<h2 style="margin:0 0 12px;color:#1d4ed8;">Internship Management System</h2>',
+    '<p style="margin:0 0 10px;">Hi ' + escapeHtml_(supervisor.full_name || 'Supervisor') + ',</p>',
+    '<p style="margin:0 0 12px;">The following assigned intern(s) are still logged in after 5:00 PM today (' + escapeHtml_(todayISOStr) + '):</p>',
+    '<table style="border-collapse:collapse;min-width:320px;border:1px solid #e2e8f0;">',
+    '<thead><tr><th style="padding:8px 10px;background:#f8fafc;color:#475569;text-align:left;">Intern</th><th style="padding:8px 10px;background:#f8fafc;color:#475569;text-align:left;">Time In</th></tr></thead>',
+    '<tbody>',
+    rows.join(''),
+    '</tbody>',
+    '</table>',
+    actionBlock,
+    '</div>'
+  ].join('');
+}
+
+function sendSupervisorInactiveStudentsReminderEmail_(supervisor, entries, todayISOStr) {
+  var email = normalizeEmail_(supervisor && supervisor.email);
+  if (!email || !entries || !entries.length) {
+    return false;
+  }
+
+  var deepLinkUrl = buildHashDeepLinkUrl_('/supervisor/time-logs');
+  var count = entries.length;
+  var subject = 'IMS 5 PM Logout Reminder - ' + count + ' intern' + (count === 1 ? '' : 's') + ' still logged in';
+
+  MailApp.sendEmail(
+    email,
+    subject,
+    buildSupervisorInactiveStudentsReminderText_(supervisor, entries, todayISOStr, deepLinkUrl),
+    {
+      htmlBody: buildSupervisorInactiveStudentsReminderHtml_(supervisor, entries, todayISOStr, deepLinkUrl),
+      name: 'IMS'
+    }
+  );
+
+  return true;
+}
+
+function sendDailyTimeLogRemindersLegacy_() {
   if (isTimeLogsBackendDisabled_()) {
     return;
   }

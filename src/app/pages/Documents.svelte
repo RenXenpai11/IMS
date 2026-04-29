@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2 } from 'lucide-svelte';
+  import { Upload, Link2, Folder, FolderOpen, FileText, Download, Trash2, Eye, Plus, Search, Share2, Copy, X, Check, ChevronRight, Loader2, Files } from 'lucide-svelte';
   import * as authApi from '../lib/auth.js';
 
   // Folder structure
@@ -737,23 +737,43 @@
       <div class="skeleton skeleton-table-panel"></div>
     {:else}
       <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-label">Group Folders</div>
+        <div class="stat-card stat-card--folders">
+          <div class="stat-head">
+            <div class="stat-label">Group Folders</div>
+            <div class="stat-icon" aria-hidden="true">
+              <FolderOpen size={16} />
+            </div>
+          </div>
           <div class="stat-value">{folderStructure.root.subfolders.length}</div>
           <div class="stat-sub">Organized categories</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Group Documents</div>
+        <div class="stat-card stat-card--documents">
+          <div class="stat-head">
+            <div class="stat-label">Group Documents</div>
+            <div class="stat-icon" aria-hidden="true">
+              <FileText size={16} />
+            </div>
+          </div>
           <div class="stat-value">{documents.filter((doc) => !doc.isLink).length}</div>
           <div class="stat-sub">Files uploaded</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Group Links</div>
+        <div class="stat-card stat-card--links">
+          <div class="stat-head">
+            <div class="stat-label">Group Links</div>
+            <div class="stat-icon" aria-hidden="true">
+              <Link2 size={16} />
+            </div>
+          </div>
           <div class="stat-value">{documents.filter((doc) => doc.isLink).length}</div>
           <div class="stat-sub">External references</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Items</div>
+        <div class="stat-card stat-card--total">
+          <div class="stat-head">
+            <div class="stat-label">Total Items</div>
+            <div class="stat-icon" aria-hidden="true">
+              <Files size={16} />
+            </div>
+          </div>
           <div class="stat-value">{documents.length}</div>
           <div class="stat-sub">Across all group folders</div>
         </div>
@@ -2610,25 +2630,69 @@
     background: rgba(255, 255, 255, 0.07);
   }
 
+  .stat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .stat-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .stat-card--folders .stat-icon {
+    color: #60a5fa;
+    border-color: rgba(96, 165, 250, 0.46);
+    background: rgba(59, 130, 246, 0.18);
+  }
+
+  .stat-card--documents .stat-icon {
+    color: #34d399;
+    border-color: rgba(52, 211, 153, 0.46);
+    background: rgba(16, 185, 129, 0.18);
+  }
+
+  .stat-card--links .stat-icon {
+    color: #a78bfa;
+    border-color: rgba(167, 139, 250, 0.46);
+    background: rgba(139, 92, 246, 0.18);
+  }
+
+  .stat-card--total .stat-icon {
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.46);
+    background: rgba(245, 158, 11, 0.18);
+  }
+
   .stat-label {
     font-size: 11px;
     font-weight: 500;
-    color: #475569;
+    color: #ffffff;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    margin-bottom: 6px;
   }
 
   .stat-value {
     font-size: 22px;
     font-weight: 600;
-    color: #f1f5f9;
+    color: #ffffff;
     line-height: 1.1;
   }
 
   .stat-sub {
     font-size: 12px;
-    color: #475569;
+    color: #e2e8f0;
     margin-top: 3px;
   }
 
@@ -3138,8 +3202,6 @@
   }
 
   :global(html:not(.dark)) .page-subtitle,
-  :global(html:not(.dark)) .stat-label,
-  :global(html:not(.dark)) .stat-sub,
   :global(html:not(.dark)) .folder-count,
   :global(html:not(.dark)) .chip,
   :global(html:not(.dark)) .docs-count,
@@ -3170,6 +3232,8 @@
   }
 
   :global(html:not(.dark)) .stat-value,
+  :global(html:not(.dark)) .stat-label,
+  :global(html:not(.dark)) .stat-sub,
   :global(html:not(.dark)) .folder-name,
   :global(html:not(.dark)) .docs-panel-title,
   :global(html:not(.dark)) .file-name,
@@ -3180,6 +3244,36 @@
   :global(html:not(.dark)) .share-email,
   :global(html:not(.dark)) .shares-list h3 {
     color: #0f172a;
+  }
+
+  :global(html:not(.dark)) .stat-icon {
+    color: #0f172a;
+    border-color: #d8e2ef;
+    background: #eef5fc;
+  }
+
+  :global(html:not(.dark)) .stat-card--folders .stat-icon {
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+    background: #dbeafe;
+  }
+
+  :global(html:not(.dark)) .stat-card--documents .stat-icon {
+    color: #047857;
+    border-color: #a7f3d0;
+    background: #d1fae5;
+  }
+
+  :global(html:not(.dark)) .stat-card--links .stat-icon {
+    color: #6d28d9;
+    border-color: #ddd6fe;
+    background: #ede9fe;
+  }
+
+  :global(html:not(.dark)) .stat-card--total .stat-icon {
+    color: #b45309;
+    border-color: #fde68a;
+    background: #fef3c7;
   }
 
   :global(html:not(.dark)) .search-input,
