@@ -192,6 +192,29 @@ function handleUpdateProjIntern_(payload) {
   return { ok: false, error: 'Project not found: ' + projId };
 }
 
+// ── Restore an archived project (set status back to Not Started) ─────────────
+
+function handleRestoreProjIntern_(payload) {
+  var projId = String(payload.proj_id || '').trim();
+  var userId = String(payload.user_id || '').trim();
+  if (!projId) return { ok: false, error: 'proj_id is required.' };
+  if (!userId) return { ok: false, error: 'user_id is required.' };
+
+  var sheet = projInternSheet_();
+  var data  = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() === projId) {
+      var restoredStatus = 'Not Started';
+      sheet.getRange(i + 1, 4).setValue(restoredStatus);
+      sheet.getRange(i + 1, 12).setValue(userId);
+      return { ok: true, proj_id: projId, status: restoredStatus };
+    }
+  }
+
+  return { ok: false, error: 'Project not found: ' + projId };
+}
+
 // ── Delete a project ─────────────────────────────────────────────────────────
 
 function handleDeleteProjIntern_(payload) {
@@ -537,4 +560,79 @@ function handleDeleteFeedback_(payload) {
     if (String(data[i][0] || '').trim() === id) { sheet.deleteRow(i + 1); return { ok: true, feedback_id: id }; }
   }
   return { ok: false, error: 'Feedback not found: ' + id };
+}
+
+// ── Overview: Recent Activity aggregation ─────────────────────────────────────
+// Returns recent feedback comments + recently created milestones for all of the
+// user's projects, sorted by created_at descending (max 15 items).
+function handleGetProjRecentActivity_(payload) {
+  var userId = String(payload.user_id || '').trim();
+  if (!userId) return { ok: false, error: 'user_id is required.' };
+
+  // 1. Gather all project IDs belonging to this user
+  var projResult = handleListProjIntern_({ user_id: userId });
+  if (!projResult.ok || !projResult.projects || !projResult.projects.length) {
+    return { ok: true, activities: [] };
+  }
+
+  var projIdSet = {};
+  var projNameMap = {};
+  (projResult.projects || []).forEach(function(p) {
+    var pid = String(p.proj_id || '');
+    if (pid) {
+      projIdSet[pid]   = true;
+      projNameMap[pid] = String(p.proj_name || '');
+    }
+  });
+
+  var activities = [];
+
+  // 2. Collect recent root feedback comments across those projects
+  try {
+    var fbSheet = feedbackSheet_();
+    var fbData  = fbSheet.getDataRange().getValues();
+    for (var i = 1; i < fbData.length; i++) {
+      var row = fbData[i];
+      if (!String(row[0] || '').trim()) continue;
+      var rowProjId = String(row[1] || '').trim();
+      if (!projIdSet[rowProjId]) continue;
+      // row[2] = parent_id — skip replies to keep feed concise
+      if (String(row[2] || '').trim()) continue;
+      activities.push({
+        type:       'feedback',
+        proj_id:    rowProjId,
+        proj_name:  projNameMap[rowProjId] || '',
+        text:       String(row[5] || ''),
+        role:       String(row[4] || ''),
+        created_at: String(row[6] || '')
+      });
+    }
+  } catch (fbErr) { /* ignore read errors gracefully */ }
+
+  // 3. Collect recently created milestones across those projects
+  try {
+    var msSheet = milestoneSheet_();
+    var msData  = msSheet.getDataRange().getValues();
+    for (var j = 1; j < msData.length; j++) {
+      var msRow = msData[j];
+      if (!String(msRow[0] || '').trim()) continue;
+      var msProjId = String(msRow[1] || '').trim();
+      if (!projIdSet[msProjId]) continue;
+      activities.push({
+        type:       'milestone',
+        proj_id:    msProjId,
+        proj_name:  projNameMap[msProjId] || '',
+        text:       String(msRow[2] || ''),
+        status:     String(msRow[3] || 'Not Started'),
+        created_at: String(msRow[6] || '')
+      });
+    }
+  } catch (msErr) { /* ignore read errors gracefully */ }
+
+  // 4. Sort newest-first, cap at 15
+  activities.sort(function(a, b) {
+    return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+  });
+
+  return { ok: true, activities: activities.slice(0, 15) };
 }
