@@ -1185,12 +1185,103 @@
   <!-- My Requests Tab -->
   {#if activeTab === "my-requests"}
     <div class="requests-section">
+      <!-- Filter Pills -->
+      <div class="filter-row">
+        <div class="filter-chips">
+          <button
+            class="filter-chip"
+            class:active={requestFilter === "all"}
+            on:click={() => (requestFilter = "all")}
+          >
+            All
+          </button>
+          <button
+            class="filter-chip"
+            class:active={requestFilter === "absence"}
+            on:click={() => (requestFilter = "absence")}
+          >
+            <Calendar size={14} /> Absence
+          </button>
+          <button
+            class="filter-chip"
+            class:active={requestFilter === "overtime"}
+            on:click={() => (requestFilter = "overtime")}
+          >
+            <Clock3 size={14} /> Overtime
+          </button>
+          <button
+            class="filter-chip"
+            class:active={requestFilter === "archive"}
+            on:click={() => (requestFilter = "archive")}
+          >
+            <FileText size={14} /> Archive
+          </button>
+        </div>
+        <div class="bulk-action-buttons">
+          {#if isLoading}
+            <button class="select-btn" type="button" disabled>Select</button>
+          {:else if showBulkActions}
+            <button class="cancel-btn" on:click={() => { showBulkActions = false; selectedRequests.clear(); selectAllChecked = false; selectedRequests = new Set(selectedRequests); }}>
+              Cancel
+            </button>
+            {#if selectedEligibleCount > 0}
+              {#if requestFilter === "archive"}
+                <button class="recover-btn" on:click={recoverSelectedRequests} disabled={isArchiving}>
+                  {#if isArchiving}
+                    <span class="spinning-icon"><Loader2 size={14} /></span>
+                    Recovering...
+                  {:else}
+                    ↻ Recover ({selectedEligibleCount})
+                  {/if}
+                </button>
+              {:else if hasArchivableRequests()}
+                <button class="archive-btn" on:click={archiveSelectedRequests} disabled={isArchiving}>
+                  {#if isArchiving}
+                    <span class="spinning-icon"><Loader2 size={14} /></span>
+                    Archiving...
+                  {:else}
+                    Archive ({selectedEligibleCount})
+                  {/if}
+                </button>
+              {/if}
+            {/if}
+          {:else}
+            <button class="select-btn" on:click={() => { showBulkActions = true; }}>
+              Select
+            </button>
+          {/if}
+        </div>
+      </div>
+
       {#if isLoading}
-        <div class="empty-requests loading-requests-state">
-          <div class="empty-icon loading-empty-icon">
-            <span class="spinning-icon"><Loader2 size={22} /></span>
-          </div>
-          <div class="empty-text">Loading requests...</div>
+        <div class="requests-list requests-list-skeleton">
+          {#each [1, 2, 3, 4] as _}
+            <div class="request-card request-card-skeleton">
+              <div class="request-card-content">
+                <div class="request-card-header">
+                  <div class="req-skeleton shimmer" style="height: 24px; width: 110px; border-radius: 999px;"></div>
+                  <div class="request-info-inline">
+                    <span class="req-skeleton shimmer" style="height: 12px; width: 120px;"></span>
+                    <span class="req-skeleton shimmer" style="height: 12px; width: 140px;"></span>
+                    <span class="req-skeleton shimmer" style="height: 12px; width: 90px;"></span>
+                  </div>
+                  <span class="req-skeleton shimmer" style="height: 22px; width: 84px; border-radius: 999px;"></span>
+                </div>
+                <div class="req-reason-block">
+                  <div class="req-reason-header">
+                    <div style="width: 100%;">
+                      <div class="req-skeleton shimmer" style="height: 11px; width: 60px; margin-bottom: 8px;"></div>
+                      <div class="req-skeleton shimmer" style="height: 12px; width: 100%;"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="req-card-footer">
+                <span class="req-skeleton shimmer" style="height: 28px; width: 84px; border-radius: 8px;"></span>
+                <span class="req-skeleton shimmer" style="height: 28px; width: 84px; border-radius: 8px;"></span>
+              </div>
+            </div>
+          {/each}
         </div>
       {:else if requests.length === 0}
         <div class="empty-requests">
@@ -1200,219 +1291,150 @@
             Submitted requests will appear here once created.
           </div>
         </div>
-      {:else}
-        <!-- Filter Pills -->
-        <div class="filter-row">
-          <div class="filter-chips">
-            <button
-              class="filter-chip"
-              class:active={requestFilter === "all"}
-              on:click={() => (requestFilter = "all")}
-            >
-              All
-            </button>
-            <button
-              class="filter-chip"
-              class:active={requestFilter === "absence"}
-              on:click={() => (requestFilter = "absence")}
-            >
-              <Calendar size={14} /> Absence
-            </button>
-            <button
-              class="filter-chip"
-              class:active={requestFilter === "overtime"}
-              on:click={() => (requestFilter = "overtime")}
-            >
-              <Clock3 size={14} /> Overtime
-            </button>
-            <button
-              class="filter-chip"
-              class:active={requestFilter === "archive"}
-              on:click={() => (requestFilter = "archive")}
-            >
-              <FileText size={14} /> Archive
-            </button>
-          </div>
-          <div class="bulk-action-buttons">
-            {#if showBulkActions}
-              <button class="cancel-btn" on:click={() => { showBulkActions = false; selectedRequests.clear(); selectAllChecked = false; selectedRequests = new Set(selectedRequests); }}>
-                Cancel
-              </button>
-              {#if selectedEligibleCount > 0}
-                {#if requestFilter === "archive"}
-                  <button class="recover-btn" on:click={recoverSelectedRequests} disabled={isArchiving}>
-                    {#if isArchiving}
-                      <span class="spinning-icon"><Loader2 size={14} /></span>
-                      Recovering...
-                    {:else}
-                      ↻ Recover ({selectedEligibleCount})
-                    {/if}
-                  </button>
-                {:else if hasArchivableRequests()}
-                  <button class="archive-btn" on:click={archiveSelectedRequests} disabled={isArchiving}>
-                    {#if isArchiving}
-                      <span class="spinning-icon"><Loader2 size={14} /></span>
-                      Archiving...
-                    {:else}
-                      Archive ({selectedEligibleCount})
-                    {/if}
-                  </button>
-                {/if}
-              {/if}
-            {:else}
-              <button class="select-btn" on:click={() => { showBulkActions = true; }}>
-                Select
-              </button>
-            {/if}
-          </div>
+      {:else if filteredRequests.length === 0}
+        <div class="empty-requests">
+          <div class="empty-icon"><FileText size={22} /></div>
+          <div class="empty-text">No requests match the selected filter.</div>
         </div>
+      {:else}
+        <div class="requests-list">
+          {#if showBulkActions && selectableFilteredRequests.length > 0}
+            <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
+              <input
+                type="checkbox"
+                bind:checked={selectAllChecked}
+                on:change={toggleSelectAll}
+                on:click={(e) => e.stopPropagation()}
+                class="select-all-checkbox"
+              />
+              <span>Select All</span>
+            </div>
+          {/if}
 
-        {#if filteredRequests.length === 0}
-          <div class="empty-requests">
-            <div class="empty-icon"><FileText size={22} /></div>
-            <div class="empty-text">No requests match the selected filter.</div>
-          </div>
-        {:else}
-          <div class="requests-list">
-            {#if showBulkActions && selectableFilteredRequests.length > 0}
-              <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
-                <input 
-                  type="checkbox" 
-                  bind:checked={selectAllChecked}
-                  on:change={toggleSelectAll}
-                  on:click={(e) => e.stopPropagation()}
-                  class="select-all-checkbox"
-                />
-                <span>Select All</span>
-              </div>
-            {/if}
+          {#each filteredRequests as request (request.id)}
+            {@const statusMeta =
+              STATUS_META[request.status] ?? STATUS_META.Pending}
+            {@const statusTone = String(
+              request.status || "Pending",
+            ).toLowerCase()}
+            <div
+              id={`request-card-${request.id}`}
+              class="request-card"
+              class:request-card-focused={highlightedRequestId === request.id}
+              class:request-card-pending={statusTone === "pending"}
+              class:request-card-approved={statusTone === "approved"}
+              class:request-card-rejected={statusTone === "rejected"}
+              class:request-card-selected={selectedRequests.has(getRequestId(request))}
+              on:click={() => { if (showBulkActions) toggleRequestSelection(request); }}
+              role={showBulkActions ? "button" : "article"}
+              tabindex={showBulkActions ? 0 : -1}
+            >
+              {#if showBulkActions && isSelectableRequest(request)}
+                <div class="request-card-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={selectedRequests.has(getRequestId(request))}
+                    on:change={() => toggleRequestSelection(request)}
+                    on:click={(e) => e.stopPropagation()}
+                    class="request-checkbox"
+                  />
+                </div>
+              {/if}
 
-            {#each filteredRequests as request (request.id)}
-              {@const statusMeta =
-                STATUS_META[request.status] ?? STATUS_META.Pending}
-              {@const statusTone = String(
-                request.status || "Pending",
-              ).toLowerCase()}
-              <div
-                id={`request-card-${request.id}`}
-                class="request-card"
-                class:request-card-focused={highlightedRequestId === request.id}
-                class:request-card-pending={statusTone === "pending"}
-                class:request-card-approved={statusTone === "approved"}
-                class:request-card-rejected={statusTone === "rejected"}
-                class:request-card-selected={selectedRequests.has(getRequestId(request))}
-                on:click={() => { if (showBulkActions) toggleRequestSelection(request); }}
-                role={showBulkActions ? "button" : "article"}
-                tabindex={showBulkActions ? 0 : -1}
-              >
-                {#if showBulkActions && isSelectableRequest(request)}
-                  <div class="request-card-checkbox">
-                    <input 
-                      type="checkbox" 
-                      checked={selectedRequests.has(getRequestId(request))}
-                      on:change={() => toggleRequestSelection(request)}
-                      on:click={(e) => e.stopPropagation()}
-                      class="request-checkbox"
-                    />
+              <div class="request-card-content">
+                <div class="request-card-header">
+                  <div class="request-type-badge">
+                    {#if request.requestType === "Overtime"}
+                      <Clock3 size={14} /> Overtime
+                    {:else}
+                      <Calendar size={14} /> Absence
+                    {/if}
                   </div>
-                {/if}
-                
-                <div class="request-card-content">
-                  <div class="request-card-header">
-                    <div class="request-type-badge">
-                      {#if request.requestType === "Overtime"}
-                        <Clock3 size={14} /> Overtime
-                      {:else}
-                        <Calendar size={14} /> Absence
-                      {/if}
-                    </div>
-                    <div class="request-info-inline">
+                  <div class="request-info-inline">
+                    <span class="request-info-item">
+                      <span class="info-label">For:</span>
+                      <span class="info-value">{formatDate(request.date)}</span>
+                    </span>
+                    {#if request.requestType === "Overtime" && request.start_time && request.end_time}
                       <span class="request-info-item">
-                        <span class="info-label">For:</span>
-                        <span class="info-value">{formatDate(request.date)}</span>
+                        <span class="info-label">Time:</span>
+                        <span class="info-value">
+                          {formatTime(request.start_time)} - {formatTime(request.end_time)}
+                        </span>
                       </span>
-                      {#if request.requestType === "Overtime" && request.start_time && request.end_time}
-                        <span class="request-info-item">
-                          <span class="info-label">Time:</span>
-                          <span class="info-value">
-                            {formatTime(request.start_time)} - {formatTime(request.end_time)}
-                          </span>
+                    {/if}
+                    {#if request.created_at}
+                      <span class="request-info-item">
+                        <span class="info-label">Submitted:</span>
+                        <span class="info-value">
+                          {formatCreatedDate(request.created_at)}
+                          {#if request.requestType === "Overtime" && request.total_hours}
+                            <span class="duration-badge">({formatOvertimeDisplay(request.total_hours)})</span>
+                          {/if}
                         </span>
-                      {/if}
-                      {#if request.created_at}
-                        <span class="request-info-item">
-                          <span class="info-label">Submitted:</span>
-                          <span class="info-value">
-                            {formatCreatedDate(request.created_at)}
-                            {#if request.requestType === "Overtime" && request.total_hours}
-                              <span class="duration-badge">({formatOvertimeDisplay(request.total_hours)})</span>
-                            {/if}
-                          </span>
-                        </span>
-                      {/if}
-                      {#if isSupervisor}
-                        <span class="request-info-item">
-                          <span class="info-label">Requester:</span>
-                          <span class="info-value">{request.requester_name || "Unknown"}</span>
-                        </span>
-                      {/if}
-                    </div>
-                    <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
+                      </span>
+                    {/if}
+                    {#if isSupervisor}
+                      <span class="request-info-item">
+                        <span class="info-label">Requester:</span>
+                        <span class="info-value">{request.requester_name || "Unknown"}</span>
+                      </span>
+                    {/if}
                   </div>
-
-                  <div class="req-reason-block">
-                    <div class="req-reason-header">
-                      <div>
-                        <div class="req-reason-label">Reason</div>
-                        <p class="req-reason-text">{previewReason(request.reason)}</p>
-                      </div>
-                    </div>
-                  </div>
+                  <span class={statusMeta.badgeClass}>{request.status || "Pending"}</span>
                 </div>
 
-                <div class="req-card-footer">
-                  {#if isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
-                    <button
-                      class="action-btn approve"
-                      disabled={approvingRequestId === request.id}
-                      on:click={() =>
-                        updateRequestStatus(request.id, "Approved")}
-                    >
-                      {#if approvingRequestId === request.id}
-                        <Loader2 size={13} class="spin" /> Approving...
-                      {:else}
-                        <CheckCircle size={13} /> Approve
-                      {/if}
-                    </button>
-                    <button
-                      class="btn-reject"
-                      on:click={() => openRejectModal(request)}
-                    >
-                      <XCircle size={12} /> Reject
-                    </button>
-                  {:else if !isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
-                    <button
-                      class="btn-edit"
-                      on:click={() => editRequest(request)}
-                    >
-                      <Pencil size={12} /> Edit
-                    </button>
-                    <button
-                      class="btn-delete"
-                      on:click={() => openDeleteModal(request)}
-                    >
-                      <Trash2 size={12} /> Delete
-                    </button>
-                  {/if}
+                <div class="req-reason-block">
+                  <div class="req-reason-header">
+                    <div>
+                      <div class="req-reason-label">Reason</div>
+                      <p class="req-reason-text">{previewReason(request.reason)}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            {/each}
-          </div>
-        {/if}
+
+              <div class="req-card-footer">
+                {#if isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
+                  <button
+                    class="action-btn approve"
+                    disabled={approvingRequestId === request.id}
+                    on:click={() =>
+                      updateRequestStatus(request.id, "Approved")}
+                  >
+                    {#if approvingRequestId === request.id}
+                      <Loader2 size={13} class="spin" /> Approving...
+                    {:else}
+                      <CheckCircle size={13} /> Approve
+                    {/if}
+                  </button>
+                  <button
+                    class="btn-reject"
+                    on:click={() => openRejectModal(request)}
+                  >
+                    <XCircle size={12} /> Reject
+                  </button>
+                {:else if !isSupervisor && request.status === "Pending" && String(request?.status || "").toLowerCase() !== "archived"}
+                  <button
+                    class="btn-edit"
+                    on:click={() => editRequest(request)}
+                  >
+                    <Pencil size={12} /> Edit
+                  </button>
+                  <button
+                    class="btn-delete"
+                    on:click={() => openDeleteModal(request)}
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
       {/if}
     </div>
   {/if}
-
   <!-- Create Request Tab -->
   {#if activeTab === "create-request" && !isSupervisor}
     <div class="panel">
@@ -2154,6 +2176,15 @@
     color: white;
     border-color: var(--accent);
   }
+  .select-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .select-btn:disabled:hover {
+    background: var(--surface2);
+    color: var(--text2);
+    border-color: var(--border);
+  }
 
   /* ========== REQUEST CARDS ========== */
   .requests-list {
@@ -2161,6 +2192,46 @@
     flex-direction: column;
     gap: 0;
     padding: 12px;
+  }
+  .req-skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 6px;
+  }
+  :global(body.dark) .req-skeleton {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.35) 25%,
+      rgba(255, 255, 255, 0.65) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    animation: reqShimmer 1.4s infinite;
+  }
+  :global(body.dark) .shimmer::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.06) 25%,
+      rgba(255, 255, 255, 0.16) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  }
+  @keyframes reqShimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  .request-card-skeleton::before {
+    display: none;
   }
   .req-card {
     background: var(--surface);

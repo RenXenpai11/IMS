@@ -788,20 +788,37 @@
 
     <div class="tl-three-col">
       <div class="tl-card skeleton-card">
+        <div class="skeleton-text" style="width: 110px; height: 14px;"></div>
+        <div class="skeleton-text" style="width: 90px; height: 12px; margin-top: 4px;"></div>
+        <div class="skeleton-field"></div>
+        <div class="skeleton-text" style="width: 90px; height: 12px;"></div>
+        <div class="skeleton-field"></div>
+        <div class="skeleton-text" style="width: 70px; height: 12px;"></div>
+        <div class="skeleton-field"></div>
+      </div>
+      <div class="tl-card skeleton-card">
         <div class="skeleton-text" style="width: 100px; height: 14px;"></div>
         <div class="skeleton-field"></div>
         <div class="skeleton-field"></div>
         <div class="skeleton-btn"></div>
       </div>
       <div class="tl-card skeleton-card">
-        <div class="skeleton-text" style="width: 100px; height: 14px;"></div>
+        <div class="skeleton-text" style="width: 90px; height: 14px;"></div>
         <div class="skeleton-field"></div>
+        <div class="skeleton-text" style="width: 100%; height: 44px; border-radius: 10px;"></div>
         <div class="skeleton-btn"></div>
       </div>
-      <div class="tl-card skeleton-card">
-        <div class="skeleton-text" style="width: 120px; height: 14px;"></div>
-        <div class="skeleton-chart"></div>
+    </div>
+
+    <div class="tl-card skeleton-card">
+      <div class="tl-chart-header">
+        <div>
+          <div class="skeleton-text" style="width: 110px; height: 14px;"></div>
+          <div class="skeleton-text" style="width: 140px; height: 12px; margin-top: 6px;"></div>
+        </div>
+        <div class="skeleton-text" style="width: 72px; height: 24px; border-radius: 999px;"></div>
       </div>
+      <div class="skeleton-chart"></div>
     </div>
 
     <div class="tl-table-section skeleton-table">
@@ -936,7 +953,7 @@
         </div>
         <button class="tl-btn-primary" type="button" on:click={handleLogin} disabled={!canLogin || isLoggingIn}>
           {#if isLoggingIn}
-            <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+            <Loader2 size={14} class="tl-spin" />
             Logging In...
           {:else}
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -985,7 +1002,7 @@
 
         <button class="tl-btn-danger" class:tl-btn-disabled={!canLogout || isLoggingOut} type="button" on:click={handleLogout} disabled={!canLogout || isLoggingOut}>
           {#if isLoggingOut}
-            <span class="tl-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+            <Loader2 size={14} class="tl-spin" />
             Logging Out...
           {:else}
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>

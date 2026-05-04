@@ -1338,18 +1338,21 @@
     border-color: rgba(255, 255, 255, 0.06);
   }
 
-  .skeleton {
+  .skeleton,
+  .skeleton-text {
     position: relative;
     overflow: hidden;
     background: rgba(0, 0, 0, 0.08);
     border-radius: 6px;
   }
 
-  :global(.dark) .skeleton {
+  :global(.dark) .skeleton,
+  :global(.dark) .skeleton-text {
     background: rgba(255, 255, 255, 0.06);
   }
 
-  .skeleton::after {
+  .skeleton::after,
+  .skeleton-text::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -1364,7 +1367,8 @@
     animation: shimmer 1.5s infinite;
   }
 
-  :global(.dark) .skeleton::after {
+  :global(.dark) .skeleton::after,
+  :global(.dark) .skeleton-text::after {
     background-image: linear-gradient(
       90deg,
       rgba(255, 255, 255, 0) 0,
@@ -1375,13 +1379,7 @@
   }
 
   .skeleton-text {
-    background: rgba(0, 0, 0, 0.08);
-    border-radius: 6px;
     height: 1em;
-  }
-
-  :global(.dark) .skeleton-text {
-    background: rgba(255, 255, 255, 0.06);
   }
 
   .skeleton-icon { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; }

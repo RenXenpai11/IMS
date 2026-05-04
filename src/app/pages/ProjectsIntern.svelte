@@ -1604,12 +1604,7 @@
   <!-- ── MY PROJECTS TAB ─────────────────────────────────────────── -->
   {#if activeTab === 'my-projects'}
     {#if activeView === 'Overview'}
-      {#if isLoading}
-        <div class="empty-state">
-          <Loader2 size={22} class="spin" />
-          <span>Loading projects…</span>
-        </div>
-      {:else if projects.length === 0}
+      {#if !isLoading && projects.length === 0}
         <div class="empty-state">
           <FolderOpen size={32} />
           <div class="empty-title">No projects yet</div>
@@ -1624,7 +1619,17 @@
           <!-- Milestone Summary -->
           <section class="card ov-card">
             <div class="ov-card-title">Milestone Summary</div>
-            {#if overviewMilestoneRows.length === 0}
+            {#if isLoading}
+              <div class="ov-skeleton-list">
+                {#each [1, 2, 3, 4] as _}
+                  <div class="ov-skeleton-row">
+                    <div class="ov-skeleton shimmer" style="height: 11px; width: 120px;"></div>
+                    <div class="ov-skeleton shimmer" style="height: 8px; width: 100%; border-radius: 999px;"></div>
+                    <div class="ov-skeleton shimmer" style="height: 11px; width: 34px;"></div>
+                  </div>
+                {/each}
+              </div>
+            {:else if overviewMilestoneRows.length === 0}
               <div class="ov-empty">No milestone data yet.</div>
             {:else}
               <div class="ov-status-bars">
@@ -1650,7 +1655,20 @@
           <!-- Upcoming Deadlines -->
           <section class="card ov-card">
             <div class="ov-card-title">Upcoming Deadlines</div>
-            {#if upcomingDeadlines.length === 0}
+            {#if isLoading}
+              <div class="ov-skeleton-list">
+                {#each [1, 2, 3] as _}
+                  <div class="ov-skeleton-deadline-row">
+                    <div class="ov-skeleton shimmer" style="width: 10px; height: 10px; border-radius: 999px;"></div>
+                    <div class="ov-skeleton-deadline-info">
+                      <div class="ov-skeleton shimmer" style="height: 12px; width: 150px;"></div>
+                      <div class="ov-skeleton shimmer" style="height: 11px; width: 110px;"></div>
+                    </div>
+                    <div class="ov-skeleton shimmer" style="height: 20px; width: 76px; border-radius: 999px;"></div>
+                  </div>
+                {/each}
+              </div>
+            {:else if upcomingDeadlines.length === 0}
               <div class="ov-empty">No upcoming deadlines.</div>
             {:else}
               <div class="ov-deadline-list">
@@ -1680,7 +1698,27 @@
             <div class="ov-card-title">Your Projects</div>
             <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all →</button>
           </div>
-          {#if overviewSnippets.length === 0}
+          {#if isLoading}
+            <div class="ov-snippets-grid">
+              {#each [1, 2, 3] as _}
+                <div class="ov-snippet-card ov-snippet-skeleton">
+                  <div class="ov-snippet-top">
+                    <div class="ov-skeleton shimmer" style="height: 12px; width: 55%;"></div>
+                    <div class="ov-snippet-top-right">
+                      <div class="ov-skeleton shimmer" style="height: 20px; width: 82px; border-radius: 999px;"></div>
+                      <div class="ov-skeleton shimmer" style="height: 20px; width: 62px; border-radius: 999px;"></div>
+                    </div>
+                  </div>
+                  <div class="ov-skeleton shimmer" style="height: 8px; width: 100%; border-radius: 999px;"></div>
+                  <div class="ov-skeleton shimmer" style="height: 11px; width: 130px;"></div>
+                  <div class="ov-snippet-actions">
+                    <div class="ov-skeleton shimmer" style="height: 28px; width: 100%; border-radius: 8px;"></div>
+                    <div class="ov-skeleton shimmer" style="height: 28px; width: 100%; border-radius: 8px;"></div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {:else if overviewSnippets.length === 0}
             <div class="ov-empty">No active projects.</div>
           {:else}
             <div class="ov-snippets-grid">
@@ -1731,7 +1769,19 @@
                 {#if isLoadingActivity}<Loader2 size={13} class="spin" />{:else}↻{/if}
               </button>
             </div>
-          {#if isLoadingActivity}
+          {#if isLoading}
+            <div class="ov-activity-feed">
+              {#each [1, 2, 3, 4] as _}
+                <div class="ov-act-row">
+                  <div class="ov-skeleton shimmer" style="width: 28px; height: 28px; border-radius: 7px;"></div>
+                  <div class="ov-act-body">
+                    <div class="ov-skeleton shimmer" style="height: 12px; width: 70%;"></div>
+                    <div class="ov-skeleton shimmer" style="height: 11px; width: 45%;"></div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {:else if isLoadingActivity}
             <div class="ov-empty"><Loader2 size={14} class="spin" /> Loading activity…</div>
           {:else if overviewActivity.length === 0}
             <div class="ov-empty">No recent activity found.</div>
@@ -3535,6 +3585,75 @@
     display: flex; align-items: center; gap: 6px;
   }
 
+  .ov-skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgba(15, 23, 42, 0.09);
+    border-radius: 6px;
+  }
+
+  :global(body.dark) .ov-skeleton {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.35) 25%,
+      rgba(255, 255, 255, 0.65) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    animation: ovShimmer 1.4s infinite;
+  }
+
+  :global(body.dark) .shimmer::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.06) 25%,
+      rgba(255, 255, 255, 0.16) 60%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  }
+
+  @keyframes ovShimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .ov-skeleton-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .ov-skeleton-row {
+    display: grid;
+    grid-template-columns: 7.5rem 1fr 2.2rem;
+    gap: 0.65rem;
+    align-items: center;
+  }
+
+  .ov-skeleton-deadline-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .ov-skeleton-deadline-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
   /* ── Status breakdown bars ── */
   .ov-status-bars { display: flex; flex-direction: column; gap: 0.5rem; }
 
@@ -3766,3 +3885,4 @@
     padding: 0.3rem 0.6rem;
   }
 </style>
+
