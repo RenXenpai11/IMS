@@ -1267,8 +1267,8 @@
 			width: 100%;
 			min-height: 100dvh;
 			box-sizing: border-box;
-			padding: clamp(2rem, 7dvh, 3.5rem) 16px max(24px, env(safe-area-inset-bottom));
-			gap: clamp(1.5rem, 4dvh, 2.5rem);
+			padding: 48px 16px max(24px, env(safe-area-inset-bottom));
+			gap: clamp(32px, 7dvh, 56px);
 		}
 
 		.brand-panel {
@@ -1279,15 +1279,15 @@
 
 		.brand-panel h1 {
 			margin-top: 0;
-			font-size: clamp(28px, 7.6vw, 36px);
+			font-size: clamp(28px, 8vw, 38px);
 			line-height: 1.12;
 		}
 
 		.brand-panel p {
-			max-width: 360px;
+			max-width: 340px;
 			margin: 0.7rem auto 0;
-			font-size: 13.5px;
-			line-height: 1.55;
+			font-size: clamp(13px, 3.5vw, 15px);
+			line-height: 1.5;
 		}
 
 		.phase-pills {
@@ -1296,10 +1296,11 @@
 		}
 
 		.signup-card {
-			width: min(560px, calc(100vw - 32px));
-			max-width: 560px;
-			padding: 1rem;
+			width: calc(100vw - 32px);
+			max-width: 420px;
+			padding: 22px;
 			border-radius: 1rem;
+			margin: 0;
 		}
 
 		.signup-head h1 {
@@ -1314,6 +1315,12 @@
 			gap: 0.7rem;
 		}
 
+		input,
+		select {
+			height: 44px;
+			min-height: 44px;
+		}
+
 		.actions {
 			flex-direction: column;
 			align-items: stretch;
@@ -1323,6 +1330,7 @@
 		.secondary,
 		.text-btn {
 			width: 100%;
+			min-height: 44px;
 			justify-content: center;
 		}
 
@@ -1344,8 +1352,8 @@
 
 	@media (max-width: 640px) {
 		.signup-layout {
-			padding: clamp(1.75rem, 6dvh, 2.5rem) 16px max(24px, env(safe-area-inset-bottom));
-			gap: clamp(1.35rem, 3.5dvh, 2rem);
+			padding: 44px 16px max(24px, env(safe-area-inset-bottom));
+			gap: 32px;
 		}
 
 		.brand-panel {
@@ -1370,8 +1378,9 @@
 		}
 
 		.signup-card {
-			padding: 1rem;
-			width: min(100%, calc(100vw - 32px));
+			padding: 20px;
+			width: calc(100vw - 32px);
+			max-width: 420px;
 		}
 	}
 </style>

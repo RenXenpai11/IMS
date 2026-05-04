@@ -500,33 +500,34 @@
 			width: 100%;
 			min-height: 100dvh;
 			box-sizing: border-box;
-			padding: clamp(2rem, 7dvh, 3.5rem) 16px max(24px, env(safe-area-inset-bottom));
-			gap: clamp(1.75rem, 5dvh, 3rem);
+			padding: 48px 16px max(24px, env(safe-area-inset-bottom));
+			gap: clamp(32px, 7dvh, 56px);
 		}
 
 		.brand-panel {
 			text-align: center;
-			max-width: 380px;
+			max-width: 420px;
 			padding-inline: 0;
 		}
 
 		.brand-panel h1 {
 			margin-top: 0;
-			font-size: clamp(28px, 7.6vw, 36px);
+			font-size: clamp(28px, 8vw, 38px);
 			line-height: 1.12;
 		}
 
 		.brand-panel p {
 			max-width: 340px;
 			margin: 0.75rem auto 0;
-			font-size: 14px;
-			line-height: 1.55;
+			font-size: clamp(13px, 3.5vw, 15px);
+			line-height: 1.5;
 		}
 
 		.login-card {
-			width: min(420px, calc(100vw - 32px));
+			width: calc(100vw - 32px);
 			max-width: 420px;
 			padding: 22px;
+			margin: 0;
 		}
 
 		.card-head h2 {
@@ -543,6 +544,7 @@
 
 		input {
 			height: 44px;
+			min-height: 44px;
 		}
 
 		.login-btn {
@@ -561,8 +563,8 @@
 
 	@media (max-width: 640px) {
 		.page-content {
-			padding: clamp(1.75rem, 6dvh, 2.5rem) 16px max(24px, env(safe-area-inset-bottom));
-			gap: clamp(1.4rem, 4dvh, 2.25rem);
+			padding: 44px 16px max(24px, env(safe-area-inset-bottom));
+			gap: 32px;
 		}
 
 		.brand-panel h1 {
