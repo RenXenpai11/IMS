@@ -546,6 +546,10 @@
   function openAddProjectModal() {
     // If editingId is set we are opening modal to edit — keep form as-is.
     if (!editingId) resetForm();
+    showMembersPanel = false;
+    showSupervisorsPanel = false;
+    memberSearch = '';
+    supervisorSearch = '';
     showAddProjectModal = true;
     if (!usersLoading && users.length === 0) {
       void loadBootstrap();
@@ -554,6 +558,10 @@
 
   function closeAddProjectModal() {
     showAddProjectModal = false;
+    showMembersPanel = false;
+    showSupervisorsPanel = false;
+    memberSearch = '';
+    supervisorSearch = '';
     resetForm();
   }
 
@@ -616,6 +624,37 @@
     form.supervisor = list;
   }
 
+  function toggleMembersDropdown() {
+    showMembersPanel = !showMembersPanel;
+    if (showMembersPanel) {
+      showSupervisorsPanel = false;
+    }
+  }
+
+  function toggleSupervisorsDropdown() {
+    showSupervisorsPanel = !showSupervisorsPanel;
+    if (showSupervisorsPanel) {
+      showMembersPanel = false;
+    }
+  }
+
+  function filterAssignmentOptions(options, query) {
+    const needle = normalizeText(query);
+    if (!needle) return options;
+    return options.filter((option) => normalizeText(`${option.label} ${option.email || ''}`).includes(needle));
+  }
+
+  function handleModalPointerDown(event) {
+    if (!showAddProjectModal) return;
+    const target = event.target;
+    if (showMembersPanel && membersSelectEl && !membersSelectEl.contains(target)) {
+      showMembersPanel = false;
+    }
+    if (showSupervisorsPanel && supervisorsSelectEl && !supervisorsSelectEl.contains(target)) {
+      showSupervisorsPanel = false;
+    }
+  }
+
   // ── Folder-based Submissions ───────────────────────────────────────────────
   let expandedFolderIds  = new Set();
   let activeLinkFolderId = null;
@@ -625,6 +664,11 @@
   let renamingFolderName = '';
   let pendingUpload      = { projectId: null, folderId: null, file: null, name: '', type: 'Document' };
   let showMembersPanel   = false;
+  let memberSearch = '';
+  let supervisorSearch = '';
+  let membersSelectEl = null;
+  let supervisorsSelectEl = null;
+  const MAX_ASSIGNMENT_CHIPS = 3;
   let isLoadingFolders   = false;
   let isSavingFolder     = false;
   let isUploadingFile    = false;
@@ -1394,8 +1438,12 @@
     currentUser = getCurrentUser();
     loadBootstrap();
     unsubscribeAuth = subscribeToCurrentUser(u => { currentUser = u; loadBootstrap(); });
+    document.addEventListener('mousedown', handleModalPointerDown);
   });
-  onDestroy(() => { if (typeof unsubscribeAuth === 'function') unsubscribeAuth(); });
+  onDestroy(() => {
+    if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
+    document.removeEventListener('mousedown', handleModalPointerDown);
+  });
 
   // ── Derived ───────────────────────────────────────────────────────────────
   let lastAssignmentDebugKey = '';
@@ -1411,15 +1459,27 @@
   $: MEMBER_OPTIONS = availableInterns.map((user) => ({
     value: getUserId(user),
     label: getDisplayName(user),
+    email: user?.email || '',
     photoUrl: getProfilePhotoUrl(user),
     initials: getInitials(getDisplayName(user))
   })).filter((option) => option.value);
   $: SUPERVISOR_OPTIONS = availableSupervisors.map((user) => ({
     value: getUserId(user),
     label: getDisplayName(user),
+    email: user?.email || '',
     photoUrl: getProfilePhotoUrl(user),
     initials: getInitials(getDisplayName(user))
   })).filter((option) => option.value);
+  $: selectedMemberOptions = (form.members || []).map((id) => (
+    MEMBER_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id) }
+  ));
+  $: selectedSupervisorOptions = (form.supervisor || []).map((id) => (
+    SUPERVISOR_OPTIONS.find((option) => option.value === id) || { value: id, label: id, initials: getInitials(id) }
+  ));
+  $: memberChipList = selectedMemberOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
+  $: supervisorChipList = selectedSupervisorOptions.slice(0, MAX_ASSIGNMENT_CHIPS);
+  $: filteredMemberOptions = filterAssignmentOptions(MEMBER_OPTIONS, memberSearch);
+  $: filteredSupervisorOptions = filterAssignmentOptions(SUPERVISOR_OPTIONS, supervisorSearch);
   $: {
     const debugKey = [
       usersLoading,
@@ -2506,12 +2566,12 @@
   <div class="modal-overlay" on:click={closeAddProjectModal}>
     <div class="modal-box large" on:click|stopPropagation>
       <div class="modal-title">{editingId ? 'Edit Project' : 'Add New Project'}</div>
-
-      <div class="form-group">
+      <div class="modal-content">
+        <div class="form-group">
         <label class="form-label" for="proj-title">Project Title <span class="req">*</span></label>
         <input id="proj-title" type="text" class="form-input" bind:value={form.title}
           placeholder="e.g. ISOC PRISM" maxlength="120" />
-      </div>
+        </div>
 
       <div class="form-group">
         <label class="form-label" for="proj-desc">Description</label>
@@ -2521,62 +2581,106 @@
 
       <div class="form-group">
         <label class="form-label">Members</label>
-        <div class="members-input form-input" on:click={() => showMembersPanel = !showMembersPanel} role="button" tabindex="0">
-          <div>{(form.members && form.members.length) ? form.members.map(id => MEMBER_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select members'}</div>
-          <div class="muted">{(form.members || []).length}</div>
-        </div>
-        {#if showMembersPanel}
-          <div class="members-panel" style="margin-top:8px">
-            {#if usersLoading}
-              <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('intern')}</span>
-            {:else}
-              {#each MEMBER_OPTIONS as m}
-                <label class="members-item">
-                  <input type="checkbox" checked={(form.members || []).includes(m.value)} on:change={() => toggleMember(m.value)} />
-                  <span class="member-avatar" aria-hidden="true">
-                    {#if m.photoUrl}
-                      <img src={m.photoUrl} alt="" />
-                    {:else}
-                      <span>{m.initials}</span>
-                    {/if}
-                  </span>
-                  <span class="members-name">{m.label}</span>
-                </label>
-              {/each}
-              {#if MEMBER_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('intern')}</span>{/if}
-            {/if}
+        <div class="members-select" bind:this={membersSelectEl}>
+          <div class="members-input form-input" on:click={toggleMembersDropdown} role="button" tabindex="0" aria-expanded={showMembersPanel}>
+            <div class="members-value">
+              {#if (form.members || []).length === 0}
+                <span class="members-placeholder">Select members</span>
+              {:else if (form.members || []).length <= MAX_ASSIGNMENT_CHIPS}
+                <div class="members-chips">
+                  {#each memberChipList as m (m.value)}
+                    <span class="member-chip" title={m.label}>{m.label}</span>
+                  {/each}
+                </div>
+              {:else}
+                <span class="members-count-text">{(form.members || []).length} members selected</span>
+              {/if}
+            </div>
+            <div class="muted">{(form.members || []).length}</div>
           </div>
-        {/if}
+          {#if showMembersPanel}
+            <div class="members-panel members-panel-dropdown">
+              <div class="members-search">
+                <input class="members-search-input" type="text" placeholder="Search interns..." bind:value={memberSearch} />
+              </div>
+              <div class="members-list">
+                {#if usersLoading}
+                  <span class="members-empty">{assignmentEmptyMessage('intern')}</span>
+                {:else}
+                  {#if filteredMemberOptions.length}
+                    {#each filteredMemberOptions as m}
+                      <label class="members-item">
+                        <input type="checkbox" checked={(form.members || []).includes(m.value)} on:change={() => toggleMember(m.value)} />
+                        <span class="member-avatar" aria-hidden="true">
+                          {#if m.photoUrl}
+                            <img src={m.photoUrl} alt="" />
+                          {:else}
+                            <span>{m.initials}</span>
+                          {/if}
+                        </span>
+                        <span class="members-name">{m.label}</span>
+                      </label>
+                    {/each}
+                  {:else}
+                    <span class="members-empty">{memberSearch ? 'No matches found.' : assignmentEmptyMessage('intern')}</span>
+                  {/if}
+                {/if}
+              </div>
+            </div>
+          {/if}
+        </div>
       </div>
 
       <div class="form-group">
         <label class="form-label">Supervisor</label>
-        <div class="members-input form-input" on:click={() => showSupervisorsPanel = !showSupervisorsPanel} role="button" tabindex="0">
-          <div>{(form.supervisor && form.supervisor.length) ? form.supervisor.map(id => SUPERVISOR_OPTIONS.find(o => o.value === id)?.label || id).join(', ') : 'Select supervisor(s)'}</div>
-          <div class="muted">{(form.supervisor || []).length}</div>
-        </div>
-        {#if showSupervisorsPanel}
-          <div class="members-panel" style="margin-top:8px">
-            {#if usersLoading}
-              <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('supervisor')}</span>
-            {:else}
-              {#each SUPERVISOR_OPTIONS as s}
-                <label class="members-item">
-                  <input type="checkbox" checked={(form.supervisor || []).includes(s.value)} on:change={() => toggleSupervisor(s.value)} />
-                  <span class="member-avatar" aria-hidden="true">
-                    {#if s.photoUrl}
-                      <img src={s.photoUrl} alt="" />
-                    {:else}
-                      <span>{s.initials}</span>
-                    {/if}
-                  </span>
-                  <span class="members-name">{s.label}</span>
-                </label>
-              {/each}
-              {#if SUPERVISOR_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('supervisor')}</span>{/if}
-            {/if}
+        <div class="members-select" bind:this={supervisorsSelectEl}>
+          <div class="members-input form-input" on:click={toggleSupervisorsDropdown} role="button" tabindex="0" aria-expanded={showSupervisorsPanel}>
+            <div class="members-value">
+              {#if (form.supervisor || []).length === 0}
+                <span class="members-placeholder">Select supervisor(s)</span>
+              {:else if (form.supervisor || []).length <= MAX_ASSIGNMENT_CHIPS}
+                <div class="members-chips">
+                  {#each supervisorChipList as s (s.value)}
+                    <span class="member-chip" title={s.label}>{s.label}</span>
+                  {/each}
+                </div>
+              {:else}
+                <span class="members-count-text">{(form.supervisor || []).length} supervisors selected</span>
+              {/if}
+            </div>
+            <div class="muted">{(form.supervisor || []).length}</div>
           </div>
-        {/if}
+          {#if showSupervisorsPanel}
+            <div class="members-panel members-panel-dropdown">
+              <div class="members-search">
+                <input class="members-search-input" type="text" placeholder="Search supervisors..." bind:value={supervisorSearch} />
+              </div>
+              <div class="members-list">
+                {#if usersLoading}
+                  <span class="members-empty">{assignmentEmptyMessage('supervisor')}</span>
+                {:else}
+                  {#if filteredSupervisorOptions.length}
+                    {#each filteredSupervisorOptions as s}
+                      <label class="members-item">
+                        <input type="checkbox" checked={(form.supervisor || []).includes(s.value)} on:change={() => toggleSupervisor(s.value)} />
+                        <span class="member-avatar" aria-hidden="true">
+                          {#if s.photoUrl}
+                            <img src={s.photoUrl} alt="" />
+                          {:else}
+                            <span>{s.initials}</span>
+                          {/if}
+                        </span>
+                        <span class="members-name">{s.label}</span>
+                      </label>
+                    {/each}
+                  {:else}
+                    <span class="members-empty">{supervisorSearch ? 'No matches found.' : assignmentEmptyMessage('supervisor')}</span>
+                  {/if}
+                {/if}
+              </div>
+            </div>
+          {/if}
+        </div>
       </div>
 
       <div class="row-2">
@@ -2614,8 +2718,9 @@
       {#if formError}
         <div class="alert-error">{formError}</div>
       {/if}
+      </div>
 
-      <div class="modal-footer">
+      <div class="modal-footer modal-footer-sticky">
         <button class="btn-secondary" on:click={closeAddProjectModal}>Cancel</button>
         <button class="btn-submit" on:click={submitProject} disabled={isSubmitting || !isFormValid}>
           {#if isSubmitting}
@@ -3472,9 +3577,30 @@
     max-width: 380px; width: 90%; display: flex; flex-direction: column; gap: 12px;
     box-shadow: 0 20px 48px rgba(0,0,0,.18);
   }
+  .modal-box.large {
+    max-width: 720px;
+    width: min(92vw, 720px);
+    max-height: 90vh;
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+  }
+  .modal-box.large .modal-title {
+    padding: 18px 22px 0;
+  }
+  .modal-content {
+    padding: 12px 22px 16px;
+    overflow-y: auto;
+    flex: 1;
+  }
   .modal-title  { font-size: 15px; font-weight: 700; color: var(--color-heading); }
   .modal-body   { font-size: 13px; color: var(--color-sidebar-text); margin: 0; line-height: 1.5; }
   .modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-footer.modal-footer-sticky {
+    padding: 12px 22px 16px;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
   .btn-delete-confirm {
     padding: 7px 16px; border-radius: 7px; font-size: 13px; font-weight: 600;
     background: #dc2626; color: #fff; border: none; cursor: pointer;
@@ -3492,6 +3618,7 @@
   :global(body.dark) .form-input,
   :global(body.dark) .form-textarea   { background: #111827; border-color: #374151; color: #f1f5f9; }
   :global(body.dark) .modal-box       { background: #1f2937; border-color: #374151; }
+  :global(body.dark) .modal-footer.modal-footer-sticky { background: #1f2937; border-top-color: #374151; }
   :global(body.dark) .priority-badge  { filter: brightness(.85) saturate(.9); }
   :global(body.dark) .btn-edit        { background: #1e3a5f; border-color: #1e40af; }
   :global(body.dark) .btn-delete      { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
@@ -3500,10 +3627,52 @@
   :global(body.dark) .meta-link       { color: #60a5fa; }
 
   /* Members input styling to match other form controls */
-  .members-input { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-radius:7px; border:1px solid var(--color-border); background:var(--color-surface-muted); color:var(--color-text); font-size:13px; cursor:pointer; }
+  .members-input { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 10px; border-radius:7px; border:1px solid var(--color-border); background:var(--color-surface-muted); color:var(--color-text); font-size:13px; cursor:pointer; }
   .members-input:focus { outline: none; border-color: #2563eb; }
   .members-input .muted { font-size:13px; color:var(--color-sidebar-text); font-weight:500; }
   .members-panel { margin-top:8px; padding:10px; border-radius:8px; border:1px solid var(--color-border); background:var(--color-surface); }
+  .members-select { display:flex; flex-direction:column; gap:8px; }
+  .members-value { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; flex:1; }
+  .members-placeholder { color: var(--color-sidebar-text); font-weight:500; }
+  .members-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .member-chip {
+    max-width: 160px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-soft);
+    color: var(--color-heading);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  :global(body.dark) .member-chip {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.1);
+    color: #e5edf8;
+  }
+  .members-count-text { font-size: 12px; color: var(--color-sidebar-text); font-weight: 600; }
+  .members-panel-dropdown { padding: 10px; }
+  .members-search { padding: 0 4px 8px; }
+  .members-search-input {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-muted);
+    color: var(--color-text);
+    font-size: 12px;
+    outline: none;
+  }
+  .members-search-input:focus { border-color: #2563eb; }
+  .members-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .members-empty { font-size: 12px; color: var(--color-sidebar-text); padding: 4px 8px; display:block; }
   .members-item { display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:6px; cursor:pointer; color:var(--color-heading); font-size:13px; font-weight:600; }
   .members-item + .members-item { margin-top:6px; }
   .members-item input[type="checkbox"] { width:18px; height:18px; accent-color:#60a5fa; }
