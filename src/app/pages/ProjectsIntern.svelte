@@ -1356,34 +1356,34 @@
 
   <!-- Stat Cards -->
   <div class="stat-cards">
-    <div class="stat-card blue">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon blue"><FolderOpen size={16} /></div>
+    <div class="stat-card">
+      <div class="stat-icon tone-blue"><FolderOpen size={16} /></div>
+      <div class="stat-body">
+        <div class="stat-label">Total Projects</div>
+        <div class="stat-value">{totalProjects}</div>
+        <div class="stat-sub">All assigned projects</div>
       </div>
-      <div class="stat-value">{totalProjects}</div>
-      <div class="stat-label">Total Projects</div>
     </div>
-    <div class="stat-card amber">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon amber"><Clock3 size={16} /></div>
+    <div class="stat-card">
+      <div class="stat-icon tone-amber"><Clock3 size={16} /></div>
+      <div class="stat-body">
+        <div class="stat-label">In Progress</div>
+        <div class="stat-value">{inProgressCount}</div>
+        <div class="stat-sub">Currently active projects</div>
       </div>
-      <div class="stat-value">{inProgressCount}</div>
-      <div class="stat-label">In Progress</div>
     </div>
-    <div class="stat-card green">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon green"><CheckCircle2 size={16} /></div>
+    <div class="stat-card">
+      <div class="stat-icon tone-green"><CheckCircle2 size={16} /></div>
+      <div class="stat-body">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value">{completedCount}</div>
+        <div class="stat-sub">Finished projects</div>
       </div>
-      <div class="stat-value">{completedCount}</div>
-      <div class="stat-label">Completed</div>
     </div>
   </div>
   
     <!-- Quick panel (copied from SupervisorActivity) -->
-    <section class="card quick-panel">
+    <section class="quick-panel">
       <div class="quick-head">
         <div class="view-controls">
           <button class="btn btn-ghost" class:active={activeView === 'Overview'} on:click={() => activeView = 'Overview'}>
@@ -1444,6 +1444,7 @@
           <FolderOpen size={32} />
           <div class="empty-title">No projects yet</div>
           <div class="empty-sub">Click "+ Add Project" to get started.</div>
+          <button class="empty-cta" on:click={openAddProjectModal}>+ Add Project</button>
         </div>
       {:else}
 
@@ -1618,6 +1619,7 @@
             <FolderOpen size={32} />
             <div class="empty-title">No projects yet</div>
             <div class="empty-sub">Click "+ Add Project" to get started.</div>
+            <button class="empty-cta" on:click={openAddProjectModal}>+ Add Project</button>
           </div>
         {:else}
           <div class="proj-table-body">
@@ -2354,31 +2356,109 @@
  
 
 <style>
-  .projects-page { padding: 4px 0 12px; display: flex; flex-direction: column; gap: 10px; }
+  .projects-page { padding: 8px 0 14px; display: flex; flex-direction: column; gap: 14px; }
 
   /* ── Stat Cards ── */
-  .stat-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 0; }
+  .stat-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 0; }
   .stat-card {
-    flex: 1; min-width: 120px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    padding: 12px 14px 10px;
-    display: flex; flex-direction: column; gap: 6px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    padding: 18px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    transition: box-shadow 0.2s, transform 0.2s;
   }
-  .stat-card-top { display: flex; align-items: center; margin-bottom: 4px; }
+  :global(body.dark) .stat-card {
+    background: #161c27;
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  }
+  .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  }
+  :global(body.dark) .stat-card:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  }
   .stat-icon {
-    width: 28px; height: 28px; border-radius: 7px;
+    width: 40px; height: 40px; border-radius: 10px;
     display: grid; place-items: center;
+    flex-shrink: 0;
   }
-  .stat-icon.blue  { background: #dbeafe; color: #2563eb; }
-  .stat-icon.amber { background: #fef3c7; color: #d97706; }
-  .stat-icon.green { background: #dcfce7; color: #16a34a; }
-  :global(body.dark) .stat-icon.blue  { background: #1e3a5f; color: #60a5fa; }
-  :global(body.dark) .stat-icon.amber { background: #3b2600; color: #fbbf24; }
-  :global(body.dark) .stat-icon.green { background: #052e16; color: #4ade80; }
-  .stat-value { font-size: 22px; font-weight: 700; color: var(--color-heading); line-height: 1; }
-  .stat-label { font-size: 11.5px; color: var(--color-sidebar-text); }
+  .stat-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .tone-blue {
+    background: rgba(37, 99, 235, 0.12);
+    color: #2563eb;
+  }
+  .tone-green {
+    background: rgba(22, 163, 74, 0.12);
+    color: #16a34a;
+  }
+  .tone-amber {
+    background: rgba(217, 119, 6, 0.12);
+    color: #d97706;
+  }
+  :global(body.dark) .tone-blue {
+    background: rgba(59, 130, 246, 0.18);
+    color: #60a5fa;
+  }
+  :global(body.dark) .tone-green {
+    background: rgba(34, 197, 94, 0.14);
+    color: #22c55e;
+  }
+  :global(body.dark) .tone-amber {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+  }
+  .stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #000000;
+  }
+  :global(body.dark) .stat-label {
+    color: #ffffff;
+  }
+  .stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.8px;
+    line-height: 1;
+    color: #0f172a;
+  }
+  :global(body.dark) .stat-value {
+    color: #f1f5f9;
+  }
+  .stat-sub {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: #64748b;
+  }
+  :global(body.dark) .stat-sub {
+    color: #94a3b8;
+  }
+  @media (max-width: 1080px) {
+    .stat-cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 680px) {
+    .stat-cards {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .stat-card {
+      padding: 16px;
+    }
+  }
 
   /* ── Tabs ── */
   .tab-row { display: flex; gap: 4px; border-bottom: 1px solid var(--color-border); padding-bottom: 1px; }
@@ -2974,20 +3054,22 @@
   .deadline-tag.near { background: #fffbeb; color: #d97706; }
 
   /* Quick panel (copied from SupervisorActivity) */
-  .quick-panel { background: linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%); padding: 0.48rem 0.8rem; border-radius: 0.9rem; border: 1px solid var(--color-border); display:flex; align-items:center; justify-content:space-between }
-  .quick-head { display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.75rem }
-  .view-controls .btn { display:inline-flex; align-items:center; gap:0.4rem; margin-right:0.4rem; border-radius:0.55rem; padding:0.32rem 0.6rem; background:transparent; border:1px solid var(--color-border); font-size:0.82rem }
+  .quick-panel { background: transparent !important; padding: 0; border-radius: 0; border: none !important; box-shadow: none !important; display:flex; align-items:center; justify-content:space-between }
+  .quick-head { display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.9rem; flex-wrap: nowrap }
+  .view-controls { display:flex; align-items:center; gap:0.45rem; flex-wrap: wrap; }
+  .view-controls .btn { display:inline-flex; align-items:center; gap:0.4rem; border-radius:0.7rem; padding:0.32rem 0.72rem; background:transparent; border:1px solid var(--color-border); font-size:0.84rem; height:2.15rem; line-height:1; }
   .view-controls .btn.active { background: var(--color-soft); color: var(--color-heading); border-color: var(--color-border) }
   .btn-compact { padding:0.28rem 0.6rem; font-size:0.8rem; border-radius:0.55rem; }
-  .quick-actions { display:flex; gap:0.45rem; align-items:center }
-  .search-wrap { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.7rem; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.7rem; }
-  .search-input { border:0; background:transparent; color:var(--color-text); font-size:0.85rem; width:9rem; outline:none; padding:0.34rem 0; }
+  .quick-actions { display:flex; gap:0.45rem; align-items:center; margin-left:auto; flex-wrap: nowrap }
+  .search-wrap { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.7rem; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.7rem; height: 2.15rem; }
+  .search-input { border:0; background:transparent; color:var(--color-text); font-size:0.85rem; width:11.5rem; outline:none; padding:0; height:100%; }
   /* search-icon removed */
   .quick-actions select, .quick-status, .quick-priority {
-    padding:0.34rem 0.6rem; border-radius:0.7rem; font-size:0.85rem;
+    padding:0 0.6rem; border-radius:0.7rem; font-size:0.85rem;
     border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text);
+    height: 2.15rem;
   }
-  .quick-actions .primary { padding:0.36rem 0.9rem; font-size:0.85rem; border-radius:0.7rem; background: #2563eb; color: #fff; border: none }
+  .quick-actions .primary { padding:0 0.95rem; font-size:0.85rem; border-radius:0.7rem; background: #2563eb; color: #fff; border: none; height: 2.15rem; display: inline-flex; align-items: center; font-weight: 600; white-space: nowrap; }
 
   .meta-link {
     display: inline-flex; align-items: center; gap: 4px;
@@ -3018,10 +3100,50 @@
   /* ── Empty State ── */
   .empty-state {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 8px; padding: 48px 20px; color: var(--color-sidebar-text); text-align: center;
+    gap: 8px; padding: 34px 20px; color: var(--color-sidebar-text); text-align: center;
   }
   .empty-title { font-size: 14px; font-weight: 600; color: var(--color-text); }
   .empty-sub   { font-size: 12.5px; }
+  .empty-cta {
+    margin-top: 8px;
+    padding: 0 0.95rem;
+    font-size: 0.85rem;
+    border-radius: 0.7rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    height: 2.15rem;
+    display: inline-flex;
+    align-items: center;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .empty-cta:hover { background: #1d4ed8; }
+  @media (max-width: 1080px) {
+    .quick-head {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.65rem;
+    }
+    .quick-actions {
+      margin-left: 0;
+      width: 100%;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+  }
+  @media (max-width: 680px) {
+    .quick-actions {
+      gap: 0.5rem;
+    }
+    .search-wrap {
+      width: 100%;
+    }
+    .search-input {
+      width: 100%;
+    }
+  }
 
   /* ── Form Panel ── */
   .form-panel {
