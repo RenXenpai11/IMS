@@ -150,6 +150,34 @@ function handleCreateProjIntern_(payload) {
   ];
 
   sheet.appendRow(row);
+  var appendedRowIndex = sheet.getLastRow();
+  try {
+    var mirrorResult = syncSupervisorProjectMirror_({
+      proj_id: projId,
+      proj_name: projName,
+      priority: String(payload.priority || 'Medium').trim(),
+      status: String(payload.status || 'Not Started').trim(),
+      members: membersStr,
+      supervisor: String(payload.supervisor || '').trim(),
+      start_date: startDate,
+      end_date: endDate,
+      description: String(payload.description || '').trim(),
+      created_at: formatTimestamp_(now),
+      created_by: userId,
+      updated_by: userId
+    });
+    if (!mirrorResult || mirrorResult.ok !== true) {
+      throw new Error((mirrorResult && mirrorResult.error) || 'Failed to sync supervisor project.');
+    }
+  } catch (mirrorErr) {
+    try {
+      sheet.deleteRow(appendedRowIndex);
+    } catch (rollbackErr) {
+      // If rollback fails, return the sync error so the caller can retry.
+    }
+    return { ok: false, error: mirrorErr && mirrorErr.message ? mirrorErr.message : String(mirrorErr) };
+  }
+
   return { ok: true, proj_id: projId };
 }
 
@@ -166,6 +194,8 @@ function handleUpdateProjIntern_(payload) {
 
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0] || '').trim() === projId) {
+      var rowIndex = i + 1;
+      var originalRow = data[i].slice();
       var membersRaw = payload.members;
       var membersStr = data[i][4]; // keep existing if not provided
       if (membersRaw !== undefined) {
@@ -185,6 +215,33 @@ function handleUpdateProjIntern_(payload) {
       sheet.getRange(i + 1, 8).setValue(String(payload.end_date    !== undefined ? payload.end_date    : data[i][7]));
       sheet.getRange(i + 1, 9).setValue(String(payload.description !== undefined ? payload.description : data[i][8]));
       sheet.getRange(i + 1, 12).setValue(userId);
+      try {
+        var mirrorResult = syncSupervisorProjectMirror_({
+          proj_id: projId,
+          proj_name: String(payload.proj_name !== undefined ? payload.proj_name : data[i][1]).trim(),
+          priority: String(payload.priority !== undefined ? payload.priority : data[i][2]).trim(),
+          status: String(payload.status !== undefined ? payload.status : data[i][3]).trim(),
+          members: membersStr,
+          supervisor: String(payload.supervisor !== undefined ? payload.supervisor : data[i][5]).trim(),
+          start_date: String(payload.start_date !== undefined ? payload.start_date : data[i][6]).trim(),
+          end_date: String(payload.end_date !== undefined ? payload.end_date : data[i][7]).trim(),
+          description: String(payload.description !== undefined ? payload.description : data[i][8]).trim(),
+          created_at: String(data[i][9] || '').trim(),
+          created_by: String(data[i][10] || '').trim(),
+          updated_by: userId
+        });
+        if (!mirrorResult || mirrorResult.ok !== true) {
+          throw new Error((mirrorResult && mirrorResult.error) || 'Failed to sync supervisor project.');
+        }
+      } catch (mirrorErr) {
+        try {
+          sheet.getRange(rowIndex, 1, 1, originalRow.length).setValues([originalRow]);
+        } catch (rollbackErr) {
+          // Keep reporting the sync error so the caller can retry.
+        }
+        return { ok: false, error: mirrorErr && mirrorErr.message ? mirrorErr.message : String(mirrorErr) };
+      }
+
       return { ok: true, proj_id: projId };
     }
   }
@@ -205,9 +262,38 @@ function handleRestoreProjIntern_(payload) {
 
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0] || '').trim() === projId) {
+      var rowIndex = i + 1;
+      var originalRow = data[i].slice();
       var restoredStatus = 'Not Started';
       sheet.getRange(i + 1, 4).setValue(restoredStatus);
       sheet.getRange(i + 1, 12).setValue(userId);
+      try {
+        var mirrorResult = syncSupervisorProjectMirror_({
+          proj_id: projId,
+          proj_name: String(data[i][1] || '').trim(),
+          priority: String(data[i][2] || '').trim(),
+          status: restoredStatus,
+          members: String(data[i][4] || '').trim(),
+          supervisor: String(data[i][5] || '').trim(),
+          start_date: String(data[i][6] || '').trim(),
+          end_date: String(data[i][7] || '').trim(),
+          description: String(data[i][8] || '').trim(),
+          created_at: String(data[i][9] || '').trim(),
+          created_by: String(data[i][10] || '').trim(),
+          updated_by: userId
+        });
+        if (!mirrorResult || mirrorResult.ok !== true) {
+          throw new Error((mirrorResult && mirrorResult.error) || 'Failed to sync supervisor project.');
+        }
+      } catch (mirrorErr) {
+        try {
+          sheet.getRange(rowIndex, 1, 1, originalRow.length).setValues([originalRow]);
+        } catch (rollbackErr) {
+          // Keep reporting the sync error so the caller can retry.
+        }
+        return { ok: false, error: mirrorErr && mirrorErr.message ? mirrorErr.message : String(mirrorErr) };
+      }
+
       return { ok: true, proj_id: projId, status: restoredStatus };
     }
   }
@@ -226,7 +312,24 @@ function handleDeleteProjIntern_(payload) {
 
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0] || '').trim() === projId) {
-      sheet.deleteRow(i + 1);
+      var rowIndex = i + 1;
+      var originalRow = data[i].slice();
+      sheet.deleteRow(rowIndex);
+      try {
+        var mirrorResult = deleteSupervisorProjectMirror_(projId);
+        if (!mirrorResult || mirrorResult.ok !== true) {
+          throw new Error((mirrorResult && mirrorResult.error) || 'Failed to remove supervisor project.');
+        }
+      } catch (mirrorErr) {
+        try {
+          sheet.insertRowBefore(rowIndex);
+          sheet.getRange(rowIndex, 1, 1, originalRow.length).setValues([originalRow]);
+        } catch (rollbackErr) {
+          // Keep reporting the sync error so the caller can retry.
+        }
+        return { ok: false, error: mirrorErr && mirrorErr.message ? mirrorErr.message : String(mirrorErr) };
+      }
+
       return { ok: true, proj_id: projId };
     }
   }
