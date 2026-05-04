@@ -32,6 +32,136 @@ function projInternNextId_() {
   return 'PROJ_' + String(lastId + 1).padStart(4, '0');
 }
 
+function projAssignmentNormalizeText_(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function projAssignmentSameDepartment_(userDepartment, targetDepartment) {
+  var userDept = projAssignmentNormalizeText_(userDepartment);
+  var targetDept = projAssignmentNormalizeText_(targetDepartment);
+  return Boolean(userDept && targetDept && userDept === targetDept);
+}
+
+function projAssignmentUserId_(user) {
+  return String(user && (user.user_id || user.id || user.UserId || user.userId) || '').trim();
+}
+
+function projAssignmentRole_(user) {
+  return String(user && (user.role || user.Role || user.user_role || user.userrole || user.userRole) || '').trim();
+}
+
+function projAssignmentDepartment_(user) {
+  return String(user && (
+    user.department ||
+    user.Department ||
+    user.dept ||
+    user.Dept ||
+    user.department_name ||
+    user.departmentname ||
+    user.departmentName ||
+    user.DepartmentName
+  ) || '').trim();
+}
+
+function projAssignmentIsInternUser_(user) {
+  var role = projAssignmentNormalizeText_(projAssignmentRole_(user));
+  return role.indexOf('intern') !== -1 || role.indexOf('student') !== -1 || role === 'ojt';
+}
+
+function projAssignmentIsSupervisorUser_(user) {
+  var role = projAssignmentNormalizeText_(projAssignmentRole_(user));
+  return role.indexOf('supervisor') !== -1 || role.indexOf('mentor') !== -1;
+}
+
+function projAssignmentIdsFromValue_(value) {
+  if (Array.isArray(value)) {
+    return value.map(function(item) { return String(item || '').trim(); }).filter(Boolean);
+  }
+  return String(value || '')
+    .split(',')
+    .map(function(item) { return String(item || '').trim(); })
+    .filter(Boolean);
+}
+
+function projAssignmentIdsToString_(value) {
+  return projAssignmentIdsFromValue_(value).join(',');
+}
+
+function projAssignmentUsersById_() {
+  var rows = readSheetObjects_(getUsersSheet_());
+  var usersById = {};
+  for (var i = 0; i < rows.length; i++) {
+    var userId = projAssignmentUserId_(rows[i]);
+    if (userId) {
+      usersById[userId] = rows[i];
+    }
+  }
+  return usersById;
+}
+
+function projAssignmentDepartmentContext_(payload, creatorUser) {
+  return String(
+    payload.department ||
+    payload.Department ||
+    payload.dept ||
+    payload.Dept ||
+    payload.departmentName ||
+    payload.DepartmentName ||
+    projAssignmentDepartment_(creatorUser) ||
+    ''
+  ).trim();
+}
+
+function validateProjectAssignments_(payload, membersValue, supervisorsValue) {
+  var creatorId = String(payload.user_id || '').trim();
+  var creatorRecord = creatorId ? findUserRecordByUserId_(creatorId) : null;
+  if (!creatorRecord) {
+    return { ok: false, error: 'User not found.' };
+  }
+
+  var targetDepartment = projAssignmentDepartmentContext_(payload, creatorRecord.user);
+  var memberIds = projAssignmentIdsFromValue_(membersValue);
+  var supervisorIds = projAssignmentIdsFromValue_(supervisorsValue);
+
+  if ((memberIds.length || supervisorIds.length) && !targetDepartment) {
+    return { ok: false, error: 'Your department is required before assigning project users.' };
+  }
+
+  var usersById = projAssignmentUsersById_();
+  for (var i = 0; i < memberIds.length; i++) {
+    var member = usersById[memberIds[i]];
+    if (!member) {
+      return { ok: false, error: 'Selected intern was not found: ' + memberIds[i] };
+    }
+    if (!projAssignmentIsInternUser_(member)) {
+      return { ok: false, error: 'Selected member is not an intern: ' + memberIds[i] };
+    }
+    if (!projAssignmentSameDepartment_(projAssignmentDepartment_(member), targetDepartment)) {
+      return { ok: false, error: 'Selected intern is outside your department: ' + memberIds[i] };
+    }
+  }
+
+  for (var j = 0; j < supervisorIds.length; j++) {
+    var supervisor = usersById[supervisorIds[j]];
+    if (!supervisor) {
+      return { ok: false, error: 'Selected supervisor was not found: ' + supervisorIds[j] };
+    }
+    if (!projAssignmentIsSupervisorUser_(supervisor)) {
+      return { ok: false, error: 'Selected supervisor is not a supervisor: ' + supervisorIds[j] };
+    }
+    if (!projAssignmentSameDepartment_(projAssignmentDepartment_(supervisor), targetDepartment)) {
+      return { ok: false, error: 'Selected supervisor is outside your department: ' + supervisorIds[j] };
+    }
+  }
+
+  return {
+    ok: true,
+    members: memberIds,
+    supervisors: supervisorIds,
+    department: targetDepartment
+  };
+}
+
 // Transforms a row from the proj_intern sheet into a project object
 function projRowToObj_(row) {
   return {
@@ -125,14 +255,12 @@ function handleCreateProjIntern_(payload) {
   var projId = projInternNextId_();
   var now    = new Date();
 
-  // members is an array from frontend, stored as comma-separated user_ids
-  var membersRaw = payload.members;
-  var membersStr = '';
-  if (Array.isArray(membersRaw)) {
-    membersStr = membersRaw.map(function(m){ return String(m).trim(); }).filter(Boolean).join(',');
-  } else {
-    membersStr = String(membersRaw || '').trim();
-  }
+  var validation = validateProjectAssignments_(payload, payload.members, payload.supervisor);
+  if (!validation.ok) return validation;
+
+  // members/supervisors are arrays from frontend, stored as comma-separated user_ids
+  var membersStr = validation.members.join(',');
+  var supervisorsStr = validation.supervisors.join(',');
 
   var row = [
     projId,
@@ -140,7 +268,7 @@ function handleCreateProjIntern_(payload) {
     String(payload.priority    || 'Medium').trim(),
     String(payload.status      || 'Not Started').trim(),
     membersStr,
-    String(payload.supervisor  || '').trim(),
+    supervisorsStr,
     startDate,
     endDate,
     String(payload.description || '').trim(),
@@ -169,18 +297,23 @@ function handleUpdateProjIntern_(payload) {
       var membersRaw = payload.members;
       var membersStr = data[i][4]; // keep existing if not provided
       if (membersRaw !== undefined) {
-        if (Array.isArray(membersRaw)) {
-          membersStr = membersRaw.map(function(m){ return String(m).trim(); }).filter(Boolean).join(',');
-        } else {
-          membersStr = String(membersRaw || '').trim();
-        }
+        membersStr = projAssignmentIdsToString_(membersRaw);
+      }
+      var supervisorsStr = payload.supervisor !== undefined
+        ? projAssignmentIdsToString_(payload.supervisor)
+        : String(data[i][5] || '').trim();
+      if (payload.members !== undefined || payload.supervisor !== undefined) {
+        var validation = validateProjectAssignments_(payload, membersStr, supervisorsStr);
+        if (!validation.ok) return validation;
+        membersStr = validation.members.join(',');
+        supervisorsStr = validation.supervisors.join(',');
       }
 
       sheet.getRange(i + 1, 2).setValue(String(payload.proj_name   !== undefined ? payload.proj_name   : data[i][1]));
       sheet.getRange(i + 1, 3).setValue(String(payload.priority    !== undefined ? payload.priority    : data[i][2]));
       sheet.getRange(i + 1, 4).setValue(String(payload.status      !== undefined ? payload.status      : data[i][3]));
       sheet.getRange(i + 1, 5).setValue(membersStr);
-      sheet.getRange(i + 1, 6).setValue(String(payload.supervisor  !== undefined ? payload.supervisor  : data[i][5]));
+      sheet.getRange(i + 1, 6).setValue(supervisorsStr);
       sheet.getRange(i + 1, 7).setValue(String(payload.start_date  !== undefined ? payload.start_date  : data[i][6]));
       sheet.getRange(i + 1, 8).setValue(String(payload.end_date    !== undefined ? payload.end_date    : data[i][7]));
       sheet.getRange(i + 1, 9).setValue(String(payload.description !== undefined ? payload.description : data[i][8]));

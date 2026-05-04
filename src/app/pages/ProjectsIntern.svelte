@@ -1,7 +1,7 @@
 <script>
 // @ts-nocheck
   import { onMount, onDestroy } from 'svelte';
-  import { getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
+  import { callApiAction, getCurrentUser, subscribeToCurrentUser } from '../lib/auth.js';
   import {
     FolderOpen, Plus, Pencil, Trash2, ExternalLink, Loader2, Eye,
     CalendarDays, Tag, CheckCircle2, Clock3, AlertCircle, Link2,
@@ -50,7 +50,15 @@
   const PRIORITY_OPTIONS  = ['Low', 'Medium', 'High'];
   const STATUS_OPTIONS    = ['Not Started', 'In Progress', 'Submitted', 'Needs Revision', 'Approved'];
 
-  // Populated from backend on mount
+  // Populated from backend on mount, then filtered locally for assignment.
+  let users = [];
+  let usersLoading = false;
+  let bootstrapDepartment = '';
+  let departmentContext = '';
+  let allInterns = [];
+  let allSupervisors = [];
+  let availableInterns = [];
+  let availableSupervisors = [];
   let SUPERVISOR_OPTIONS = [];
   let MEMBER_OPTIONS     = [];
   let showSupervisorsPanel = false;
@@ -181,12 +189,116 @@
   }
 
   // ── API helpers ──────────────────────────────────────────────────────────
+  function normalizeText(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  function getDepartmentValue(user) {
+    if (!user || typeof user !== 'object') return '';
+    return user.department ?? user.Department ?? user.dept ?? user.Dept ?? user.departmentName ?? user.DepartmentName ?? '';
+  }
+
+  function sameDepartment(userDepartment, targetDepartment) {
+    const userDept = normalizeText(userDepartment);
+    const targetDept = normalizeText(targetDepartment);
+    return Boolean(userDept && targetDept && userDept === targetDept);
+  }
+
+  function isInternUser(user) {
+    const role = normalizeText(user?.role || user?.Role || user?.user_role || user?.userRole || '');
+    return role.includes('intern') || role.includes('student') || role === 'ojt';
+  }
+
+  function isSupervisorUser(user) {
+    const role = normalizeText(user?.role || user?.Role || user?.user_role || user?.userRole || '');
+    return role.includes('supervisor') || role.includes('mentor');
+  }
+
+  function getDisplayName(user) {
+    return user?.name || user?.full_name || user?.fullName || user?.email || user?.user_id || user?.id || '';
+  }
+
+  function getProfilePhotoUrl(user) {
+    return String(user?.profile_photo_url || user?.profilePhotoUrl || user?.photo_url || user?.avatar_url || '').trim();
+  }
+
+  function getInitials(nameValue) {
+    const parts = String(nameValue || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2);
+    return (parts.map((part) => part.charAt(0)).join('') || '?').toUpperCase();
+  }
+
+  function getUserId(user) {
+    return String(user?.user_id || user?.id || '').trim();
+  }
+
+  function getCurrentUserId() {
+    const activeUser = currentUser || getCurrentUser() || {};
+    return String(activeUser.user_id || activeUser.id || activeUser.UserId || activeUser.userId || '').trim();
+  }
+
+  function inferSingleDepartmentFromUsers(list) {
+    const departments = new Set(
+      (Array.isArray(list) ? list : [])
+        .map((user) => normalizeText(getDepartmentValue(user)))
+        .filter(Boolean)
+    );
+    return departments.size === 1 ? [...departments][0] : '';
+  }
+
+  function getProjectDepartmentContext() {
+    return form.department ?? form.Department ?? form.dept ?? form.Dept ?? form.departmentName ?? form.DepartmentName
+      ?? currentUser?.department ?? currentUser?.Department ?? currentUser?.dept ?? currentUser?.Dept
+      ?? currentUser?.departmentName ?? currentUser?.DepartmentName
+      ?? bootstrapDepartment
+      ?? inferSingleDepartmentFromUsers(users)
+      ?? '';
+  }
+
+  function assignmentEmptyMessage(type) {
+    const isSupervisor = type === 'supervisor';
+    if (usersLoading) return isSupervisor ? 'Loading supervisors...' : 'Loading interns...';
+    if (!departmentContext && !allInterns.length && !allSupervisors.length) {
+      return `Your department is missing. Update your profile department to select ${isSupervisor ? 'supervisors' : 'interns'}.`;
+    }
+    if (isSupervisor) return allSupervisors.length ? 'No supervisors found in your department' : 'No supervisors found';
+    return allInterns.length ? 'No interns found in your department' : 'No interns found';
+  }
+
+  function normalizeBootstrapUsers(list) {
+    const seen = new Set();
+    const normalized = [];
+    (Array.isArray(list) ? list : []).forEach((user) => {
+      const id = getUserId(user);
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      normalized.push({
+        ...user,
+        id,
+        user_id: id,
+        name: getDisplayName(user),
+        full_name: user?.full_name || user?.name || user?.fullName || '',
+        email: user?.email || '',
+        role: user?.role || user?.Role || '',
+        department: getDepartmentValue(user),
+        profile_photo_url: getProfilePhotoUrl(user)
+      });
+    });
+    return normalized;
+  }
+
   // GAS functions ending in _ are private and cannot be called from the client.
   // Use the public `apiAction(action, payload)` wrapper instead.
   function dispatchAction(action, payload = {}) {
+    const run = globalThis?.google?.script?.run;
+    if (!run) {
+      return callApiAction(action, payload);
+    }
+
     return new Promise((resolve, reject) => {
-      const run = globalThis?.google?.script?.run;
-      if (!run) { reject(new Error('Apps Script runtime not available.')); return; }
       run
         .withSuccessHandler(resolve)
         .withFailureHandler(e => reject(new Error(e?.message || String(e))))
@@ -197,10 +309,13 @@
   // ── Load projects + user bootstrap from backend ────────────────────────
   async function loadBootstrap() {
     isLoading = true;
+    usersLoading = true;
     try {
-      const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+      const uid = getCurrentUserId();
       if (!uid) {
         try { console.warn('loadBootstrap: no user_id - currentUser:', currentUser); } catch(e) {}
+        users = [];
+        bootstrapDepartment = '';
         return;
       }
 
@@ -213,16 +328,15 @@
       try { console.log('loadBootstrap -> uid=', uid, 'bootstrapRes=', bootstrapRes, 'projectsRes=', projectsRes); } catch(e) {}
 
       if (bootstrapRes?.ok) {
-        SUPERVISOR_OPTIONS = (bootstrapRes.supervisors || []).map(u => ({
-          value: u.user_id,
-          label: u.full_name || u.email || u.user_id
-        }));
-        MEMBER_OPTIONS = (bootstrapRes.interns || []).map(u => ({
-          value: u.user_id,
-          label: u.full_name || u.email || u.user_id
-        }));
+        bootstrapDepartment = String(bootstrapRes.department || bootstrapRes.Department || bootstrapRes.dept || '').trim();
+        const bootstrapUsers = Array.isArray(bootstrapRes.users)
+          ? bootstrapRes.users
+          : [...(bootstrapRes.interns || []), ...(bootstrapRes.supervisors || [])];
+        users = normalizeBootstrapUsers(bootstrapUsers);
       } else if (bootstrapRes && !bootstrapRes.ok) {
         console.warn('Bootstrap error:', bootstrapRes.error);
+        users = [];
+        bootstrapDepartment = '';
       }
 
       if (projectsRes?.ok) {
@@ -258,8 +372,11 @@
       }
     } catch (e) {
       console.error('loadBootstrap error', e);
+      users = [];
+      bootstrapDepartment = '';
     } finally {
       isLoading = false;
+      usersLoading = false;
     }
   }
 
@@ -293,7 +410,7 @@
     if (err) return;
     isSubmitting = true;
 
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       if (editingId) {
         const res = await dispatchAction('update_proj_intern', {
@@ -385,7 +502,7 @@
     if (!String(inlineForm.title || '').trim()) { formError = 'Project title is required.'; return; }
     formError = '';
     isSubmitting = true;
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('update_proj_intern', {
         proj_id:     p.id,
@@ -430,6 +547,9 @@
     // If editingId is set we are opening modal to edit — keep form as-is.
     if (!editingId) resetForm();
     showAddProjectModal = true;
+    if (!usersLoading && users.length === 0) {
+      void loadBootstrap();
+    }
   }
 
   function closeAddProjectModal() {
@@ -440,7 +560,7 @@
   async function confirmDelete() {
     if (!projectToDelete) return;
     isDeleting = true;
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('delete_proj_intern', {
         proj_id: projectToDelete.proj_id || projectToDelete.id,
@@ -713,7 +833,7 @@
       ? current.filter(f => f.id !== submission.id)
       : [...current, { id: submission.id, name: submission.name, drive_url: submission.drive_url || '' }];
     const linkedJson = JSON.stringify(updated);
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, linked_files: linkedJson, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update linked files.'; return; }
@@ -748,7 +868,7 @@
     const text = String(inputs.milestone || '').trim();
     const date = String(inputs.date || '').trim();
     if (!text) { formError = 'Milestone text is required.'; return; }
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('create_milestone', { proj_id: projId, milestone: text, date: date, status: 'Not Started', done: false, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to create milestone.'; console.warn('createMilestone failed', res); return; }
@@ -807,7 +927,7 @@
     const text = String(inputs.milestone || '').trim();
     const date = String(inputs.date || '').trim();
     if (!text) { formError = 'Milestone text is required.'; return; }
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, milestone: text, date: date, status: String(inputs.status || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update milestone.'; return; }
@@ -836,7 +956,7 @@
   // Change milestone status directly from view-select
   async function changeMilestoneStatus(projectId, milestoneId, newStatus) {
     if (!milestoneId) return;
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('update_milestone', { milestone_id: milestoneId, status: String(newStatus || 'Not Started'), user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Failed to update status.'; return; }
@@ -879,7 +999,7 @@
   async function submitFeedback(projectId) {
     const text = String(newFeedbackText[projectId] || '').trim();
     if (!text) return;
-    const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), user_id: uid, commenter_role: role, comment_text: text });
@@ -892,7 +1012,7 @@
   async function submitReply(projectId, parentId) {
     const text = String(replyText[projectId] || '').trim();
     if (!text) return;
-    const uid  = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid  = getCurrentUserId();
     const role = String(currentUser?.role || getCurrentUser()?.role || 'Intern');
     try {
       const res = await dispatchAction('create_feedback', { proj_id: String(projectId), parent_id: String(parentId), user_id: uid, commenter_role: role, comment_text: text });
@@ -904,7 +1024,7 @@
   }
 
   async function deleteFeedback(projectId, feedbackId) {
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('delete_feedback', { feedback_id: feedbackId, user_id: uid });
       if (!res?.ok) { formError = res?.error || 'Delete failed.'; return; }
@@ -933,7 +1053,7 @@
   }
 
   async function addFolder(projectId) {
-    const uid    = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid    = getCurrentUserId();
     const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
     isSavingFolder = true;
     try {
@@ -967,7 +1087,7 @@
   async function confirmRename(projectId) {
     if (!renamingFolderId) return;
     const newName  = String(renamingFolderName || '').trim() || 'New Folder';
-    const uid      = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid      = getCurrentUserId();
     const savedId  = renamingFolderId;
     renamingFolderId   = null;
     renamingFolderName = '';
@@ -1046,7 +1166,7 @@
     const mimeType   = extToMime_(ext);
     const fileSizeMb = (file.size / (1024 * 1024)).toFixed(3);
     const projId     = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
-    const uid        = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid        = getCurrentUserId();
 
     isUploadingFile = true;
     formError = '';
@@ -1109,7 +1229,7 @@
   async function addLinkSubmission(projectId, folderId) {
     if (!String(viewingLinkUrl || '').trim()) { formError = 'Link URL is required.'; return; }
     const projId = String(projects.find(p => p.id === projectId)?.proj_id || projectId);
-    const uid    = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid    = getCurrentUserId();
     formError = '';
     try {
       const res = await dispatchAction('create_proj_submission', {
@@ -1233,7 +1353,7 @@
 
   async function archiveProject(p) {
     if (!p) return;
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('update_proj_intern', {
         proj_id: p.proj_id || p.id,
@@ -1252,7 +1372,7 @@
 
   async function restoreProject(p) {
     if (!p) return;
-    const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+    const uid = getCurrentUserId();
     try {
       const res = await dispatchAction('restore_proj_intern', {
         proj_id: p.proj_id || p.id,
@@ -1278,6 +1398,56 @@
   onDestroy(() => { if (typeof unsubscribeAuth === 'function') unsubscribeAuth(); });
 
   // ── Derived ───────────────────────────────────────────────────────────────
+  let lastAssignmentDebugKey = '';
+  $: departmentContext = normalizeText(getProjectDepartmentContext());
+  $: allInterns = users.filter(isInternUser);
+  $: allSupervisors = users.filter(isSupervisorUser);
+  $: availableInterns = departmentContext
+    ? allInterns.filter((user) => sameDepartment(getDepartmentValue(user), departmentContext))
+    : allInterns;
+  $: availableSupervisors = departmentContext
+    ? allSupervisors.filter((user) => sameDepartment(getDepartmentValue(user), departmentContext))
+    : allSupervisors;
+  $: MEMBER_OPTIONS = availableInterns.map((user) => ({
+    value: getUserId(user),
+    label: getDisplayName(user),
+    photoUrl: getProfilePhotoUrl(user),
+    initials: getInitials(getDisplayName(user))
+  })).filter((option) => option.value);
+  $: SUPERVISOR_OPTIONS = availableSupervisors.map((user) => ({
+    value: getUserId(user),
+    label: getDisplayName(user),
+    photoUrl: getProfilePhotoUrl(user),
+    initials: getInitials(getDisplayName(user))
+  })).filter((option) => option.value);
+  $: {
+    const debugKey = [
+      usersLoading,
+      departmentContext,
+      users.length,
+      allInterns.length,
+      availableInterns.length,
+      allSupervisors.length,
+      availableSupervisors.length
+    ].join('|');
+    if (debugKey !== lastAssignmentDebugKey) {
+      lastAssignmentDebugKey = debugKey;
+      console.log('Project assignment users:', {
+        currentUserDepartment: getProjectDepartmentContext(),
+        backendDepartment: bootstrapDepartment,
+        inferredDepartment: inferSingleDepartmentFromUsers(users),
+        totalUsersLoaded: users.length,
+        internsBeforeDepartmentFilter: allInterns.length,
+        internsAfterDepartmentFilter: availableInterns.length,
+        supervisorsBeforeDepartmentFilter: allSupervisors.length,
+        supervisorsAfterDepartmentFilter: availableSupervisors.length
+      });
+      if (!usersLoading && users.length && !departmentContext) {
+        console.warn('Project assignment department context is empty; users are not shown until a department is available.');
+      }
+    }
+  }
+
   $: filteredProjects = projects.filter(p => {
     if (p.archived) return false;
     const matchPriority = filterPriority === 'all' || p.priority_level === filterPriority;
@@ -1302,7 +1472,7 @@
   async function loadOverviewActivity() {
     isLoadingActivity = true;
     try {
-      const uid = String(currentUser?.user_id || getCurrentUser()?.user_id || '');
+      const uid = getCurrentUserId();
       if (!uid) return;
       const res = await dispatchAction('get_proj_recent_activity', { user_id: uid });
       if (res?.ok) overviewActivity = res.activities || [];
@@ -1685,10 +1855,24 @@
                               </div>
                               {#if showInlineMembersPanel}
                                 <div class="members-panel" style="margin-top:6px">
-                                  {#each MEMBER_OPTIONS as m}
-                                    <label class="members-item"><input type="checkbox" checked={(inlineForm.members || []).includes(m.value)} on:change={() => toggleInlineMember(m.value)} /> <span class="members-name">{m.label}</span></label>
-                                  {/each}
-                                  {#if MEMBER_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">No interns found</span>{/if}
+                                  {#if usersLoading}
+                                    <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('intern')}</span>
+                                  {:else}
+                                    {#each MEMBER_OPTIONS as m}
+                                      <label class="members-item">
+                                        <input type="checkbox" checked={(inlineForm.members || []).includes(m.value)} on:change={() => toggleInlineMember(m.value)} />
+                                        <span class="member-avatar" aria-hidden="true">
+                                          {#if m.photoUrl}
+                                            <img src={m.photoUrl} alt="" />
+                                          {:else}
+                                            <span>{m.initials}</span>
+                                          {/if}
+                                        </span>
+                                        <span class="members-name">{m.label}</span>
+                                      </label>
+                                    {/each}
+                                    {#if MEMBER_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('intern')}</span>{/if}
+                                  {/if}
                                 </div>
                               {/if}
                             </div>
@@ -1700,10 +1884,24 @@
                               </div>
                               {#if showInlineSupervisorPanel}
                                 <div class="members-panel" style="margin-top:6px">
-                                  {#each SUPERVISOR_OPTIONS as s}
-                                    <label class="members-item"><input type="checkbox" checked={(inlineForm.supervisor || []).includes(s.value)} on:change={() => toggleInlineSupervisor(s.value)} /> <span class="members-name">{s.label}</span></label>
-                                  {/each}
-                                  {#if SUPERVISOR_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">No supervisors found</span>{/if}
+                                  {#if usersLoading}
+                                    <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('supervisor')}</span>
+                                  {:else}
+                                    {#each SUPERVISOR_OPTIONS as s}
+                                      <label class="members-item">
+                                        <input type="checkbox" checked={(inlineForm.supervisor || []).includes(s.value)} on:change={() => toggleInlineSupervisor(s.value)} />
+                                        <span class="member-avatar" aria-hidden="true">
+                                          {#if s.photoUrl}
+                                            <img src={s.photoUrl} alt="" />
+                                          {:else}
+                                            <span>{s.initials}</span>
+                                          {/if}
+                                        </span>
+                                        <span class="members-name">{s.label}</span>
+                                      </label>
+                                    {/each}
+                                    {#if SUPERVISOR_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('supervisor')}</span>{/if}
+                                  {/if}
                                 </div>
                               {/if}
                             </div>
@@ -2279,10 +2477,24 @@
         </div>
         {#if showMembersPanel}
           <div class="members-panel" style="margin-top:8px">
-            {#each MEMBER_OPTIONS as m}
-              <label class="members-item"><input type="checkbox" checked={(form.members || []).includes(m.value)} on:change={() => toggleMember(m.value)} /> <span class="members-name">{m.label}</span></label>
-            {/each}
-            {#if MEMBER_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">No interns found</span>{/if}
+            {#if usersLoading}
+              <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('intern')}</span>
+            {:else}
+              {#each MEMBER_OPTIONS as m}
+                <label class="members-item">
+                  <input type="checkbox" checked={(form.members || []).includes(m.value)} on:change={() => toggleMember(m.value)} />
+                  <span class="member-avatar" aria-hidden="true">
+                    {#if m.photoUrl}
+                      <img src={m.photoUrl} alt="" />
+                    {:else}
+                      <span>{m.initials}</span>
+                    {/if}
+                  </span>
+                  <span class="members-name">{m.label}</span>
+                </label>
+              {/each}
+              {#if MEMBER_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('intern')}</span>{/if}
+            {/if}
           </div>
         {/if}
       </div>
@@ -2295,10 +2507,24 @@
         </div>
         {#if showSupervisorsPanel}
           <div class="members-panel" style="margin-top:8px">
-            {#each SUPERVISOR_OPTIONS as s}
-              <label class="members-item"><input type="checkbox" checked={(form.supervisor || []).includes(s.value)} on:change={() => toggleSupervisor(s.value)} /> <span class="members-name">{s.label}</span></label>
-            {/each}
-            {#if SUPERVISOR_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">No supervisors found</span>{/if}
+            {#if usersLoading}
+              <span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('supervisor')}</span>
+            {:else}
+              {#each SUPERVISOR_OPTIONS as s}
+                <label class="members-item">
+                  <input type="checkbox" checked={(form.supervisor || []).includes(s.value)} on:change={() => toggleSupervisor(s.value)} />
+                  <span class="member-avatar" aria-hidden="true">
+                    {#if s.photoUrl}
+                      <img src={s.photoUrl} alt="" />
+                    {:else}
+                      <span>{s.initials}</span>
+                    {/if}
+                  </span>
+                  <span class="members-name">{s.label}</span>
+                </label>
+              {/each}
+              {#if SUPERVISOR_OPTIONS.length === 0}<span class="muted" style="font-size:12px;padding:4px 8px">{assignmentEmptyMessage('supervisor')}</span>{/if}
+            {/if}
           </div>
         {/if}
       </div>
@@ -3055,12 +3281,12 @@
 
   /* Quick panel (copied from SupervisorActivity) */
   .quick-panel { background: transparent !important; padding: 0; border-radius: 0; border: none !important; box-shadow: none !important; display:flex; align-items:center; justify-content:space-between }
-  .quick-head { display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.9rem; flex-wrap: nowrap }
+  .quick-head { display:flex; align-items:center; justify-content:space-between; width:100%; gap:0.75rem; flex-wrap: nowrap }
   .view-controls { display:flex; align-items:center; gap:0.45rem; flex-wrap: wrap; }
   .view-controls .btn { display:inline-flex; align-items:center; gap:0.4rem; border-radius:0.7rem; padding:0.32rem 0.72rem; background:transparent; border:1px solid var(--color-border); font-size:0.84rem; height:2.15rem; line-height:1; }
   .view-controls .btn.active { background: var(--color-soft); color: var(--color-heading); border-color: var(--color-border) }
   .btn-compact { padding:0.28rem 0.6rem; font-size:0.8rem; border-radius:0.55rem; }
-  .quick-actions { display:flex; gap:0.45rem; align-items:center; margin-left:auto; flex-wrap: nowrap }
+  .quick-actions { display:flex; gap:0.5rem; align-items:center; margin-left:auto; flex-wrap: nowrap }
   .search-wrap { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.7rem; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.7rem; height: 2.15rem; }
   .search-input { border:0; background:transparent; color:var(--color-text); font-size:0.85rem; width:11.5rem; outline:none; padding:0; height:100%; }
   /* search-icon removed */
@@ -3069,6 +3295,7 @@
     border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text);
     height: 2.15rem;
   }
+
   .quick-actions .primary { padding:0 0.95rem; font-size:0.85rem; border-radius:0.7rem; background: #2563eb; color: #fff; border: none; height: 2.15rem; display: inline-flex; align-items: center; font-weight: 600; white-space: nowrap; }
 
   .meta-link {
@@ -3099,8 +3326,8 @@
 
   /* ── Empty State ── */
   .empty-state {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 8px; padding: 34px 20px; color: var(--color-sidebar-text); text-align: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    gap: 8px; padding: 28px 20px 24px; min-height: 210px; color: var(--color-sidebar-text); text-align: center;
   }
   .empty-title { font-size: 14px; font-weight: 600; color: var(--color-text); }
   .empty-sub   { font-size: 12.5px; }
@@ -3230,6 +3457,9 @@
   .members-item { display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:6px; cursor:pointer; color:var(--color-heading); font-size:13px; font-weight:600; }
   .members-item + .members-item { margin-top:6px; }
   .members-item input[type="checkbox"] { width:18px; height:18px; accent-color:#60a5fa; }
+  .member-avatar { width:26px; height:26px; border-radius:50%; flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; overflow:hidden; border:1px solid rgba(148,163,184,0.35); background:linear-gradient(135deg, rgba(37,99,235,0.28), rgba(14,165,233,0.18)); color:#dbeafe; font-size:10px; font-weight:800; letter-spacing:0.03em; }
+  .member-avatar img { width:100%; height:100%; object-fit:cover; display:block; }
+  .members-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .members-item:hover { background:var(--color-surface-muted); }
   .members-name { line-height:1; }
 
