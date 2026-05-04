@@ -484,6 +484,7 @@
 			height: auto;
 			min-height: 100dvh;
 			overflow-x: hidden;
+			overflow-y: auto;
 		}
 
 		.login-shell::before {
@@ -492,31 +493,38 @@
 		}
 
 		.page-content {
-			grid-template-columns: 1fr;
-			justify-items: center;
-			padding: 32px 16px;
-			gap: 32px;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: flex-start;
+			width: 100%;
 			min-height: 100dvh;
+			box-sizing: border-box;
+			padding: clamp(2rem, 7dvh, 3.5rem) 16px max(24px, env(safe-area-inset-bottom));
+			gap: clamp(1.75rem, 5dvh, 3rem);
 		}
 
 		.brand-panel {
 			text-align: center;
-			max-width: 520px;
+			max-width: 380px;
 			padding-inline: 0;
 		}
 
 		.brand-panel h1 {
-			font-size: 30px;
-			line-height: 1.15;
+			margin-top: 0;
+			font-size: clamp(28px, 7.6vw, 36px);
+			line-height: 1.12;
 		}
 
 		.brand-panel p {
+			max-width: 340px;
+			margin: 0.75rem auto 0;
 			font-size: 14px;
-			line-height: 1.6;
+			line-height: 1.55;
 		}
 
 		.login-card {
-			width: calc(100vw - 32px);
+			width: min(420px, calc(100vw - 32px));
 			max-width: 420px;
 			padding: 22px;
 		}
@@ -553,12 +561,12 @@
 
 	@media (max-width: 640px) {
 		.page-content {
-			padding: 28px 16px;
-			gap: 28px;
+			padding: clamp(1.75rem, 6dvh, 2.5rem) 16px max(24px, env(safe-area-inset-bottom));
+			gap: clamp(1.4rem, 4dvh, 2.25rem);
 		}
 
 		.brand-panel h1 {
-			font-size: 28px;
+			font-size: clamp(27px, 8.2vw, 32px);
 		}
 
 		.brand-panel p {

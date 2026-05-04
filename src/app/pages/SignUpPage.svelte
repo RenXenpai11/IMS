@@ -1255,19 +1255,49 @@
 		.signup-shell {
 			height: auto;
 			min-height: 100dvh;
+			overflow-x: hidden;
+			overflow-y: auto;
 		}
 
 		.signup-layout {
-			padding: 1rem;
-			gap: 1rem;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: flex-start;
+			width: 100%;
+			min-height: 100dvh;
+			box-sizing: border-box;
+			padding: clamp(2rem, 7dvh, 3.5rem) 16px max(24px, env(safe-area-inset-bottom));
+			gap: clamp(1.5rem, 4dvh, 2.5rem);
+		}
+
+		.brand-panel {
+			text-align: center;
+			max-width: 420px;
+			padding-inline: 0;
+		}
+
+		.brand-panel h1 {
+			margin-top: 0;
+			font-size: clamp(28px, 7.6vw, 36px);
+			line-height: 1.12;
+		}
+
+		.brand-panel p {
+			max-width: 360px;
+			margin: 0.7rem auto 0;
+			font-size: 13.5px;
+			line-height: 1.55;
 		}
 
 		.phase-pills {
 			justify-content: center;
+			margin-top: 0.85rem;
 		}
 
 		.signup-card {
-			width: 100%;
+			width: min(560px, calc(100vw - 32px));
+			max-width: 560px;
 			padding: 1rem;
 			border-radius: 1rem;
 		}
@@ -1314,16 +1344,34 @@
 
 	@media (max-width: 640px) {
 		.signup-layout {
-			padding: 0.9rem;
+			padding: clamp(1.75rem, 6dvh, 2.5rem) 16px max(24px, env(safe-area-inset-bottom));
+			gap: clamp(1.35rem, 3.5dvh, 2rem);
 		}
 
 		.brand-panel {
-			display: none;
+			display: block;
+		}
+
+		.brand-panel h1 {
+			font-size: clamp(27px, 8.2vw, 32px);
+		}
+
+		.brand-panel p {
+			font-size: 13px;
+		}
+
+		.phase-pills {
+			gap: 0.35rem;
+		}
+
+		.phase-pills span {
+			font-size: 0.68rem;
+			padding: 0.3rem 0.5rem;
 		}
 
 		.signup-card {
 			padding: 1rem;
-			width: 100%;
+			width: min(100%, calc(100vw - 32px));
 		}
 	}
 </style>
