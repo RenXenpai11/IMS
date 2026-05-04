@@ -534,7 +534,7 @@
           <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Needed</div>
             <div class="dash-stat-value">{totalOjtHours || 0}</div>
-            <div class="dash-stat-sub">total OJT hours</div>
+            <div class="dash-stat-sub">Total OJT hours</div>
           </div>
         </div>
 
@@ -545,7 +545,7 @@
           <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Completed</div>
             <div class="dash-stat-value">{Number(hoursCompleted || 0).toFixed(1)}</div>
-            <div class="dash-stat-sub">all rendered hours</div>
+            <div class="dash-stat-sub">All rendered hours</div>
           </div>
         </div>
 
@@ -556,7 +556,7 @@
           <div class="dash-stat-body">
             <div class="dash-stat-label">Hours Remaining</div>
             <div class="dash-stat-value">{Number(hoursRemaining || 0).toFixed(1)}</div>
-            <div class="dash-stat-sub">left to finish</div>
+            <div class="dash-stat-sub">Left to finish</div>
           </div>
         </div>
 
@@ -567,7 +567,7 @@
           <div class="dash-stat-body">
             <div class="dash-stat-label">Working Days Needed</div>
             <div class="dash-stat-value">{remainingWorkingDays} <span class="dash-stat-unit">days</span></div>
-            <div class="dash-stat-sub">to complete OJT</div>
+            <div class="dash-stat-sub">To complete OJT</div>
           </div>
         </div>
       </div>
