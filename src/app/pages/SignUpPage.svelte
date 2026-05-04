@@ -1251,6 +1251,56 @@
 		}
 	}
 
+	@media (max-width: 768px) {
+		.signup-shell {
+			height: auto;
+			min-height: 100dvh;
+		}
+
+		.signup-layout {
+			padding: 1rem;
+			gap: 1rem;
+		}
+
+		.phase-pills {
+			justify-content: center;
+		}
+
+		.signup-card {
+			width: 100%;
+			padding: 1rem;
+			border-radius: 1rem;
+		}
+
+		.signup-head h1 {
+			font-size: 1.4rem;
+		}
+
+		.signup-head p {
+			font-size: 0.88rem;
+		}
+
+		.signup-form {
+			gap: 0.7rem;
+		}
+
+		.actions {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.primary,
+		.secondary,
+		.text-btn {
+			width: 100%;
+			justify-content: center;
+		}
+
+		.text-btn {
+			text-align: center;
+		}
+	}
+
 	@media (max-width: 720px) {
 		.actions {
 			flex-direction: column;

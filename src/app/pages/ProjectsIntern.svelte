@@ -1910,20 +1910,20 @@
               {@const isViewing = viewingProjectId === p.id}
               <div class="proj-table-row" class:proj-row-active={isViewing}>
                 <span class="proj-col-name proj-name-cell">{p.title}</span>
-                <span class="proj-col-priority">
+                <span class="proj-col-priority" data-label="Priority">
                   <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl || '—'}</span>
                 </span>
-                <span class="proj-col-status">
+                <span class="proj-col-status" data-label="Status">
                   <span class="proj-status-pill {sm.cls}">{sm.label}</span>
                 </span>
-                <span class="proj-col-due proj-col-timeline" class:deadline-past={past}>
+                <span class="proj-col-due proj-col-timeline" data-label="Timeline" class:deadline-past={past}>
                   {p.timeline_start || p.timeline_end
                     ? (p.timeline_start && p.timeline_end
                         ? `${formatDate(p.timeline_start)} — ${formatDate(p.timeline_end)}`
                         : formatDate(p.timeline_start || p.timeline_end))
                     : (p.deadline ? formatDate(p.deadline) : '—')}
                 </span>
-                <span class="proj-col-actions proj-actions-cell">
+                <span class="proj-col-actions proj-actions-cell" data-label="Actions">
                   <button class="icon-btn" class:icon-btn-active={isViewing} title="View" aria-label="View" on:click={() => viewProject(p)}>
                     <Eye size={16} />
                   </button>
@@ -3525,6 +3525,63 @@
     .search-input {
       width: 100%;
     }
+  }
+
+  @media (max-width: 768px) {
+    .stat-cards { grid-template-columns: 1fr; }
+    .quick-head { gap: 0.75rem; }
+    .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.5rem; }
+    .quick-actions > * { width: 100%; }
+    .quick-actions .search-wrap,
+    .quick-actions .quick-status,
+    .quick-actions .quick-priority,
+    .quick-actions .primary { width: 100%; }
+
+    .proj-table-panel { overflow-x: auto; }
+    .proj-table-header { display: none; }
+    .proj-table-body { padding: 0.35rem; }
+    .proj-table-row {
+      grid-template-columns: 1fr;
+      gap: 0.6rem;
+      align-items: flex-start;
+    }
+    .proj-table-row .proj-col-priority,
+    .proj-table-row .proj-col-status,
+    .proj-table-row .proj-col-due,
+    .proj-table-row .proj-col-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+    }
+    .proj-table-row .proj-col-priority::before,
+    .proj-table-row .proj-col-status::before,
+    .proj-table-row .proj-col-due::before,
+    .proj-table-row .proj-col-actions::before {
+      content: attr(data-label);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-sidebar-text);
+      font-weight: 600;
+    }
+    .proj-col-actions { justify-content: flex-start; }
+    .proj-actions-cell { gap: 0.4rem; }
+    .proj-col-timeline { max-width: 100%; white-space: normal; }
+    .proj-detail-body { padding: 0.85rem 1rem; }
+    .pdr-row-2, .ief-row-2, .detail-row-two, .row-2 { grid-template-columns: 1fr; }
+
+    .modal-box.large { width: min(94vw, 720px); }
+    .modal-footer.modal-footer-sticky { flex-direction: column-reverse; }
+    .modal-footer.modal-footer-sticky .btn-secondary,
+    .modal-footer.modal-footer-sticky .btn-submit {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .proj-arc-row { grid-template-columns: 1fr; gap: 0.6rem; }
+    .proj-arc-corner { justify-self: flex-start; }
   }
 
   /* ── Form Panel ── */

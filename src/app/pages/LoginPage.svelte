@@ -479,18 +479,94 @@
 		}
 	}
 
-	@media (max-width: 640px) {
+	@media (max-width: 768px) {
+		.login-shell {
+			height: auto;
+			min-height: 100dvh;
+			overflow-x: hidden;
+		}
+
+		.login-shell::before {
+			background-position: center;
+			background-size: cover;
+		}
+
 		.page-content {
-			padding: 0.9rem;
+			grid-template-columns: 1fr;
+			justify-items: center;
+			padding: 32px 16px;
+			gap: 32px;
+			min-height: 100dvh;
 		}
 
 		.brand-panel {
-			display: none;
+			text-align: center;
+			max-width: 520px;
+			padding-inline: 0;
+		}
+
+		.brand-panel h1 {
+			font-size: 30px;
+			line-height: 1.15;
+		}
+
+		.brand-panel p {
+			font-size: 14px;
+			line-height: 1.6;
 		}
 
 		.login-card {
-			padding: 1rem;
+			width: calc(100vw - 32px);
+			max-width: 420px;
+			padding: 22px;
+		}
+
+		.card-head h2 {
+			font-size: 1.4rem;
+		}
+
+		.card-head p {
+			font-size: 0.88rem;
+		}
+
+		.field span {
+			font-size: 0.8rem;
+		}
+
+		input {
+			height: 44px;
+		}
+
+		.login-btn {
 			width: 100%;
+			min-height: 44px;
+		}
+
+		.link-row {
+			justify-content: flex-start;
+		}
+
+		.signup-row {
+			font-size: 0.88rem;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.page-content {
+			padding: 28px 16px;
+			gap: 28px;
+		}
+
+		.brand-panel h1 {
+			font-size: 28px;
+		}
+
+		.brand-panel p {
+			font-size: 13px;
+		}
+
+		.login-card {
+			padding: 20px;
 		}
 	}
 </style>
