@@ -2408,21 +2408,39 @@ function handleUpdateRequestStatus_(payload) {
   }
   
   var studentUserId = String(rows[requestRowIndex][userIdColIndex - 1] || '').trim();
+  var currentStatus = String(rows[requestRowIndex][updateColIndex - 1] || '').trim();
+  var currentStatusLower = currentStatus.toLowerCase();
   
   // Permission checks
   if (isSupervisor) {
-    // Supervisors can approve/reject
-    if (newStatus !== 'Approved' && newStatus !== 'Rejected' && newStatus !== 'Archived') {
+    // Supervisors can approve/reject/archive/recover
+    if (newStatus !== 'Approved' && newStatus !== 'Rejected' && newStatus !== 'Archived' && newStatus !== 'Pending') {
       return { ok: false, error: 'Invalid status for supervisor.' };
     }
     // Check if supervisor is assigned to this student
     if (!isStudentAssignedToSupervisor_(supervisorUserId, studentUserId)) {
       return { ok: false, error: 'You are not assigned to this student request.' };
     }
+    // Only completed requests can be archived
+    if (newStatus === 'Archived' && currentStatusLower !== 'approved' && currentStatusLower !== 'rejected') {
+      return { ok: false, error: 'Only approved or rejected requests can be archived.' };
+    }
+    // Recovery is only valid from archived state
+    if (newStatus === 'Pending' && currentStatusLower !== 'archived') {
+      return { ok: false, error: 'Only archived requests can be recovered to pending.' };
+    }
   } else {
     // Interns can only archive/recover their own requests
     if ((newStatus !== 'Archived' && newStatus !== 'Pending') || studentUserId !== supervisorUserId) {
       return { ok: false, error: 'You can only archive or recover your own requests.' };
+    }
+    // Only completed requests can be archived
+    if (newStatus === 'Archived' && currentStatusLower !== 'approved' && currentStatusLower !== 'rejected') {
+      return { ok: false, error: 'Only approved or rejected requests can be archived.' };
+    }
+    // Recovery is only valid from archived state
+    if (newStatus === 'Pending' && currentStatusLower !== 'archived') {
+      return { ok: false, error: 'Only archived requests can be recovered to pending.' };
     }
   }
 

@@ -86,6 +86,7 @@
   let selectedRequests = new Set();
   let selectAllChecked = false;
   let showBulkActions = false;
+  const COMPLETED_STATUSES = new Set(["approved", "rejected"]);
 
   // Edit mode state
   let editingRequestId = null;
@@ -107,6 +108,48 @@
     shift_end: "17:00",       // Default fallback
     days_off: [0, 6],         // Default: Sunday (0) and Saturday (6)
   };
+
+  function normalizeStatus(status) {
+    return String(status || "").trim().toLowerCase();
+  }
+
+  function getRequestId(request) {
+    return String(request?.id || request?.request_id || "").trim();
+  }
+
+  function isCompletedStatus(status) {
+    return COMPLETED_STATUSES.has(normalizeStatus(status));
+  }
+
+  function isArchivedStatus(status) {
+    return normalizeStatus(status) === "archived";
+  }
+
+  function isArchivableFromList(request) {
+    return requestFilter !== "archive" && isCompletedStatus(request?.status);
+  }
+
+  function isRecoverableFromArchive(request) {
+    return requestFilter === "archive" && isArchivedStatus(request?.status);
+  }
+
+  function isSelectableRequest(request) {
+    if (!request) return false;
+    return isRecoverableFromArchive(request) || isArchivableFromList(request);
+  }
+
+  function getSelectableRequests(list) {
+    const source = Array.isArray(list) ? list : [];
+    return source.filter((request) => isSelectableRequest(request));
+  }
+
+  function findRequestById(requestId) {
+    const normalizedId = String(requestId || "").trim();
+    if (!normalizedId) return null;
+    return (
+      requests.find((request) => getRequestId(request) === normalizedId) || null
+    );
+  }
 
   $: showOvertimeFields = form.requestType === "Overtime";
   $: overtimeHours = calculateOvertimeHours(
@@ -770,21 +813,26 @@
   }
 
   // Bulk selection functions
-  function toggleRequestSelection(requestId) {
+  function toggleRequestSelection(requestOrId) {
+    const request =
+      typeof requestOrId === "object" && requestOrId
+        ? requestOrId
+        : findRequestById(requestOrId);
+    const requestId = getRequestId(request);
+    if (!requestId || !isSelectableRequest(request)) return;
+
     if (selectedRequests.has(requestId)) {
       selectedRequests.delete(requestId);
     } else {
       selectedRequests.add(requestId);
     }
-    selectedRequests = selectedRequests; // Trigger reactivity
+    selectedRequests = new Set(selectedRequests);
   }
 
   function hasArchivableRequests() {
-    if (isSupervisor) return true;
-    // For interns, check if any selected requests are approved or rejected
     for (const requestId of selectedRequests) {
-      const request = requests.find(r => r.id === requestId);
-      if (request && (request.status === "Approved" || request.status === "Rejected")) {
+      const request = findRequestById(requestId);
+      if (isArchivableFromList(request)) {
         return true;
       }
     }
@@ -792,36 +840,32 @@
   }
 
   function toggleSelectAll() {
-    if (selectAllChecked) {
+    const selectableRequests = getSelectableRequests(filteredRequests);
+    if (selectAllChecked || selectableRequests.length === 0) {
       selectedRequests.clear();
       selectAllChecked = false;
     } else {
-      filteredRequests.forEach(r => selectedRequests.add(r.id));
+      selectableRequests.forEach((request) =>
+        selectedRequests.add(getRequestId(request)),
+      );
       selectAllChecked = true;
     }
-    selectedRequests = selectedRequests; // Trigger reactivity
+    selectedRequests = new Set(selectedRequests);
   }
 
   async function archiveSelectedRequests() {
     if (selectedRequests.size === 0) return;
     isArchiving = true;
     try {
-      const requestsToArchive = Array.from(selectedRequests);
+      const requestsToArchive = Array.from(selectedRequests).filter((requestId) =>
+        isArchivableFromList(findRequestById(requestId)),
+      );
       let archivedCount = 0;
       let failedRequests = [];
       
       console.log("Starting archive. Requests to archive:", requestsToArchive);
       
       for (const requestId of requestsToArchive) {
-        // For interns, only allow archiving approved or rejected requests
-        if (!isSupervisor) {
-          const request = requests.find(r => r.id === requestId);
-          if (!request || (request.status !== "Approved" && request.status !== "Rejected")) {
-            console.log("Skipping request", requestId, "- not approved/rejected");
-            continue;
-          }
-        }
-        
         const payload = {
           request_id: requestId,
           status: "Archived",
@@ -876,8 +920,12 @@
     if (selectedRequests.size === 0) return;
     isArchiving = true;
     try {
-      let recoveredCount = selectedRequests.size;
-      for (const requestId of selectedRequests) {
+      const requestsToRecover = Array.from(selectedRequests).filter((requestId) =>
+        isRecoverableFromArchive(findRequestById(requestId)),
+      );
+      let recoveredCount = 0;
+      let failedRequests = [];
+      for (const requestId of requestsToRecover) {
         const payload = {
           request_id: requestId,
           status: "Pending",
@@ -890,8 +938,11 @@
         
         const result = await callBackend("update_request_status", payload);
         console.log("Recover result:", result);
-        if (!result || !result.ok) {
+        if (result && result.ok) {
+          recoveredCount++;
+        } else {
           console.error("Failed to recover request:", requestId, result?.error);
+          failedRequests.push({ id: requestId, error: result?.error });
         }
       }
       
@@ -904,8 +955,13 @@
       await new Promise(resolve => setTimeout(resolve, 300));
       await loadRequests();
       
-      formSuccess = `${recoveredCount} request(s) recovered.`;
-      setTimeout(() => (formSuccess = ""), 3000);
+      if (failedRequests.length > 0) {
+        formError = `${recoveredCount} recovered, but ${failedRequests.length} failed: ${failedRequests[0].error || "Unknown error"}`;
+        setTimeout(() => (formError = ""), 5000);
+      } else {
+        formSuccess = `${recoveredCount} request(s) recovered.`;
+        setTimeout(() => (formSuccess = ""), 3000);
+      }
     } catch (err) {
       console.error("Recover requests error:", err);
       formError = "Failed to recover requests.";
@@ -985,6 +1041,54 @@
       const dateB = new Date(b.date || b.request_date || b.applied_date || 0);
       return dateB.getTime() - dateA.getTime();
     });
+  $: selectableFilteredRequests = getSelectableRequests(filteredRequests);
+  $: selectedEligibleCount = (() => {
+    let count = 0;
+    const visibleIds = new Set(filteredRequests.map((request) => getRequestId(request)));
+    for (const requestId of selectedRequests) {
+      const request = findRequestById(requestId);
+      if (
+        request &&
+        visibleIds.has(getRequestId(request)) &&
+        isSelectableRequest(request)
+      ) {
+        count++;
+      }
+    }
+    return count;
+  })();
+  $: {
+    const visibleIds = new Set(
+      filteredRequests.map((request) => getRequestId(request)),
+    );
+    let changed = false;
+    for (const requestId of Array.from(selectedRequests)) {
+      const request = findRequestById(requestId);
+      if (
+        !request ||
+        !visibleIds.has(getRequestId(request)) ||
+        !isSelectableRequest(request)
+      ) {
+        selectedRequests.delete(requestId);
+        changed = true;
+      }
+    }
+    if (changed) {
+      selectedRequests = new Set(selectedRequests);
+    }
+  }
+  $: {
+    if (!showBulkActions) {
+      selectAllChecked = false;
+    } else {
+      const selectableIds = selectableFilteredRequests.map((request) =>
+        getRequestId(request),
+      );
+      selectAllChecked =
+        selectableIds.length > 0 &&
+        selectableIds.every((requestId) => selectedRequests.has(requestId));
+    }
+  }
 
   $: totalRequests = requests.filter(
     (request) => String(request?.status || "").toLowerCase() !== "archived",
@@ -999,50 +1103,57 @@
   $: archivedRequests = requests.filter(
     (request) => String(request?.status || "").toLowerCase() === "archived",
   ).length;
+  $: requestStatCards = [
+    {
+      key: "total",
+      label: "Total Requests",
+      value: totalRequests,
+      subtitle: "total submitted requests",
+      icon: FileText,
+      tone: "blue",
+    },
+    {
+      key: "pending",
+      label: "Pending Review",
+      value: pendingRequests,
+      subtitle: "awaiting approval",
+      icon: Clock3,
+      tone: "amber",
+    },
+    {
+      key: "resolved",
+      label: "Resolved",
+      value: resolvedRequests,
+      subtitle: "approved and rejected requests",
+      icon: ShieldCheck,
+      tone: "green",
+    },
+    {
+      key: "archive",
+      label: "Archive",
+      value: archivedRequests,
+      subtitle: "archived requests",
+      icon: Archive,
+      tone: "purple",
+    },
+  ];
 </script>
 
 <section class="requests-modern">
   <!-- Stat Cards -->
   <div class="stat-cards">
-    <div class="stat-card blue">
-      <div class="stat-icon blue">
-        <FileText size={20} />
+    {#each requestStatCards as card (card.key)}
+      <div class="stat-card">
+        <div class={`stat-icon ${card.tone}`}>
+          <svelte:component this={card.icon} size={16} />
+        </div>
+        <div class="stat-body">
+          <div class="stat-label">{card.label}</div>
+          <div class="stat-value">{card.value}</div>
+          <div class="stat-sub">{card.subtitle}</div>
+        </div>
       </div>
-      <div class="stat-body">
-        <div class="stat-value">{totalRequests}</div>
-        <div class="stat-label">Total Requests</div>
-      </div>
-    </div>
-
-    <div class="stat-card amber">
-      <div class="stat-icon amber">
-        <Clock3 size={20} />
-      </div>
-      <div class="stat-body">
-        <div class="stat-value">{pendingRequests}</div>
-        <div class="stat-label">Pending Review</div>
-      </div>
-    </div>
-
-    <div class="stat-card green">
-      <div class="stat-icon green">
-        <ShieldCheck size={20} />
-      </div>
-      <div class="stat-body">
-        <div class="stat-value">{resolvedRequests}</div>
-        <div class="stat-label">Resolved</div>
-      </div>
-    </div>
-
-    <div class="stat-card purple">
-      <div class="stat-icon purple">
-        <Archive size={20} />
-      </div>
-      <div class="stat-body">
-        <div class="stat-value">{archivedRequests}</div>
-        <div class="stat-label">Archive</div>
-      </div>
-    </div>
+    {/each}
   </div>
 
   <!-- Tab Row -->
@@ -1124,26 +1235,26 @@
           </div>
           <div class="bulk-action-buttons">
             {#if showBulkActions}
-              <button class="cancel-btn" on:click={() => { showBulkActions = false; selectedRequests.clear(); selectAllChecked = false; selectedRequests = selectedRequests; }}>
+              <button class="cancel-btn" on:click={() => { showBulkActions = false; selectedRequests.clear(); selectAllChecked = false; selectedRequests = new Set(selectedRequests); }}>
                 Cancel
               </button>
-              {#if selectedRequests.size > 0}
+              {#if selectedEligibleCount > 0}
                 {#if requestFilter === "archive"}
                   <button class="recover-btn" on:click={recoverSelectedRequests} disabled={isArchiving}>
                     {#if isArchiving}
                       <span class="spinning-icon"><Loader2 size={14} /></span>
                       Recovering...
                     {:else}
-                      ↻ Recover ({selectedRequests.size})
+                      ↻ Recover ({selectedEligibleCount})
                     {/if}
                   </button>
-                {:else if isSupervisor || hasArchivableRequests()}
+                {:else if hasArchivableRequests()}
                   <button class="archive-btn" on:click={archiveSelectedRequests} disabled={isArchiving}>
                     {#if isArchiving}
                       <span class="spinning-icon"><Loader2 size={14} /></span>
                       Archiving...
                     {:else}
-                      Archive ({selectedRequests.size})
+                      Archive ({selectedEligibleCount})
                     {/if}
                   </button>
                 {/if}
@@ -1163,8 +1274,7 @@
           </div>
         {:else}
           <div class="requests-list">
-            <!-- Select All Checkbox (for supervisor, all filter, and archived requests) -->
-            {#if showBulkActions && ((isSupervisor) || (requestFilter === "archive") || (requestFilter === "all"))}
+            {#if showBulkActions && selectableFilteredRequests.length > 0}
               <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
                 <input 
                   type="checkbox" 
@@ -1190,17 +1300,17 @@
                 class:request-card-pending={statusTone === "pending"}
                 class:request-card-approved={statusTone === "approved"}
                 class:request-card-rejected={statusTone === "rejected"}
-                class:request-card-selected={selectedRequests.has(request.id)}
-                on:click={() => { if (showBulkActions) toggleRequestSelection(request.id); }}
+                class:request-card-selected={selectedRequests.has(getRequestId(request))}
+                on:click={() => { if (showBulkActions) toggleRequestSelection(request); }}
                 role={showBulkActions ? "button" : "article"}
                 tabindex={showBulkActions ? 0 : -1}
               >
-                {#if showBulkActions && (request.status === "Approved" || request.status === "Rejected" || requestFilter === "archive")}
+                {#if showBulkActions && isSelectableRequest(request)}
                   <div class="request-card-checkbox">
                     <input 
                       type="checkbox" 
-                      checked={selectedRequests.has(request.id)}
-                      on:change={() => toggleRequestSelection(request.id)}
+                      checked={selectedRequests.has(getRequestId(request))}
+                      on:change={() => toggleRequestSelection(request)}
                       on:click={(e) => e.stopPropagation()}
                       class="request-checkbox"
                     />
@@ -1835,7 +1945,7 @@
     position: relative;
     overflow: hidden;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 14px;
   }
   .stat-card:hover {
@@ -1872,16 +1982,26 @@
     color: var(--purple);
   }
   .stat-value {
-    font-size: 28px;
+    font-size: 24px;
     font-weight: 700;
-    letter-spacing: -0.4px;
+    letter-spacing: -0.8px;
     line-height: 1;
+    color: var(--text);
   }
   .stat-label {
-    font-size: 12px;
+    font-size: 11px;
+    color: #000000;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+  :global(body.dark) .stat-label {
+    color: #ffffff;
+  }
+  .stat-sub {
+    margin-top: 4px;
+    font-size: 11.5px;
     color: var(--text2);
-    margin-top: 2px;
-    font-weight: 500;
   }
 
   /* ========== TAB ROW ========== */
