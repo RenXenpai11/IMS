@@ -19,6 +19,8 @@
   const AVERAGE_DAILY_HOURS = 8;
   const INITIAL_COMPLETED_HOURS = 0;
   const ACTIVE_SESSION_STORAGE_PREFIX = 'ims-active-time-session';
+  const DEFAULT_TIME_IN = '09:00';
+  const DEFAULT_TIME_OUT = '17:00';
   
   // ---- Skeleton loading flag ----
   let isLoading = true;
@@ -36,14 +38,21 @@
 
   let entries = [];
   let date = '';
-  let timeIn = '08:00';
-  let timeOut = '';
+  let timeIn = DEFAULT_TIME_IN;
+  let timeOut = DEFAULT_TIME_OUT;
   let logSyncError = '';
   
   let isLoggingIn = false;
   let isLoggingOut = false;
   let isLoggedIn = false;
   let isDeletingEntry = false;
+
+  // Intern's custom schedule from supervisor assignment
+  let internSchedule = {
+    shift_start: DEFAULT_TIME_IN,     // Default fallback
+    shift_end: DEFAULT_TIME_OUT,      // Default fallback
+    days_off: [0, 6],         // Default: Sunday (0) and Saturday (6)
+  };
   
   let includeLunch = (() => {
     if (typeof window !== 'undefined') {
@@ -70,7 +79,7 @@
       storageKey,
       JSON.stringify({
         log_date: normalizeDateOnly(sessionDate),
-        time_in: normalizeTimeValue(sessionTimeIn, timeIn || '08:00'),
+        time_in: normalizeTimeValue(sessionTimeIn, timeIn || DEFAULT_TIME_IN),
       }),
     );
   }
@@ -93,7 +102,7 @@
       if (!storedDate || !storedTimeIn) return false;
       date = storedDate;
       timeIn = storedTimeIn;
-      timeOut = '';
+      timeOut = DEFAULT_TIME_OUT;
       isLoggedIn = true;
       return true;
     } catch {
@@ -230,8 +239,8 @@
       sessionId,
       timelogId,
       date: normalizeDateOnly(row?.log_date),
-      timeIn: normalizeTimeValue(row?.time_in, '08:00'),
-      timeOut: normalizeTimeValue(row?.time_out, '17:00'),
+      timeIn: normalizeTimeValue(row?.time_in, DEFAULT_TIME_IN),
+      timeOut: normalizeTimeValue(row?.time_out, DEFAULT_TIME_OUT),
       hours: Number(row?.hours_rendered || 0),
       status: 'recorded',
       type: String(row?.entry_type || 'login').toLowerCase(),
@@ -290,6 +299,7 @@
       });
       if (response && response.ok === true) {
         isLoggedIn = true;
+        timeOut = DEFAULT_TIME_OUT;
         saveLocalActiveSession(user.user_id, response.session?.log_date || date, response.session?.time_in || timeIn);
         logSyncError = '';
       } else {
@@ -337,7 +347,7 @@
       if (response && response.ok === true) {
         logSyncError = '';
         isLoggedIn = false;
-        timeOut = '';
+        timeOut = DEFAULT_TIME_OUT;
         clearLocalActiveSession(user.user_id);
         await loadEntriesFromApi();
       } else {
@@ -406,7 +416,7 @@
         const sessionDate = normalizeDateOnly(response.session.log_date);
         if (sessionDate) date = sessionDate;
         timeIn = normalizeTimeValue(response.session.time_in, timeIn);
-        timeOut = '';
+        timeOut = DEFAULT_TIME_OUT;
         isLoggedIn = true;
         saveLocalActiveSession(user.user_id, date, timeIn);
       } else {
@@ -609,6 +619,37 @@
     isLoading = true;
     try {
       syncRequiredHoursFromAccount();
+      
+      // Fetch intern's custom schedule
+      const user = authApi.getCurrentUser();
+      if (user?.user_id) {
+        try {
+          const scheduleResult = await authApi.callApiAction('get_intern_schedule', {
+            intern_user_id: user.user_id,
+          });
+          if (scheduleResult && scheduleResult.ok && scheduleResult.schedule) {
+            const schedule = scheduleResult.schedule;
+            internSchedule.shift_start = schedule.shift_start || DEFAULT_TIME_IN;
+            internSchedule.shift_end = schedule.shift_end || DEFAULT_TIME_OUT;
+            // Ensure days_off is an array - parse if it's a string
+            if (typeof schedule.days_off === 'string') {
+              try {
+                internSchedule.days_off = JSON.parse(schedule.days_off) || [0, 6];
+              } catch {
+                internSchedule.days_off = [0, 6];
+              }
+            } else if (Array.isArray(schedule.days_off)) {
+              internSchedule.days_off = schedule.days_off;
+            } else {
+              internSchedule.days_off = [0, 6];
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load intern schedule:', err);
+          // Use defaults on error
+        }
+      }
+      
       await loadEntriesFromApi();
       // Set default date after ensuring user is loaded
       const today = new Date();
@@ -839,6 +880,47 @@
 
     <div class="tl-three-col">
 
+      <div class="tl-card tl-schedule-card">
+        <div class="tl-card-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Your Schedule
+        </div>
+        <div class="tl-schedule-content">
+          <div class="tl-schedule-item">
+            <div class="tl-schedule-label">Shift Hours</div>
+            <div class="tl-schedule-value">{internSchedule.shift_start} - {internSchedule.shift_end}</div>
+          </div>
+          <div class="tl-schedule-item">
+            <div class="tl-schedule-label">Working Days</div>
+            <div class="tl-schedule-value">
+              {#if internSchedule.days_off.length > 0}
+                {(() => {
+                  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                  const workingDays = days.filter((_, i) => !internSchedule.days_off.includes(i)).join(', ');
+                  return workingDays || 'No working days';
+                })()}
+              {:else}
+                Monday - Friday
+              {/if}
+            </div>
+          </div>
+          <div class="tl-schedule-item">
+            <div class="tl-schedule-label">Days Off</div>
+            <div class="tl-schedule-value">
+              {#if internSchedule.days_off.length > 0}
+                {(() => {
+                  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                  const offDays = internSchedule.days_off.map(i => days[i]).join(', ');
+                  return offDays || 'None';
+                })()}
+              {:else}
+                None
+              {/if}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="tl-card">
         <div class="tl-card-title">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -918,20 +1000,21 @@
         {/if}
       </div>
 
-      <div class="tl-card tl-card-chart">
-        <div class="tl-chart-header">
-          <div>
-            <div class="tl-card-title">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-              Weekly Overview
-            </div>
-            <div class="tl-chart-sub">Hours logged this week</div>
+    </div>
+
+    <div class="tl-card tl-card-chart">
+      <div class="tl-chart-header">
+        <div>
+          <div class="tl-card-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Weekly Overview
           </div>
-          <button class="tl-week-btn">This Week</button>
+          <div class="tl-chart-sub">Hours logged this week</div>
         </div>
-        <div class="tl-chart-wrap">
-          <canvas id="tlWeekChart"></canvas>
-        </div>
+        <button class="tl-week-btn">This Week</button>
+      </div>
+      <div class="tl-chart-wrap">
+        <canvas id="tlWeekChart"></canvas>
       </div>
     </div>
 
@@ -1260,6 +1343,40 @@
     gap: 8px;
   }
   .tl-card-title svg { color: var(--tl-text2); }
+
+  /* Schedule card */
+  .tl-schedule-card {
+    grid-column: 1 / 2;
+  }
+  .tl-schedule-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .tl-schedule-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--tl-border);
+  }
+  .tl-schedule-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .tl-schedule-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--tl-text2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .tl-schedule-value {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--tl-text);
+  }
+
   .tl-field { display: flex; flex-direction: column; gap: 6px; }
   .tl-field label {
     font-size: 11.5px;
@@ -1446,6 +1563,7 @@
     border-radius: var(--tl-radius);
     overflow: hidden;
     box-shadow: var(--tl-shadow-sm);
+    margin-top: 12px;
   }
   .tl-table-header {
     display: flex;
@@ -1689,12 +1807,10 @@
 
   @media (max-width: 1100px) {
     .tl-three-col { grid-template-columns: 1fr 1fr; }
-    .tl-card-chart { grid-column: 1 / -1; }
   }
   @media (max-width: 680px) {
     .tl-page { gap: 16px; }
     .tl-stat-grid { grid-template-columns: 1fr 1fr; }
     .tl-three-col { grid-template-columns: 1fr; }
-    .tl-card-chart { grid-column: auto; }
   }
 </style>

@@ -87,6 +87,9 @@
   let selectAllChecked = false;
   let showBulkActions = false;
 
+  // Edit mode state
+  let editingRequestId = null;
+
   let form = {
     requestType: "Absence",
     date: "",
@@ -97,6 +100,13 @@
   };
 
   let minDate = "";
+
+  // Intern's custom schedule from supervisor assignment
+  let internSchedule = {
+    shift_start: "09:00",     // Default fallback
+    shift_end: "17:00",       // Default fallback
+    days_off: [0, 6],         // Default: Sunday (0) and Saturday (6)
+  };
 
   $: showOvertimeFields = form.requestType === "Overtime";
   $: overtimeHours = calculateOvertimeHours(
@@ -127,12 +137,78 @@
     form.lunchBreak ||
     form.reason
   ) {
-    if (
+    // Validate date-related errors in real-time for absence requests
+    if (form.requestType === "Absence" && form.date) {
+      const dateObj = new Date(form.date + "T00:00:00");
+      const dayOfWeek = dateObj.getDay();
+      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      
+      if (daysOff.includes(dayOfWeek)) {
+        const dayName = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ][dayOfWeek];
+        formError = `Absence cannot be requested during day off (${dayName}). Please select a working day.`;
+      } else if (
+        formError &&
+        (formError.includes("cannot be scheduled") ||
+          formError.includes("End time must") ||
+          formError.includes("Start time and end") ||
+          formError.includes("work hours") ||
+          formError.includes("day off"))
+      ) {
+        formError = "";
+      }
+    } else if (form.requestType === "Overtime" && form.startTime && form.endTime) {
+      // Validate overtime - check if it overlaps with shift hours
+      const [startHour, startMin] = String(form.startTime).split(":").map(Number);
+      const [endHour, endMin] = String(form.endTime).split(":").map(Number);
+      const startTotalMin = startHour * 60 + startMin;
+      const endTotalMin = endHour * 60 + endMin;
+      
+      // Check if end time is after start time
+      if (endTotalMin <= startTotalMin) {
+        formError = "End time must be after start time.";
+      } else if (overtimeHours < 0.5) {
+        // Check minimum 30-minute requirement
+        formError = "Overtime must be at least 30 minutes.";
+      } else {
+        // Check for overlap with shift hours
+        const shiftStart = String(internSchedule.shift_start || "09:00").trim();
+        const shiftEnd = String(internSchedule.shift_end || "17:00").trim();
+        const [shiftStartHour, shiftStartMin] = shiftStart.split(":").map(Number);
+        const [shiftEndHour, shiftEndMin] = shiftEnd.split(":").map(Number);
+        const shiftStartTotalMin = shiftStartHour * 60 + shiftStartMin;
+        const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
+        
+        // Check for overlap: if overtime is within shift hours
+        if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+          formError = `Overtime cannot be scheduled during your work hours (${shiftStart} - ${shiftEnd}). Please schedule overtime outside these hours.`;
+        } else if (
+          formError &&
+          (formError.includes("cannot be scheduled") ||
+            formError.includes("End time must") ||
+            formError.includes("Overtime must") ||
+            formError.includes("Start time and end") ||
+            formError.includes("work hours") ||
+            formError.includes("day off"))
+        ) {
+          formError = "";
+        }
+      }
+    } else if (
       formError &&
       (formError.includes("cannot be scheduled") ||
         formError.includes("End time must") ||
         formError.includes("Overtime must") ||
-        formError.includes("Start time and end"))
+        formError.includes("Start time and end") ||
+        formError.includes("work hours") ||
+        formError.includes("day off"))
     ) {
       formError = "";
     }
@@ -157,7 +233,9 @@
     if (form.requestType === "Absence") {
       const dateObj = new Date(form.date + "T00:00:00");
       const dayOfWeek = dateObj.getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) return false;
+      // Check if it's a day off for this intern (using custom schedule)
+      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      if (daysOff.includes(dayOfWeek)) return false;
     }
 
     if (form.requestType === "Overtime") {
@@ -170,6 +248,19 @@
       const endTotalMin = endHour * 60 + endMin;
       if (endTotalMin <= startTotalMin) return false;
       if (overtimeHours < 0.5) return false;
+      
+      // Parse shift times from custom schedule
+      const shiftStart = String(internSchedule.shift_start || "09:00").trim();
+      const shiftEnd = String(internSchedule.shift_end || "17:00").trim();
+      const [shiftStartHour, shiftStartMin] = shiftStart.split(":").map(Number);
+      const [shiftEndHour, shiftEndMin] = shiftEnd.split(":").map(Number);
+      const shiftStartTotalMin = shiftStartHour * 60 + shiftStartMin;
+      const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
+      
+      // Check for overlap with shift hours
+      if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+        return false;
+      }
     }
 
     return true;
@@ -185,7 +276,24 @@
     const diffMin = endTotalMin - startTotalMin;
     const lunchMinutes = Number(lunchBreak) || 0;
     const actualWorkMin = Math.max(0, diffMin - lunchMinutes);
-    return Math.round((actualWorkMin / 60) * 10) / 10;
+    return actualWorkMin / 60;
+  }
+
+  function formatOvertimeDisplay(hours) {
+    if (!hours || hours <= 0) return "0 minutes";
+    
+    const wholeHours = Math.floor(hours);
+    const remainingMinutes = Math.round((hours - wholeHours) * 60);
+    
+    if (wholeHours === 0) {
+      return `${remainingMinutes} minute${remainingMinutes !== 1 ? "s" : ""}`;
+    }
+    
+    if (remainingMinutes === 0) {
+      return `${wholeHours} hour${wholeHours !== 1 ? "s" : ""}`;
+    }
+    
+    return `${wholeHours} hour${wholeHours !== 1 ? "s" : ""} ${remainingMinutes} minute${remainingMinutes !== 1 ? "s" : ""}`;
   }
 
   async function callBackend(action, payload) {
@@ -233,6 +341,36 @@
         String(currentUser?.role || "")
           .trim()
           .toLowerCase() === "supervisor";
+      
+      // Fetch intern's custom schedule (if not a supervisor)
+      if (!isSupervisor) {
+        try {
+          const scheduleResult = await callBackend("get_intern_schedule", {
+            intern_user_id: currentUser.user_id,
+          });
+          if (scheduleResult && scheduleResult.ok && scheduleResult.schedule) {
+            const schedule = scheduleResult.schedule;
+            internSchedule.shift_start = schedule.shift_start || "09:00";
+            internSchedule.shift_end = schedule.shift_end || "17:00";
+            // Ensure days_off is an array - parse if it's a string
+            if (typeof schedule.days_off === 'string') {
+              try {
+                internSchedule.days_off = JSON.parse(schedule.days_off) || [0, 6];
+              } catch {
+                internSchedule.days_off = [0, 6];
+              }
+            } else if (Array.isArray(schedule.days_off)) {
+              internSchedule.days_off = schedule.days_off;
+            } else {
+              internSchedule.days_off = [0, 6];
+            }
+          }
+        } catch (err) {
+          console.error("Failed to load intern schedule:", err);
+          // Use defaults on error
+        }
+      }
+      
       let result;
       if (isSupervisor) {
         result = await callBackend("list_assigned_student_requests", {
@@ -278,30 +416,65 @@
   function formatCreatedDate(dateValue) {
     const dateString = String(dateValue || "").trim();
     if (!dateString) return "";
-    let dateToFormat = dateString;
-    if (dateString.includes("T") || dateString.includes(" ")) {
-      dateToFormat = dateString.split("T")[0].split(" ")[0];
+    
+    // Try to parse as a full timestamp first
+    let parsed;
+    try {
+      // Remove GMT timezone info (e.g., "GMT+0800 (Philippine Standard Time)")
+      const cleanedString = dateString.replace(/\s*GMT[+-]\d{4}\s*\([^)]*\)/, "").trim();
+      parsed = new Date(cleanedString);
+    } catch {
+      return dateValue;
     }
-    const parsed = new Date(`${dateToFormat}T00:00:00`);
+    
     if (Number.isNaN(parsed.getTime())) return dateValue;
+    
+    // Format as "Mon, Apr 27, 2026, 11:30 AM/PM"
     return new Intl.DateTimeFormat("en-US", {
-      weekday: "long",
-      month: "long",
+      weekday: "short",
+      month: "short",
       day: "numeric",
       year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
     }).format(parsed);
   }
 
   function formatTime(timeValue) {
     const timeString = String(timeValue || "").trim();
     if (!timeString) return "";
-    if (/^\d{1,2}:\d{2}(:\d{2})?/.test(timeString))
+    
+    // If it's already in HH:MM format (e.g., "18:00")
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(timeString)) {
       return timeString.substring(0, 5);
+    }
+    
+    // If it contains a full timestamp with date
+    if (timeString.includes("GMT") || timeString.includes("T")) {
+      try {
+        // Parse the date string
+        const cleanedString = timeString.replace(/\s*GMT[+-]\d{4}\s*\([^)]*\)/, "").trim();
+        const date = new Date(cleanedString);
+        
+        if (!Number.isNaN(date.getTime())) {
+          // Format as HH:MM (24-hour format)
+          const hours = String(date.getHours()).padStart(2, "0");
+          const minutes = String(date.getMinutes()).padStart(2, "0");
+          return `${hours}:${minutes}`;
+        }
+      } catch (err) {
+        // Fall back to extraction if parsing fails
+      }
+    }
+    
+    // Try to extract time from any format
     if (timeString.includes(" ") || timeString.includes("T")) {
       const parts = timeString.split(" ");
       const timePart = parts[parts.length - 1];
       if (/^\d{1,2}:\d{2}/.test(timePart)) return timePart.substring(0, 5);
     }
+    
     return timeString;
   }
 
@@ -328,22 +501,28 @@
     if (form.requestType === "Absence") {
       const dateObj = new Date(form.date + "T00:00:00");
       const dayOfWeek = dateObj.getDay();
-      const dayName = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-      ][dayOfWeek];
-      if (dayOfWeek === 0 || dayOfWeek === 6)
-        return `Absence cannot be requested on ${dayName}s (your day off). Please select a weekday (Monday-Friday).`;
+      
+      // Check if it's a day off for this intern (using custom schedule)
+      const daysOff = Array.isArray(internSchedule.days_off) ? internSchedule.days_off : [0, 6];
+      if (daysOff.includes(dayOfWeek)) {
+        const dayName = [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+        ][dayOfWeek];
+        return `Absence cannot be requested on ${dayName}s (your day off). Please select a working day.`;
+      }
+      
       const existingAbsenceOnDate = requests.some(
         (req) =>
           req.requestType === "Absence" &&
           req.date === form.date &&
-          (req.status === "Pending" || req.status === "Approved"),
+          (req.status === "Pending" || req.status === "Approved") &&
+          (req.id || req.request_id) !== editingRequestId,
       );
       if (existingAbsenceOnDate)
         return `You already have an absence request for ${new Date(form.date + "T00:00:00").toLocaleDateString()}. Please edit the existing request or select a different date.`;
@@ -359,7 +538,19 @@
       const endTotalMin = endHour * 60 + endMin;
       if (endTotalMin <= startTotalMin)
         return "End time must be after start time.";
-      if (overtimeHours < 0.5) return "Overtime must be at least 30 minutes.";
+      
+      // Parse shift times from custom schedule
+      const shiftStart = String(internSchedule.shift_start || "09:00").trim();
+      const shiftEnd = String(internSchedule.shift_end || "17:00").trim();
+      const [shiftStartHour, shiftStartMin] = shiftStart.split(":").map(Number);
+      const [shiftEndHour, shiftEndMin] = shiftEnd.split(":").map(Number);
+      const shiftStartTotalMin = shiftStartHour * 60 + shiftStartMin;
+      const shiftEndTotalMin = shiftEndHour * 60 + shiftEndMin;
+      
+      // Check for overlap: if overtime is within shift hours, show error
+      if (startTotalMin < shiftEndTotalMin && endTotalMin > shiftStartTotalMin) {
+        return `Overtime cannot be scheduled during your work hours (${shiftStart} - ${shiftEnd}). Please schedule overtime outside these hours.`;
+      }
     }
     return "";
   }
@@ -373,6 +564,8 @@
       lunchBreak: 0,
       reason: "",
     };
+    editingRequestId = null;
+    formError = "";
   }
 
   async function submitRequest() {
@@ -387,27 +580,73 @@
     if (errorMessage) return;
     isSubmitting = true;
     try {
-      const result = await callBackend("create_request", {
-        user_id: currentUser.user_id,
-        requester_name: String(currentUser?.full_name || "").trim() || "Intern",
-        request_type: form.requestType,
-        request_date: form.date,
-        start_time: form.requestType === "Overtime" ? form.startTime : "",
-        end_time: form.requestType === "Overtime" ? form.endTime : "",
-        lunch_break:
-          form.requestType === "Overtime" ? Number(form.lunchBreak) || 0 : 0,
-        total_hours: form.requestType === "Overtime" ? overtimeHours : 0,
-        reason: String(form.reason || "").trim(),
-      });
-      if (result && result.ok) {
-        formSuccess = "Request submitted successfully!";
-        formError = "";
-        resetForm();
-        await loadRequests();
-        activeTab = "my-requests";
+      const isEditing = editingRequestId !== null;
+      
+      if (isEditing) {
+        // Delete the old request and create a new one
+        try {
+          const deleteResult = await callBackend("delete_request", {
+            request_id: editingRequestId,
+          });
+          if (!deleteResult || !deleteResult.ok) {
+            formError = "Failed to update request (delete step failed).";
+            formSuccess = "";
+            return;
+          }
+        } catch (err) {
+          formError = "Failed to update request (delete step failed).";
+          formSuccess = "";
+          return;
+        }
+        
+        // Now create the updated request
+        const result = await callBackend("create_request", {
+          user_id: currentUser.user_id,
+          requester_name: String(currentUser?.full_name || "").trim() || "Intern",
+          request_type: form.requestType,
+          request_date: form.date,
+          start_time: form.requestType === "Overtime" ? form.startTime : "",
+          end_time: form.requestType === "Overtime" ? form.endTime : "",
+          lunch_break:
+            form.requestType === "Overtime" ? Number(form.lunchBreak) || 0 : 0,
+          total_hours: form.requestType === "Overtime" ? overtimeHours : 0,
+          reason: String(form.reason || "").trim(),
+        });
+        if (result && result.ok) {
+          formSuccess = "Request updated successfully!";
+          formError = "";
+          resetForm();
+          editingRequestId = null;
+          await loadRequests();
+          activeTab = "my-requests";
+        } else {
+          formError = result?.error || "Failed to update request.";
+          formSuccess = "";
+        }
       } else {
-        formError = result?.error || "Failed to submit request.";
-        formSuccess = "";
+        // Create new request
+        const result = await callBackend("create_request", {
+          user_id: currentUser.user_id,
+          requester_name: String(currentUser?.full_name || "").trim() || "Intern",
+          request_type: form.requestType,
+          request_date: form.date,
+          start_time: form.requestType === "Overtime" ? form.startTime : "",
+          end_time: form.requestType === "Overtime" ? form.endTime : "",
+          lunch_break:
+            form.requestType === "Overtime" ? Number(form.lunchBreak) || 0 : 0,
+          total_hours: form.requestType === "Overtime" ? overtimeHours : 0,
+          reason: String(form.reason || "").trim(),
+        });
+        if (result && result.ok) {
+          formSuccess = "Request submitted successfully!";
+          formError = "";
+          resetForm();
+          await loadRequests();
+          activeTab = "my-requests";
+        } else {
+          formError = result?.error || "Failed to submit request.";
+          formSuccess = "";
+        }
       }
     } catch (err) {
       console.error("Submit request error:", err);
@@ -440,7 +679,8 @@
       }
     } catch (err) {
       console.error("Update request status error:", err);
-      formError = "Error updating request status";
+      formError =
+        err?.message || "Error updating request status";
       setTimeout(() => (formError = ""), 3000);
     } finally {
       approvingRequestId = null;
@@ -448,11 +688,13 @@
   }
 
   function editRequest(request) {
-    form.requestType = request.requestType;
-    form.date = request.date;
+    editingRequestId = request.id || request.request_id;
+    form.requestType = request.requestType || request.request_type;
+    form.date = request.date || request.request_date;
     form.startTime = request.start_time || "";
     form.endTime = request.end_time || "";
     form.reason = request.reason || "";
+    form.lunchBreak = request.lunch_break || 0;
     activeTab = "create-request";
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -497,6 +739,8 @@
       }
     } catch (err) {
       console.error("Reject request error:", err);
+      formError = err?.message || "Failed to reject request.";
+      setTimeout(() => (formError = ""), 3000);
     } finally {
       isRejectingRequest = false;
     }
@@ -507,7 +751,7 @@
     isDeleting = true;
     try {
       const result = await callBackend("delete_request", {
-        request_id: requestToDelete.request_id,
+        request_id: requestToDelete.id || requestToDelete.request_id,
       });
       if (result && result.ok) {
         await loadRequests();
@@ -535,6 +779,18 @@
     selectedRequests = selectedRequests; // Trigger reactivity
   }
 
+  function hasArchivableRequests() {
+    if (isSupervisor) return true;
+    // For interns, check if any selected requests are approved or rejected
+    for (const requestId of selectedRequests) {
+      const request = requests.find(r => r.id === requestId);
+      if (request && (request.status === "Approved" || request.status === "Rejected")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function toggleSelectAll() {
     if (selectAllChecked) {
       selectedRequests.clear();
@@ -550,21 +806,67 @@
     if (selectedRequests.size === 0) return;
     isArchiving = true;
     try {
-      for (const requestId of selectedRequests) {
-        await callBackend("update_request_status", {
+      const requestsToArchive = Array.from(selectedRequests);
+      let archivedCount = 0;
+      let failedRequests = [];
+      
+      console.log("Starting archive. Requests to archive:", requestsToArchive);
+      
+      for (const requestId of requestsToArchive) {
+        // For interns, only allow archiving approved or rejected requests
+        if (!isSupervisor) {
+          const request = requests.find(r => r.id === requestId);
+          if (!request || (request.status !== "Approved" && request.status !== "Rejected")) {
+            console.log("Skipping request", requestId, "- not approved/rejected");
+            continue;
+          }
+        }
+        
+        const payload = {
           request_id: requestId,
           status: "Archived",
-          supervisor_user_id: String(currentUser?.user_id || "").trim(),
-        });
+        };
+        
+        // Add supervisor_user_id for both supervisors and interns
+        if (currentUser?.user_id) {
+          payload.supervisor_user_id = String(currentUser.user_id).trim();
+        }
+        
+        console.log("Archiving request with payload:", payload);
+        const result = await callBackend("update_request_status", payload);
+        console.log("Archive result for request", requestId, ":", result);
+        if (result && result.ok) {
+          archivedCount++;
+          console.log("✓ Successfully archived request:", requestId);
+        } else {
+          console.error("✗ Failed to archive request:", requestId, "Error:", result?.error || "Unknown error");
+          failedRequests.push({ id: requestId, error: result?.error });
+        }
       }
+      
+      // Force reload with a slight delay to ensure backend is updated
+      console.log("Total archived:", archivedCount, "Failed:", failedRequests.length);
       selectedRequests.clear();
       selectAllChecked = false;
+      showBulkActions = false;
+      
+      // Reload requests to update stat cards
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log("Before loadRequests, current requests count:", requests.length);
       await loadRequests();
-      formSuccess = `${selectedRequests.size} request(s) archived.`;
-      setTimeout(() => (formSuccess = ""), 3000);
+      console.log("After loadRequests, current requests count:", requests.length);
+      
+      if (failedRequests.length > 0) {
+        formError = `${archivedCount} archived, but ${failedRequests.length} failed: ${failedRequests[0].error}`;
+        setTimeout(() => (formError = ""), 5000);
+      } else {
+        formSuccess = `${archivedCount} request(s) archived.`;
+        setTimeout(() => (formSuccess = ""), 3000);
+      }
     } catch (err) {
       console.error("Archive requests error:", err);
-      formError = "Failed to archive requests.";
+      formError = "Failed to archive requests: " + (err?.message || String(err));
+      setTimeout(() => (formError = ""), 5000);
     } finally {
       isArchiving = false;
     }
@@ -574,21 +876,40 @@
     if (selectedRequests.size === 0) return;
     isArchiving = true;
     try {
+      let recoveredCount = selectedRequests.size;
       for (const requestId of selectedRequests) {
-        await callBackend("update_request_status", {
+        const payload = {
           request_id: requestId,
           status: "Pending",
-          supervisor_user_id: String(currentUser?.user_id || "").trim(),
-        });
+        };
+        
+        // Add supervisor_user_id for both supervisors and interns
+        if (currentUser?.user_id) {
+          payload.supervisor_user_id = String(currentUser.user_id).trim();
+        }
+        
+        const result = await callBackend("update_request_status", payload);
+        console.log("Recover result:", result);
+        if (!result || !result.ok) {
+          console.error("Failed to recover request:", requestId, result?.error);
+        }
       }
+      
+      // Force reload with a slight delay to ensure backend is updated
       selectedRequests.clear();
       selectAllChecked = false;
+      showBulkActions = false;
+      
+      // Reload requests to update stat cards
+      await new Promise(resolve => setTimeout(resolve, 300));
       await loadRequests();
-      formSuccess = `${selectedRequests.size} request(s) recovered.`;
+      
+      formSuccess = `${recoveredCount} request(s) recovered.`;
       setTimeout(() => (formSuccess = ""), 3000);
     } catch (err) {
       console.error("Recover requests error:", err);
       formError = "Failed to recover requests.";
+      setTimeout(() => (formError = ""), 3000);
     } finally {
       isArchiving = false;
     }
@@ -754,8 +1075,10 @@
   {#if activeTab === "my-requests"}
     <div class="requests-section">
       {#if isLoading}
-        <div class="empty-requests">
-          <div class="empty-icon"><Loader2 size={22} /></div>
+        <div class="empty-requests loading-requests-state">
+          <div class="empty-icon loading-empty-icon">
+            <span class="spinning-icon"><Loader2 size={22} /></span>
+          </div>
           <div class="empty-text">Loading requests...</div>
         </div>
       {:else if requests.length === 0}
@@ -791,22 +1114,20 @@
             >
               <Clock3 size={14} /> Overtime
             </button>
-            {#if isSupervisor}
-              <button
-                class="filter-chip"
-                class:active={requestFilter === "archive"}
-                on:click={() => (requestFilter = "archive")}
-              >
-                <FileText size={14} /> Archive
-              </button>
-            {/if}
+            <button
+              class="filter-chip"
+              class:active={requestFilter === "archive"}
+              on:click={() => (requestFilter = "archive")}
+            >
+              <FileText size={14} /> Archive
+            </button>
           </div>
           <div class="bulk-action-buttons">
             {#if showBulkActions}
               <button class="cancel-btn" on:click={() => { showBulkActions = false; selectedRequests.clear(); selectAllChecked = false; selectedRequests = selectedRequests; }}>
                 Cancel
               </button>
-              {#if isSupervisor && selectedRequests.size > 0}
+              {#if selectedRequests.size > 0}
                 {#if requestFilter === "archive"}
                   <button class="recover-btn" on:click={recoverSelectedRequests} disabled={isArchiving}>
                     {#if isArchiving}
@@ -816,7 +1137,7 @@
                       ↻ Recover ({selectedRequests.size})
                     {/if}
                   </button>
-                {:else}
+                {:else if isSupervisor || hasArchivableRequests()}
                   <button class="archive-btn" on:click={archiveSelectedRequests} disabled={isArchiving}>
                     {#if isArchiving}
                       <span class="spinning-icon"><Loader2 size={14} /></span>
@@ -842,8 +1163,8 @@
           </div>
         {:else}
           <div class="requests-list">
-            <!-- Select All Checkbox (for supervisor) -->
-            {#if isSupervisor && showBulkActions}
+            <!-- Select All Checkbox (for supervisor, all filter, and archived requests) -->
+            {#if showBulkActions && ((isSupervisor) || (requestFilter === "archive") || (requestFilter === "all"))}
               <div class="select-all-row" on:click={toggleSelectAll} role="button" tabindex="0">
                 <input 
                   type="checkbox" 
@@ -870,11 +1191,11 @@
                 class:request-card-approved={statusTone === "approved"}
                 class:request-card-rejected={statusTone === "rejected"}
                 class:request-card-selected={selectedRequests.has(request.id)}
-                on:click={() => { if (isSupervisor && showBulkActions) toggleRequestSelection(request.id); }}
-                role={isSupervisor && showBulkActions ? "button" : "article"}
-                tabindex={isSupervisor && showBulkActions ? 0 : -1}
+                on:click={() => { if (showBulkActions) toggleRequestSelection(request.id); }}
+                role={showBulkActions ? "button" : "article"}
+                tabindex={showBulkActions ? 0 : -1}
               >
-                {#if isSupervisor && showBulkActions}
+                {#if showBulkActions && (request.status === "Approved" || request.status === "Rejected" || requestFilter === "archive")}
                   <div class="request-card-checkbox">
                     <input 
                       type="checkbox" 
@@ -900,10 +1221,23 @@
                         <span class="info-label">For:</span>
                         <span class="info-value">{formatDate(request.date)}</span>
                       </span>
+                      {#if request.requestType === "Overtime" && request.start_time && request.end_time}
+                        <span class="request-info-item">
+                          <span class="info-label">Time:</span>
+                          <span class="info-value">
+                            {formatTime(request.start_time)} - {formatTime(request.end_time)}
+                          </span>
+                        </span>
+                      {/if}
                       {#if request.created_at}
                         <span class="request-info-item">
                           <span class="info-label">Submitted:</span>
-                          <span class="info-value">{formatCreatedDate(request.created_at)}</span>
+                          <span class="info-value">
+                            {formatCreatedDate(request.created_at)}
+                            {#if request.requestType === "Overtime" && request.total_hours}
+                              <span class="duration-badge">({formatOvertimeDisplay(request.total_hours)})</span>
+                            {/if}
+                          </span>
                         </span>
                       {/if}
                       {#if isSupervisor}
@@ -922,12 +1256,6 @@
                         <div class="req-reason-label">Reason</div>
                         <p class="req-reason-text">{previewReason(request.reason)}</p>
                       </div>
-                      {#if request.requestType === "Overtime" && request.total_hours}
-                        <div class="req-duration-info">
-                          <span class="info-label">Duration:</span>
-                          <span class="info-value">{request.total_hours}h</span>
-                        </div>
-                      {/if}
                     </div>
                   </div>
                 </div>
@@ -980,9 +1308,13 @@
     <div class="panel">
       <div class="form-panel">
         <div>
-          <div class="form-title">Create Request</div>
+          <div class="form-title">
+            {editingRequestId ? "Edit Request" : "Create Request"}
+          </div>
           <div class="form-subtitle">
-            Fill out the request details before submission.
+            {editingRequestId
+              ? "Update the request details and submit to save changes."
+              : "Fill out the request details before submission."}
           </div>
         </div>
 
@@ -1023,7 +1355,7 @@
             type="date"
             bind:value={form.date}
             min={minDate}
-            class="form-input"
+            class="form-input date-input-clean"
             placeholder="dd/mm/yyyy"
           />
         </div>
@@ -1070,7 +1402,7 @@
           {#if form.startTime && form.endTime && overtimeHours > 0}
             <div class="overtime-summary">
               Total Overtime Hours: <strong
-                >{overtimeHours} hour{overtimeHours !== 1 ? "s" : ""}</strong
+                >{formatOvertimeDisplay(overtimeHours)}</strong
               >
               {#if Number(form.lunchBreak) > 0}
                 <span class="hint">
@@ -1105,8 +1437,13 @@
         </div>
 
         {#if formError}
-          <div class="alert-error">{formError}</div>
-        {/if}
+  <div 
+    class="alert-error" 
+    class:alert-warning={formError.includes("day off") || formError.includes("work hours") || formError.includes("at least 30 minutes")}
+  >
+    {formError}
+  </div>
+{/if}
 
         <!-- Submit -->
         <div class="form-footer">
@@ -1117,10 +1454,10 @@
           >
             {#if isSubmitting}
               <span class="spinning-icon"><Loader2 size={14} /></span>
-              Submitting...
+              {editingRequestId ? "Updating..." : "Submitting..."}
             {:else}
               <Send size={14} />
-              Submit Request
+              {editingRequestId ? "Update Request" : "Submit Request"}
             {/if}
           </button>
         </div>
@@ -1177,7 +1514,7 @@
           >
             {#if isDeleting}<span class="spinning-icon"
                 ><Loader2 size={14} /></span
-              > Deleting...{:else}Delete Permanently{/if}
+              > Deleting...{:else}Delete{/if}
           </button>
         </div>
       </div>
@@ -1353,7 +1690,7 @@
               Deleting...
             {:else}
               <Trash2 size={14} />
-              <span>Delete Permanently</span>
+              <span>Delete</span>
             {/if}
           </button>
         </div>
@@ -1391,7 +1728,7 @@
               Deleting...
             {:else}
               <Trash2 size={14} />
-              <span>Delete Permanently</span>
+              <span>Delete</span>
             {/if}
           </button>
         </div>
@@ -1626,6 +1963,15 @@
     font-size: 12.5px;
     color: var(--text3);
     text-align: center;
+  }
+
+  .loading-requests-state {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .loading-empty-icon {
+    color: var(--accent2);
   }
 
   /* ========== FILTER ROW ========== */
@@ -1884,7 +2230,8 @@
   .btn-edit,
   .btn-delete,
   .btn-approve,
-  .btn-reject {
+  .btn-reject,
+  .btn-archive {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1903,6 +2250,16 @@
     color: #fff;
     box-shadow: 0 2px 6px var(--accent-glow);
   }
+  .btn-delete {
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--red-dim);
+  }
+  .btn-delete:hover:not(:disabled) {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--red-dim);
+  }
   .btn-reject {
     background: var(--red);
     color: #fff;
@@ -1912,6 +2269,16 @@
     background: #b91c1c;
     transform: translateY(-1px);
     box-shadow: 0 4px 10px var(--red-dim);
+  }
+  .btn-archive {
+    background: var(--purple);
+    color: #fff;
+    box-shadow: 0 2px 6px var(--purple-dim);
+  }
+  .btn-archive:hover:not(:disabled) {
+    background: #6d28d9;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px var(--purple-dim);
   }
   
   /* Action buttons base styling */
@@ -1964,7 +2331,8 @@
   .btn-edit :global(svg),
   .btn-delete :global(svg),
   .btn-approve :global(svg),
-  .btn-reject :global(svg) {
+  .btn-reject :global(svg),
+  .btn-archive :global(svg) {
     flex-shrink: 0;
   }
 
@@ -2096,6 +2464,12 @@
     color: var(--text3);
     font-family: "DM Sans", sans-serif;
   }
+
+  /* Date Input - Simple, no extra icons */
+  .date-input-clean {
+    cursor: pointer;
+  }
+
   .form-textarea {
     resize: vertical;
     min-height: 110px;
@@ -2191,6 +2565,12 @@
     border-radius: var(--radius-sm);
     padding: 12px;
     color: var(--red);
+  }
+
+  .alert-error.alert-warning {
+    background: var(--amber-dim);
+    border: 1px solid var(--amber);
+    color: var(--amber);
   }
 
   /* ========== MODALS ========== */

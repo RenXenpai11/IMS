@@ -59,10 +59,6 @@ export const pageMeta = {
     title: 'Activity Log',
     description: 'Review activity logs of assigned students.',
   },
-  '/supervisor/projects': {
-    title: 'Projects',
-    description: 'Create and manage projects for interns.',
-  },
   '/supervisor/documents': {
     title: 'Documents',
     description: 'Review documents submitted by assigned students.',

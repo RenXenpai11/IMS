@@ -3,6 +3,117 @@ let currentUser = null;
 const AUTH_USER_CHANGED_EVENT = 'ims-auth-user-changed';
 const AUTH_SESSION_STORAGE_KEY = 'ims-auth-session-user';
 
+function isSupervisorRoleValue(roleValue) {
+  const value = String(roleValue || '').trim().toLowerCase();
+  return value === 'supervisor' || value === 'mentor';
+}
+
+function isGenericRoleValue(roleValue) {
+  const value = String(roleValue || '').trim().toLowerCase();
+  return !value || value === 'user';
+}
+
+function toCanonicalRoleLabel(roleValue) {
+  const value = String(roleValue || '').trim().toLowerCase();
+  if (value === 'supervisor' || value === 'mentor') {
+    return 'Supervisor';
+  }
+  if (value === 'student' || value === 'intern' || value === 'ojt') {
+    return 'Student';
+  }
+  return String(roleValue || '').trim();
+}
+
+function inferDisplayNameFromEmail(emailValue) {
+  const localPart = String(emailValue || '').trim().split('@')[0] || '';
+  if (!localPart) {
+    return '';
+  }
+  return localPart
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function hasStudentProfile(user) {
+  const profile = user?.ojt;
+  if (!profile || typeof profile !== 'object') {
+    return false;
+  }
+  return Object.keys(profile).length > 0;
+}
+
+function resolveRoleLabelForSession(user) {
+  const rawRole = toCanonicalRoleLabel(user?.role);
+  const effectiveRole = toCanonicalRoleLabel(user?.effective_role);
+  const rawIsGeneric = isGenericRoleValue(rawRole);
+  const effectiveIsGeneric = isGenericRoleValue(effectiveRole);
+
+  if (!rawIsGeneric) {
+    return rawRole;
+  }
+
+  if (!effectiveIsGeneric) {
+    return effectiveRole;
+  }
+
+  if (hasStudentProfile(user)) {
+    return 'Student';
+  }
+
+  const departmentValue = String(user?.department || '').trim().toLowerCase();
+  if (departmentValue.includes('supervisor') || departmentValue.includes('mentor')) {
+    return 'Supervisor';
+  }
+
+  // Match legacy behavior: generic/blank roles without OJT profile are supervisors.
+  return 'Supervisor';
+}
+
+async function resolveSessionRoleFromBackend(user) {
+  if (!user || typeof user !== 'object') {
+    return user;
+  }
+
+  const normalizedUser = { ...user };
+  const roleValue = String(normalizedUser.role || '').trim();
+
+  normalizedUser.role = resolveRoleLabelForSession(normalizedUser);
+
+  if (isSupervisorRoleValue(normalizedUser.role)) {
+    return normalizedUser;
+  }
+
+  const userId = String(normalizedUser.user_id || '').trim();
+  if (!userId) {
+    return normalizedUser;
+  }
+
+  const ambiguousRole = isGenericRoleValue(roleValue);
+  if (!ambiguousRole) {
+    return normalizedUser;
+  }
+
+  try {
+    const debugResult = await postAction('debug_supervisor_assignment', {
+      supervisor_user_id: userId,
+    });
+    const inferredRole = String(debugResult?.debug?.supervisor_role || '').trim();
+    if (isSupervisorRoleValue(inferredRole)) {
+      normalizedUser.role = 'Supervisor';
+      normalizedUser.effective_role = 'Supervisor';
+    }
+  } catch {
+    // Keep the current role value when inference probe fails.
+  }
+
+  return normalizedUser;
+}
+
 function normalizeStoredUser(user) {
   if (!user || typeof user !== 'object') {
     return null;
@@ -16,6 +127,9 @@ function normalizeStoredUser(user) {
   return {
     ...user,
     user_id: userId,
+    full_name: String(user.full_name || '').trim() || inferDisplayNameFromEmail(user.email),
+    role: resolveRoleLabelForSession(user),
+    effective_role: toCanonicalRoleLabel(user.effective_role),
   };
 }
 
@@ -69,6 +183,8 @@ export async function restoreAuthSession() {
     return null;
   }
 
+  currentUser = normalizeStoredUser(await resolveSessionRoleFromBackend(restoredUser)) || restoredUser;
+  persistCurrentUser();
   // Broadcast hydrated local session right away to avoid UI fallback flicker on refresh.
   notifyCurrentUserChanged();
 
@@ -78,10 +194,11 @@ export async function restoreAuthSession() {
     });
 
     if (result?.user) {
-      currentUser = normalizeStoredUser({
+      const mergedUser = normalizeStoredUser({
         ...restoredUser,
         ...result.user,
       });
+      currentUser = normalizeStoredUser(await resolveSessionRoleFromBackend(mergedUser));
       persistCurrentUser();
       notifyCurrentUserChanged();
     }
@@ -258,7 +375,8 @@ export async function loginWithCredentials(emailInput, passwordInput) {
     password,
   });
 
-  currentUser = normalizeStoredUser(result.user) || null;
+  const normalizedUser = normalizeStoredUser(result.user) || null;
+  currentUser = normalizeStoredUser(await resolveSessionRoleFromBackend(normalizedUser)) || normalizedUser;
   persistCurrentUser();
   notifyCurrentUserChanged();
   return currentUser;
@@ -273,10 +391,11 @@ export async function updateProfilePhoto(photoInput) {
   });
 
   if (result?.user && currentUser && String(currentUser.user_id || '') === String(result.user.user_id || '')) {
-    currentUser = normalizeStoredUser({
+    const mergedUser = normalizeStoredUser({
       ...currentUser,
       ...result.user,
     });
+    currentUser = normalizeStoredUser(await resolveSessionRoleFromBackend(mergedUser)) || mergedUser;
     persistCurrentUser();
     notifyCurrentUserChanged();
   }
@@ -293,10 +412,11 @@ export async function updateUserProfile(profileInput) {
   });
 
   if (result?.user && currentUser && String(currentUser.user_id || '') === String(result.user.user_id || '')) {
-    currentUser = normalizeStoredUser({
+    const mergedUser = normalizeStoredUser({
       ...currentUser,
       ...result.user,
     });
+    currentUser = normalizeStoredUser(await resolveSessionRoleFromBackend(mergedUser)) || mergedUser;
     persistCurrentUser();
     notifyCurrentUserChanged();
   }
