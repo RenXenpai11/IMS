@@ -496,12 +496,19 @@
 			display: flex;
 			flex-direction: column;
 			align-items: center;
-			justify-content: flex-start;
+			/* FIX: was justify-content: flex-start which caused dead space.
+			   center keeps both panels together in the middle of the screen.
+			   min-height: 100dvh ensures it still fills the viewport. */
+			justify-content: center;
 			width: 100%;
 			min-height: 100dvh;
 			box-sizing: border-box;
 			padding: 48px 16px max(24px, env(safe-area-inset-bottom));
-			gap: clamp(32px, 7dvh, 56px);
+			/* FIX: was clamp(32px, 7dvh, 56px) — too large on tall phones (e.g. 7dvh
+			   on a 900px-tall screen = 63px gap, and flex-start pushed everything up
+			   leaving ~half the screen empty below the card).
+			   A fixed 24px gap keeps the two panels snug regardless of screen height. */
+			gap: 24px;
 		}
 
 		.brand-panel {
@@ -564,7 +571,7 @@
 	@media (max-width: 640px) {
 		.page-content {
 			padding: 44px 16px max(24px, env(safe-area-inset-bottom));
-			gap: 32px;
+			gap: 24px;
 		}
 
 		.brand-panel h1 {

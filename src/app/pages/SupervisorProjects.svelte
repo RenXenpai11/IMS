@@ -386,37 +386,37 @@
 
 <section class="projects-page">
   <div class="stat-cards">
-    <div class="stat-card blue">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon blue"><FolderOpen size={16} /></div>
+    <div class="stat-card">
+      <div class="stat-icon tone-blue"><FolderOpen size={16} /></div>
+      <div class="stat-body">
+        <div class="stat-label">Total Projects</div>
+        <div class="stat-value">{totalProjects}</div>
+        <div class="stat-sub">Projects tagged to you</div>
       </div>
-      <div class="stat-value">{totalProjects}</div>
-      <div class="stat-label">Total Projects</div>
     </div>
-    <div class="stat-card amber">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon amber"><Clock3 size={16} /></div>
+    <div class="stat-card">
+      <div class="stat-icon tone-amber"><Clock3 size={16} /></div>
+      <div class="stat-body">
+        <div class="stat-label">In Progress</div>
+        <div class="stat-value">{inProgressCount}</div>
+        <div class="stat-sub">Currently active projects</div>
       </div>
-      <div class="stat-value">{inProgressCount}</div>
-      <div class="stat-label">In Progress</div>
     </div>
-    <div class="stat-card green">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon green"><Tag size={16} /></div>
+    <div class="stat-card">
+      <div class="stat-icon tone-green"><Tag size={16} /></div>
+      <div class="stat-body">
+        <div class="stat-label">Submitted</div>
+        <div class="stat-value">{submittedCount}</div>
+        <div class="stat-sub">Awaiting review or next steps</div>
       </div>
-      <div class="stat-value">{submittedCount}</div>
-      <div class="stat-label">Submitted</div>
     </div>
-    <div class="stat-card violet">
-      <div class="stat-card-top">
-        <div style="flex:1"></div>
-        <div class="stat-icon violet"><Users2 size={16} /></div>
+    <div class="stat-card">
+      <div class="stat-icon tone-violet"><Users2 size={16} /></div>
+      <div class="stat-body">
+        <div class="stat-label">Interns</div>
+        <div class="stat-value">{internCount}</div>
+        <div class="stat-sub">Contributors on your tagged projects</div>
       </div>
-      <div class="stat-value">{internCount}</div>
-      <div class="stat-label">Interns</div>
     </div>
   </div>
 
@@ -455,15 +455,6 @@
             <option value={p}>{p}</option>
           {/each}
         </select>
-
-        {#if uniqueInterns.length > 0}
-          <select class="quick-intern" bind:value={filterIntern} aria-label="Filter by intern">
-            <option value="all">All Interns</option>
-            {#each uniqueInterns as name}
-              <option value={name}>{name}</option>
-            {/each}
-          </select>
-        {/if}
       </div>
     </div>
   </section>
@@ -499,9 +490,9 @@
     {:else}
       <div class="ov-top-grid">
         <section class="card ov-card">
-          <div class="ov-card-title">Project Breakdown</div>
+          <div class="ov-card-title">Milestone Summary</div>
           {#if overviewStatusRows.length === 0}
-            <div class="ov-empty">No project data yet.</div>
+            <div class="ov-empty">No milestone data yet.</div>
           {:else}
             <div class="ov-status-bars">
               {#each overviewStatusRows as row}
@@ -541,7 +532,7 @@
                       <CalendarDays size={11} /> {formatDate(p.timeline_end || p.deadline)}
                     </div>
                   </div>
-                  <span class={"status-badge " + sm.cls}>{sm.label}</span>
+                  <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
                 </div>
               {/each}
             </div>
@@ -551,11 +542,11 @@
 
       <section class="card ov-card">
         <div class="ov-card-head">
-          <div class="ov-card-title">Assigned Projects</div>
+          <div class="ov-card-title">Tagged Projects</div>
           <button class="ov-view-all-btn" on:click={() => activeView = 'Projects'}>View all -&gt;</button>
         </div>
         {#if overviewSnippets.length === 0}
-          <div class="ov-empty">No active projects.</div>
+          <div class="ov-empty">No tagged projects yet.</div>
         {:else}
           <div class="ov-snippets-grid">
             {#each overviewSnippets as p (p.id)}
@@ -567,8 +558,8 @@
                 <div class="ov-snippet-top">
                   <div class="ov-snippet-name">{p.title}</div>
                   <div class="ov-snippet-top-right">
-                    <span class={"status-badge " + sm.cls}>{sm.label}</span>
-                    <span class={"priority-badge priority-" + pl.toLowerCase()}>{pl}</span>
+                    <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                    <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
                   </div>
                 </div>
                 <div class="ov-snippet-progress">
@@ -595,6 +586,18 @@
           </div>
         {/if}
       </section>
+
+      <div class="ov-bottom-grid">
+        <section class="card ov-card">
+          <div class="ov-card-head">
+            <div class="ov-card-title">Recent Activity</div>
+            <button class="ov-refresh-btn" type="button" title="Refresh">
+              <RotateCcw size={13} />
+            </button>
+          </div>
+          <div class="ov-empty">No recent activity found.</div>
+        </section>
+      </div>
     {/if}
   {:else if activeView === 'Archive'}
     {#if archivedProjects.length === 0}
@@ -647,239 +650,111 @@
         <div class="empty-sub">Try a different search, priority, or status.</div>
       </div>
     {:else}
-    <div class="table-wrap">
-      <table class="projects-table">
-        <thead>
-          <tr>
-            <th>Priority</th>
-            <th>Project Title</th>
-            <th>Short Description</th>
-            <th>Deadline</th>
-            <th>Status</th>
-            <th>Team</th>
-            <th>Intern</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each filteredProjects as p (p.id)}
-            {@const pc = PRIORITY_COLORS[normalizePriorityLabel(p.priority_level)] || DEFAULT_PRIORITY_COLOR}
-            {@const sm = getStatusMeta(p.status)}
-            {@const past = isDeadlinePast(p.deadline)}
-            {@const near = !past && isDeadlineNear(p.deadline)}
-            <tr>
-              <td>
-                <span
-                  class="priority-badge"
-                  style="background:{pc.bg};color:{pc.text};border-color:{pc.border}"
-                >
-                  {normalizePriorityLabel(p.priority_level)}
-                </span>
-              </td>
-              <td class="col-title">{p.title}</td>
-              <td class="col-desc">{p.description || '—'}</td>
-              <td>
-                <span
-                  class="deadline-cell"
-                  class:deadline-past={past}
-                  class:deadline-near={near}
-                >
-                  <CalendarDays size={11} />
-                  {formatDate(p.deadline)}
-                  {#if past}
-                    <span class="deadline-tag">Overdue</span>
-                  {:else if near}
-                    <span class="deadline-tag near">Soon</span>
-                  {/if}
-                </span>
-              </td>
-              <td><span class={"status-badge " + sm.cls}>{sm.label}</span></td>
-              <td class="col-team">{teamLabel(p)}</td>
-              <td class="col-intern">{p.owner_name || '—'}</td>
-              <td class="col-actions">
-                <button class="icon-btn" title="Open project" aria-label="Open project" on:click={() => openProject(p)}>
-                  <Eye size={16} />
-                </button>
-                <button class="icon-btn archive" title="Archive project" aria-label="Archive project" on:click={() => archiveProject(p)}>
-                  <Archive size={16} />
-                </button>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="projects-cards-mobile">
-      {#each filteredProjects as p (p.id)}
-        {@const pc = PRIORITY_COLORS[normalizePriorityLabel(p.priority_level)] || DEFAULT_PRIORITY_COLOR}
-        {@const sm = getStatusMeta(p.status)}
-        {@const past = isDeadlinePast(p.deadline)}
-        {@const near = !past && isDeadlineNear(p.deadline)}
-        <div class="project-card">
-          <div class="project-card-header">
-            <div
-              class="priority-badge"
-              style="background:{pc.bg};color:{pc.text};border-color:{pc.border}"
-            >
-              <Tag size={10} /> {normalizePriorityLabel(p.priority_level)}
-            </div>
-            <span class={"status-badge " + sm.cls}>{sm.label}</span>
-          </div>
-          <div class="project-title">{p.title}</div>
-          {#if p.description}
-            <p class="project-desc">{p.description}</p>
-          {/if}
-          <div class="project-meta">
-            {#if p.deadline}
-              <div class="meta-item" class:deadline-past={past} class:deadline-near={near}>
-                <CalendarDays size={12} /> {formatDate(p.deadline)}
-                {#if past}
-                  <span class="deadline-tag">Overdue</span>
-                {:else if near}
-                  <span class="deadline-tag near">Soon</span>
-                {/if}
-              </div>
-            {/if}
-            <div class="meta-item team-chip"><Users2 size={12} /> {teamLabel(p)}</div>
-            <div class="meta-item intern-chip">Intern: {p.owner_name || '—'}</div>
-          </div>
-          <div class="project-card-footer">
-            <button class="sub-action-btn" on:click={() => openProject(p)}>
-              <Eye size={12} /> Open
-            </button>
-            <button class="sub-action-btn" on:click={() => archiveProject(p)}>
-              <Archive size={12} /> Archive
-            </button>
-          </div>
+      <section class="card ov-card">
+        <div class="ov-card-head">
+          <div class="ov-card-title">Projects Tagged to You</div>
         </div>
-      {/each}
-    </div>
+        <div class="ov-snippets-grid">
+          {#each filteredProjects as p (p.id)}
+            {@const sm = getStatusMeta(p.status)}
+            {@const pl = normalizePriorityLabel(p.priority_level)}
+            {@const pct = statusToProgress(p.status)}
+            {@const past = isDeadlinePast(p.timeline_end || p.deadline)}
+            <div class="ov-snippet-card">
+              <div class="ov-snippet-top">
+                <div class="ov-snippet-name">{p.title}</div>
+                <div class="ov-snippet-top-right">
+                  <span class={"proj-status-pill " + sm.cls}>{sm.label}</span>
+                  <span class={"proj-priority-pill priority-" + pl.toLowerCase()}>{pl}</span>
+                </div>
+              </div>
+              <div class="ov-snippet-progress">
+                <div class="progress-bar-outer">
+                  <div class="progress-bar-inner" style="width:{pct}%"></div>
+                </div>
+                <span class="ov-snippet-pct">{pct}%</span>
+              </div>
+              {#if p.timeline_end || p.deadline}
+                <div class="ov-snippet-due" class:ov-date-past={past}>
+                  <CalendarDays size={11} /> Due: {formatDate(p.timeline_end || p.deadline)}
+                </div>
+              {/if}
+              <div class="project-meta">
+                <div class="meta-item team-chip"><Users2 size={12} /> {teamLabel(p)}</div>
+                <div class="meta-item intern-chip">Intern: {p.owner_name || '-'}</div>
+              </div>
+              <div class="ov-snippet-actions">
+                <button class="sub-action-btn" on:click={() => openProject(p)}>
+                  <Eye size={12} /> Open
+                </button>
+                <button class="sub-action-btn" on:click={() => archiveProject(p)}>
+                  <Archive size={12} /> Archive
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </section>
     {/if}
   {/if}
 </section>
 
 <style>
-  .projects-page { padding: 4px 0 12px; display: flex; flex-direction: column; gap: 10px; font-family: inherit; }
+  .projects-page { padding: 8px 0 14px; display: flex; flex-direction: column; gap: 14px; }
 
-  .stat-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 0; }
+  .stat-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 0; }
   .stat-card {
-    flex: 1; min-width: 120px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    padding: 12px 14px 10px;
-    display: flex; flex-direction: column; gap: 6px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    padding: 18px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    transition: box-shadow 0.2s, transform 0.2s;
   }
-  .stat-card-top { display: flex; align-items: center; margin-bottom: 4px; }
-  .stat-icon {
-    width: 28px; height: 28px; border-radius: 7px;
-    display: grid; place-items: center;
-  }
-  .stat-icon.blue { background: #dbeafe; color: #2563eb; }
-  .stat-icon.amber { background: #fef3c7; color: #d97706; }
-  .stat-icon.green { background: #dcfce7; color: #16a34a; }
-  .stat-icon.violet { background: #ede9fe; color: #7c3aed; }
-  :global(body.dark) .stat-icon.blue { background: #1e3a5f; color: #60a5fa; }
-  :global(body.dark) .stat-icon.amber { background: #3b2600; color: #fbbf24; }
-  :global(body.dark) .stat-icon.green { background: #052e16; color: #4ade80; }
-  :global(body.dark) .stat-icon.violet { background: #2e1065; color: #a78bfa; }
-  .stat-value { font-size: 22px; font-weight: 700; color: var(--color-heading); line-height: 1; }
-  .stat-label { font-size: 11.5px; color: var(--color-sidebar-text); }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1); }
+  .stat-icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; }
+  .stat-body { display: flex; flex-direction: column; gap: 4px; }
+  .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #000000; }
+  .stat-value { font-size: 24px; font-weight: 700; letter-spacing: -0.8px; line-height: 1; color: #0f172a; }
+  .stat-sub { margin-top: 4px; font-size: 11.5px; color: #64748b; }
+  .tone-blue { background: rgba(37, 99, 235, 0.12); color: #2563eb; }
+  .tone-amber { background: rgba(217, 119, 6, 0.12); color: #d97706; }
+  .tone-green { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
+  .tone-violet { background: rgba(124, 58, 237, 0.14); color: #7c3aed; }
 
-  .quick-panel {
-    background: linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface) 100%);
-    border: 1px solid var(--color-border);
-    border-radius: 0.9rem;
-    padding: 0.48rem 0.8rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    box-sizing: border-box;
-  }
-  .quick-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    gap: 0.75rem;
-  }
-  .view-controls { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+  .quick-panel { background: transparent !important; padding: 0; border-radius: 0; border: none !important; box-shadow: none !important; display: flex; align-items: center; justify-content: space-between; }
+  .quick-head { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 0.75rem; flex-wrap: nowrap; }
+  .view-controls { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
   .view-controls .btn {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    margin-right: 0.4rem;
-    border-radius: 0.55rem;
-    padding: 0.32rem 0.6rem;
+    border-radius: 0.7rem;
+    padding: 0.32rem 0.72rem;
     background: transparent;
     border: 1px solid var(--color-border);
-    font-size: 0.82rem;
+    font-size: 0.84rem;
+    height: 2.15rem;
+    line-height: 1;
     color: var(--color-sidebar-text);
     cursor: pointer;
   }
-  .view-controls .btn.active {
-    background: var(--color-soft);
-    color: var(--color-heading);
-    border-color: var(--color-border);
-  }
-  .view-controls .btn:hover { color: var(--color-text); }
-  .quick-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    align-items: center;
-    justify-content: flex-end;
-  }
-  .search-wrap {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0 0.7rem;
-    color: var(--color-muted);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 0.7rem;
-  }
-  .quick-actions select,
-  .quick-status,
-  .quick-priority,
-  .quick-intern {
-    padding: 0.34rem 0.6rem;
+  .view-controls .btn.active { background: var(--color-soft); color: var(--color-heading); border-color: var(--color-border); }
+  .quick-actions { display: flex; gap: 0.5rem; align-items: center; margin-left: auto; flex-wrap: nowrap; }
+  .search-wrap { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.7rem; color: var(--color-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.7rem; height: 2.15rem; }
+  .search-input { border: 0; background: transparent; color: var(--color-text); font-size: 0.85rem; width: 11.5rem; outline: none; padding: 0; height: 100%; }
+  .quick-actions select, .quick-status, .quick-priority {
+    padding: 0 0.6rem;
     border-radius: 0.7rem;
     font-size: 0.85rem;
     border: 1px solid var(--color-border);
     background: var(--color-surface);
     color: var(--color-text);
+    height: 2.15rem;
   }
-  .search-input {
-    border: 0;
-    outline: none;
-    background: transparent;
-    color: var(--color-text);
-    font-size: 0.85rem;
-    width: 9rem;
-    padding: 0.34rem 0;
-  }
-  .quick-actions select:focus,
-  .quick-status:focus,
-  .quick-priority:focus,
-  .quick-intern:focus,
-  .search-input:focus {
-    outline: none;
-    border-color: #2563eb;
-  }
-  :global(body.dark) .quick-panel { background: #1f2937; border-color: #374151; }
-  :global(body.dark) .search-wrap { background: #1f2937; border-color: #374151; }
-  :global(body.dark) .quick-actions select,
-  :global(body.dark) .quick-status,
-  :global(body.dark) .quick-priority,
-  :global(body.dark) .quick-intern {
-    background: #1f2937;
-    border-color: #374151;
-    color: #f1f5f9;
-  }
-  :global(body.dark) .search-input { color: #f1f5f9; }
 
   .alert-success {
     padding: 10px 14px;
@@ -896,376 +771,6 @@
     border: 1px solid #fecaca;
     color: #dc2626;
     font-size: 13px;
-  }
-  :global(body.dark) .alert-success { background: #052e16; border-color: #166534; color: #4ade80; }
-  :global(body.dark) .alert-error { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
-
-  .table-wrap {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    overflow: auto;
-  }
-  .projects-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-  .projects-table thead tr { background: var(--color-soft); }
-  .projects-table th {
-    padding: 10px 14px;
-    text-align: left;
-    font-size: 0.78rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    color: var(--color-sidebar-text);
-    border-bottom: 1px solid var(--color-border);
-    white-space: nowrap;
-  }
-  .projects-table td {
-    padding: 10px 14px;
-    vertical-align: middle;
-    border-bottom: 1px solid var(--color-border);
-    color: var(--color-text);
-  }
-  .projects-table tbody tr:last-child td { border-bottom: none; }
-  .projects-table tbody tr:hover { background: var(--color-soft); }
-  .col-title { font-weight: 600; min-width: 140px; font-size: 0.88rem; }
-  .col-desc { color: var(--color-sidebar-text); max-width: 220px; font-size: 0.78rem; }
-  .col-team,
-  .col-intern {
-    white-space: nowrap;
-    font-weight: 500;
-  }
-  .col-team { color: #2563eb; }
-  .col-intern { color: #2563eb; }
-  .col-actions {
-    white-space: nowrap;
-    text-align: center;
-  }
-  .projects-table th:last-child { text-align: center; }
-
-  .icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    padding: 6px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    color: var(--color-accent);
-    cursor: pointer;
-    margin: 0 0.2rem;
-    transition: transform 0.12s, background 0.12s, border-color 0.12s;
-  }
-  .icon-btn:hover {
-    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
-    border-color: var(--color-accent);
-    transform: translateY(-1px);
-  }
-  .icon-btn.archive {
-    background: transparent;
-    border-color: rgba(255,255,255,0.06);
-    color: var(--color-accent);
-  }
-  .icon-btn.restore {
-    background: transparent;
-    border-color: rgba(255,255,255,0.06);
-    color: #10b981;
-  }
-  .icon-btn.restore:hover {
-    background: rgba(16,185,129,0.1);
-    border-color: #10b981;
-  }
-
-  .priority-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    border-radius: 20px;
-    font-size: 10.5px;
-    font-weight: 600;
-    border: 1px solid;
-    white-space: nowrap;
-  }
-  .status-badge {
-    display: inline-block;
-    padding: 3px 9px;
-    border-radius: 20px;
-    font-size: 10.5px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .status-not-started { background: #f1f5f9; color: #64748b; }
-  .status-in-progress { background: #fffbeb; color: #d97706; }
-  .status-submitted { background: #f5f3ff; color: #7c3aed; }
-  .status-needs-revision { background: #fef2f2; color: #dc2626; }
-  .status-approved { background: #f0fdf4; color: #16a34a; }
-  .status-pending { background: #fefce8; color: #ca8a04; }
-  :global(body.dark) .status-not-started { background: #1e293b; color: #94a3b8; }
-  :global(body.dark) .status-in-progress { background: #3b2600; color: #fbbf24; }
-  :global(body.dark) .status-submitted { background: #2e1065; color: #c084fc; }
-  :global(body.dark) .status-needs-revision { background: #2d0a0a; color: #f87171; }
-  :global(body.dark) .status-approved { background: #052e16; color: #4ade80; }
-  :global(body.dark) .status-pending { background: #3b2600; color: #fbbf24; }
-
-  .deadline-cell { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; }
-  .deadline-cell.deadline-past { color: #dc2626; }
-  .deadline-cell.deadline-near { color: #d97706; }
-  .deadline-tag {
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 7px;
-    border-radius: 20px;
-    background: #fef2f2;
-    color: #dc2626;
-  }
-  .deadline-tag.near { background: #fffbeb; color: #d97706; }
-  :global(body.dark) .deadline-tag { background: #2d0a0a; color: #f87171; }
-  :global(body.dark) .deadline-tag.near { background: #3b2600; color: #fbbf24; }
-
-  .ov-top-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  @media (max-width: 680px) {
-    .ov-top-grid { grid-template-columns: 1fr; }
-  }
-
-  .ov-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 0.9rem;
-    padding: 1rem 1.15rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.7rem;
-  }
-  :global(body.dark) .ov-card { background: #161c27 !important; border-color: #ffffff0f !important; }
-
-  .ov-card-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.6rem 1rem;
-  }
-  .ov-card-title {
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: var(--color-heading);
-    letter-spacing: -0.01em;
-  }
-  .ov-empty { font-size: 0.83rem; color: var(--color-sidebar-text); padding: 0.25rem 0.1rem; }
-
-  .ov-status-bars { display: flex; flex-direction: column; gap: 0.55rem; }
-  .ov-bar-row {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-  }
-  .ov-bar-label {
-    font-size: 0.78rem;
-    color: var(--color-heading);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 120px;
-    flex-shrink: 0;
-  }
-  .ov-bar-track { flex: 1; height: 5px; background: var(--color-border); border-radius: 999px; overflow: hidden; }
-  .ov-bar-count { font-size: 0.77rem; color: var(--color-sidebar-text); white-space: nowrap; }
-  .ov-ms-done { font-weight: 700; color: var(--color-heading); }
-  .ov-archived-note {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.75rem;
-    color: var(--color-sidebar-text);
-  }
-
-  .ov-deadline-list { display: flex; flex-direction: column; gap: 0.55rem; }
-  .ov-deadline-row {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-  }
-  .ov-deadline-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: #2563eb;
-    flex-shrink: 0;
-  }
-  .ov-dot-past { background: #dc2626; }
-  .ov-dot-near { background: #d97706; }
-  .ov-deadline-info { min-width: 0; flex: 1; }
-  .ov-deadline-name {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--color-heading);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .ov-deadline-date {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.77rem;
-    color: var(--color-sidebar-text);
-  }
-  .ov-date-past { color: #dc2626; }
-  .ov-date-near { color: #d97706; }
-  .ov-view-all-btn {
-    background: transparent;
-    border: 0;
-    color: #2563eb;
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .ov-snippets-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-    gap: 0.75rem;
-  }
-  .ov-snippet-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    padding: 0.8rem 0.9rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-  }
-  :global(body.dark) .ov-snippet-card { background: #0d1117 !important; border-color: #ffffff0f !important; }
-  .ov-snippet-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-  .ov-snippet-name {
-    font-size: 0.88rem;
-    font-weight: 600;
-    color: var(--color-heading);
-    min-width: 0;
-  }
-  .ov-snippet-top-right { display: flex; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
-  .ov-snippet-progress {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-  }
-  .progress-bar-outer { height: 10px; background: var(--color-border); border-radius: 999px; overflow: hidden; }
-  .progress-bar-inner { height: 100%; background: linear-gradient(90deg, #10b981, #3b82f6); border-radius: 999px; transition: width 350ms ease; }
-  .ov-snippet-progress .progress-bar-outer { flex: 1; }
-  .ov-snippet-pct { font-size: 0.77rem; color: var(--color-sidebar-text); white-space: nowrap; }
-  .ov-snippet-due { font-size: 0.77rem; color: var(--color-sidebar-text); display: inline-flex; align-items: center; gap: 0.3rem; }
-  .ov-snippet-actions { display: flex; gap: 0.45rem; flex-wrap: wrap; }
-
-  .proj-table-panel {
-    overflow: hidden;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 0.9rem;
-    margin-top: 1rem;
-  }
-  :global(body.dark) .proj-table-panel { background: #0d1117 !important; border-color: #ffffff0f !important; }
-  .proj-table-header {
-    display: grid;
-    grid-template-columns: minmax(0,1fr) 6rem;
-    align-items: center;
-    gap: 0.9rem;
-    padding: 0.85rem 1rem;
-    background: var(--color-surface);
-    border-bottom: 1px solid var(--color-border);
-    color: var(--color-heading);
-    font-size: 0.88rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-  }
-  :global(body.dark) .proj-table-header { background: #161c27 !important; border-bottom-color: #ffffff0f !important; color: #e5edf8 !important; }
-  .proj-table-body { display: grid; background: var(--color-soft); padding: 0.4rem; gap: 0.4rem; }
-  :global(body.dark) .proj-table-body { background: #0d1117 !important; }
-  .proj-table-row {
-    display: grid;
-    grid-template-columns: minmax(0,1fr) 6rem;
-    align-items: center;
-    gap: 0.9rem;
-    padding: 0.85rem 1rem;
-    border: 1px solid var(--color-border);
-    border-radius: 0.65rem;
-    background: var(--color-surface);
-    transition: border-color 140ms ease, box-shadow 140ms ease;
-  }
-  .proj-table-row:hover { border-color: var(--color-accent); box-shadow: 0 8px 22px -20px rgba(15,23,42,.35); }
-  :global(body.dark) .proj-table-row { background: #161c27 !important; border-color: #ffffff0f !important; }
-  .proj-name-cell { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); }
-  .proj-arc-row { position: relative; }
-  .proj-arc-corner { display: flex; justify-content: flex-end; }
-  .proj-arc-title { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); }
-  .proj-arc-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-top: 0.35rem;
-    color: var(--color-sidebar-text);
-    font-size: 0.77rem;
-  }
-  .proj-arc-date { font-weight: 700; color: var(--color-heading); }
-
-  .sub-action-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.38rem 0.85rem;
-    border-radius: 0.45rem;
-    font-size: 0.82rem;
-    font-weight: 500;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    color: var(--color-heading);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
-  :global(body.dark) .sub-action-btn { background: #161c27; border-color: #ffffff10; }
-
-  .projects-cards-mobile { display: grid; grid-template-columns: 1fr; gap: 12px; }
-  .project-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 10px;
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .project-card-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-  .project-title { font-size: 14px; font-weight: 600; color: var(--color-heading); }
-  .project-desc { font-size: 12.5px; color: var(--color-sidebar-text); margin: 0; line-height: 1.5; }
-  .project-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-  .meta-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--color-sidebar-text);
-  }
-  .meta-item.deadline-past { color: #dc2626; }
-  .meta-item.deadline-near { color: #d97706; }
-  .team-chip { color: #2563eb; font-weight: 500; }
-  .intern-chip { color: #2563eb; font-weight: 500; }
-  .project-card-footer {
-    display: flex;
-    gap: 6px;
-    margin-top: 4px;
-    padding-top: 10px;
-    border-top: 1px solid var(--color-border);
   }
   .retry-btn {
     display: inline-flex;
@@ -1286,45 +791,257 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 8px;
-    padding: 48px 20px;
+    padding: 28px 20px 24px;
+    min-height: 210px;
     color: var(--color-sidebar-text);
     text-align: center;
   }
   .empty-title { font-size: 14px; font-weight: 600; color: var(--color-text); }
   .empty-sub { font-size: 12.5px; }
 
+  .ov-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ov-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.9rem;
+    padding: 1rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .ov-bottom-grid { display: grid; grid-template-columns: 1fr; gap: 0.8rem; align-items: start; }
+  .ov-card-head { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; }
+  .ov-card-title { font-size: 0.85rem; font-weight: 700; color: var(--color-heading); letter-spacing: -0.01em; }
+  .ov-view-all-btn { background: transparent; border: 0; color: #2563eb; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+  .ov-refresh-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 0.2rem 0.55rem;
+    color: var(--color-sidebar-text);
+    cursor: pointer;
+    line-height: 1.2;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .ov-empty { font-size: 0.83rem; color: var(--color-sidebar-text); padding: 0.25rem 0.1rem; }
+
+  .ov-status-bars { display: flex; flex-direction: column; gap: 0.55rem; }
+  .ov-bar-row { display: grid; grid-template-columns: 7.5rem 1fr 2.2rem; align-items: center; gap: 0.65rem; }
+  .ov-bar-label { font-size: 0.75rem; color: var(--color-heading); white-space: nowrap; }
+  .ov-bar-track { height: 8px; background: var(--color-border); border-radius: 999px; overflow: hidden; }
+  .ov-bar-count { font-size: 0.78rem; color: var(--color-heading); text-align: right; white-space: nowrap; }
+  .ov-ms-done { font-weight: 700; color: var(--color-heading); }
+  .ov-archived-note { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--color-sidebar-text); }
+
+  .ov-deadline-list { display: flex; flex-direction: column; gap: 0.55rem; }
+  .ov-deadline-row { display: flex; align-items: center; gap: 0.65rem; }
+  .ov-deadline-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--color-border);
+    border: 1.5px solid var(--color-border);
+  }
+  .ov-deadline-dot.ov-dot-near { background: #fbbf24; border-color: #f59e0b; }
+  .ov-deadline-dot.ov-dot-past { background: #ef4444; border-color: #dc2626; }
+  .ov-deadline-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .ov-deadline-name { font-size: 0.85rem; font-weight: 600; color: var(--color-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ov-deadline-date { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.77rem; color: var(--color-sidebar-text); }
+  .ov-date-past { color: #dc2626; }
+  .ov-date-near { color: #d97706; }
+
+  .ov-snippets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.8rem; }
+  .ov-snippet-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 1.1rem 1.2rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.75rem;
+    background: var(--color-soft);
+    transition: border-color 140ms, box-shadow 140ms;
+  }
+  .ov-snippet-card:hover { border-color: var(--color-accent); box-shadow: 0 6px 18px -14px rgba(15,23,42,.3); }
+  .ov-snippet-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .ov-snippet-name { font-size: 0.88rem; font-weight: 700; color: var(--color-heading); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov-snippet-top-right { display: flex; align-items: center; gap: 0.5rem; }
+  .ov-snippet-progress { display: flex; align-items: center; gap: 0.55rem; }
+  .ov-snippet-progress .progress-bar-outer { flex: 1; }
+  .ov-snippet-pct { font-size: 0.78rem; font-weight: 700; color: var(--color-heading); white-space: nowrap; width: 32px; text-align: right; }
+  .ov-snippet-due { font-size: 0.77rem; color: var(--color-sidebar-text); display: flex; align-items: center; gap: 4px; }
+  .ov-snippet-actions { display: flex; gap: 0.4rem; margin-top: 0.1rem; }
+
+  .project-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .meta-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-sidebar-text); }
+  .team-chip { color: #2563eb; font-weight: 500; }
+  .intern-chip { color: #2563eb; font-weight: 500; }
+
+  .progress-bar-outer { height: 10px; background: var(--color-border); border-radius: 999px; overflow: hidden; }
+  .progress-bar-inner { height: 100%; background: linear-gradient(90deg, #10b981, #3b82f6); border-radius: 999px; transition: width 350ms ease; }
+
+  .proj-status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--color-text);
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.04);
+    white-space: nowrap;
+  }
+  .proj-status-pill.status-not-started { background: rgba(249,115,22,0.08); color: #f38f49; border-color: rgba(249,115,22,0.12); }
+  .proj-status-pill.status-in-progress { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
+  .proj-status-pill.status-submitted { background: rgba(124,58,237,0.08); color: #7c3aed; border-color: rgba(124,58,237,0.12); }
+  .proj-status-pill.status-needs-revision { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
+  .proj-status-pill.status-approved { background: rgba(59,130,246,0.08); color: #3b82f6; border-color: rgba(59,130,246,0.12); }
+  .proj-status-pill.status-pending { background: rgba(251,146,60,0.10); color: #ea7a1e; border-color: rgba(251,146,60,0.18); }
+
+  .proj-priority-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--color-text);
+    background: rgba(99,102,241,0.06);
+    border: 1px solid rgba(99,102,241,0.12);
+    white-space: nowrap;
+  }
+  .proj-priority-pill.priority-low { background: rgba(56,189,248,0.08); color: #38bdf8; border-color: rgba(56,189,248,0.12); }
+  .proj-priority-pill.priority-medium { background: rgba(16,185,129,0.08); color: #10b981; border-color: rgba(16,185,129,0.12); }
+  .proj-priority-pill.priority-high { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.12); }
+
+  .sub-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.38rem 0.85rem;
+    border-radius: 0.45rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-heading);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    flex: 1;
+  }
+  .sub-action-btn:hover { background: var(--color-soft); border-color: var(--color-accent); }
+
+  .proj-table-panel {
+    overflow: hidden;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.9rem;
+  }
+  .proj-table-header {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) 3.5rem;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.85rem 1rem;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .proj-table-header > .proj-col-actions { justify-self: end; }
+  .proj-table-body { display: grid; background: var(--color-soft); padding: 0.4rem; gap: 0.4rem; }
+  .proj-table-row {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) 3.5rem;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.65rem;
+    background: var(--color-surface);
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .proj-table-row:hover { border-color: var(--color-accent); box-shadow: 0 8px 22px -20px rgba(15,23,42,.35); }
+  .proj-name-cell { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); }
+  .proj-arc-title { font-size: 0.88rem; font-weight: 600; color: var(--color-heading); }
+  .proj-arc-meta { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; color: var(--color-sidebar-text); font-size: 0.77rem; }
+  .proj-arc-date { font-weight: 700; color: var(--color-heading); }
+  .proj-arc-corner { display: flex; justify-content: flex-end; }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    padding: 6px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-accent);
+    cursor: pointer;
+    transition: transform 0.12s, background 0.12s, border-color 0.12s;
+  }
+  .icon-btn:hover { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)); border-color: var(--color-accent); transform: translateY(-1px); }
+  .icon-btn.restore { background: transparent; border-color: rgba(255,255,255,0.06); color: #10b981; }
+  .icon-btn.restore:hover { background: rgba(16,185,129,0.1); border-color: #10b981; }
+
   :global(.spin) { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  :global(body.dark) .table-wrap { background: #1f2937; border-color: #374151; }
-  :global(body.dark) .projects-table thead tr { background: #111827; }
-  :global(body.dark) .projects-table tbody tr:hover { background: #111827; }
-  :global(body.dark) .project-card { background: #1f2937; border-color: #374151; }
+  :global(body.dark) .stat-card { background: #161c27; border-color: rgba(255, 255, 255, 0.06); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+  :global(body.dark) .stat-card:hover { box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35); }
+  :global(body.dark) .stat-label { color: #ffffff; }
+  :global(body.dark) .stat-value { color: #f1f5f9; }
+  :global(body.dark) .stat-sub { color: #94a3b8; }
+  :global(body.dark) .tone-blue { background: rgba(59, 130, 246, 0.18); color: #60a5fa; }
+  :global(body.dark) .tone-amber { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+  :global(body.dark) .tone-green { background: rgba(34, 197, 94, 0.14); color: #22c55e; }
+  :global(body.dark) .tone-violet { background: rgba(124, 58, 237, 0.2); color: #a78bfa; }
+  :global(body.dark) .search-wrap { background: #1f2937; border-color: #374151; }
+  :global(body.dark) .quick-actions select,
+  :global(body.dark) .quick-status,
+  :global(body.dark) .quick-priority { background: #1f2937; border-color: #374151; color: #f1f5f9; }
+  :global(body.dark) .search-input { color: #f1f5f9; }
+  :global(body.dark) .alert-success { background: #052e16; border-color: #166534; color: #4ade80; }
+  :global(body.dark) .alert-error { background: #2d0a0a; border-color: #7f1d1d; color: #f87171; }
+  :global(body.dark) .retry-btn { background: #1d4ed8; }
+  :global(body.dark) .ov-card { background: #161c27 !important; border-color: #ffffff0f !important; }
+  :global(body.dark) .ov-snippet-card { background: #0d1117 !important; border-color: #ffffff0f !important; }
+  :global(body.dark) .sub-action-btn { background: #161c27; border-color: #ffffff10; }
   :global(body.dark) .proj-table-panel { background: #0d1117 !important; border-color: #ffffff0f !important; }
   :global(body.dark) .proj-table-header { background: #161c27 !important; border-bottom-color: #ffffff0f !important; color: #e5edf8 !important; }
   :global(body.dark) .proj-table-body { background: #0d1117 !important; }
   :global(body.dark) .proj-table-row { background: #161c27 !important; border-color: #ffffff0f !important; }
-  :global(body.dark) .ov-card { background: #161c27 !important; border-color: #ffffff0f !important; }
-  :global(body.dark) .ov-snippet-card { background: #0d1117 !important; border-color: #ffffff0f !important; }
   :global(body.dark) .icon-btn { background: #161c27; border-color: #ffffff10; }
-  :global(body.dark) .retry-btn { background: #1d4ed8; }
-  :global(body.dark) .priority-badge { filter: brightness(.85) saturate(.9); }
 
-  @media (max-width: 820px) {
-    .quick-head { flex-direction: column; align-items: stretch; }
-    .quick-actions { justify-content: flex-start; }
-    .search-wrap { width: 100%; }
+  @media (max-width: 1080px) {
+    .stat-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .quick-head { flex-direction: column; align-items: stretch; gap: 0.65rem; }
+    .quick-actions { margin-left: 0; width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+  }
+
+  @media (max-width: 768px) {
+    .stat-cards { grid-template-columns: 1fr; gap: 10px; }
+    .stat-card { padding: 16px; }
+    .ov-top-grid { grid-template-columns: 1fr; }
+    .quick-actions { width: 100%; flex-wrap: wrap; gap: 0.5rem; }
+    .quick-actions > * { width: 100%; }
+    .quick-actions .search-wrap,
+    .quick-actions .quick-status,
+    .quick-actions .quick-priority { width: 100%; }
     .search-input { width: 100%; }
-  }
-
-  @media (max-width: 700px) {
-    .table-wrap { display: none; }
-    .projects-cards-mobile { display: grid; }
-  }
-
-  @media (min-width: 701px) {
-    .projects-cards-mobile { display: none; }
+    .ov-snippets-grid { grid-template-columns: 1fr; }
+    .project-meta { flex-direction: column; align-items: flex-start; gap: 6px; }
   }
 </style>
