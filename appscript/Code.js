@@ -284,6 +284,10 @@ function dispatchAction_(payload) {
     if (typeof handleListProjIntern_ === 'function') return handleListProjIntern_(payload);
     return { ok: false, error: 'Handler not available: handleListProjIntern_' };
   }
+  if (action === 'list_proj_supervisor') {
+    if (typeof handleListProjSupervisor_ === 'function') return handleListProjSupervisor_(payload);
+    return { ok: false, error: 'Handler not available: handleListProjSupervisor_' };
+  }
   if (action === 'create_proj_intern') {
     if (typeof handleCreateProjIntern_ === 'function') return handleCreateProjIntern_(payload);
     return { ok: false, error: 'Handler not available: handleCreateProjIntern_' };
@@ -3718,6 +3722,7 @@ function createId_(prefix) {
 
   // Add supervisor task ID sequence generator (SUP_0001...)
   config['SUP'] = { sheet: 'supervisor_task', col: 'sup_taskid', digits: 4, label: 'SUP' };
+  config['PSP'] = { sheet: 'poj_supervisor', col: 'projsupervisor_id', digits: 4, label: 'PSP' };
 
   var settings = config[prefix];
   if (settings) {
